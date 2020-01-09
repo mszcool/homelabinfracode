@@ -36,8 +36,20 @@ dpkg_package 'webmin.dpkg' do
 end
 
 #
-# FirewallD based firewall
+# iptables Firewall rules for the external network adapter
 #
-apt_package 'firewalld'
+iptables_chain 'fw_external' do
+    chain 'FW_EXTERNAL'
+end
 
-firewalld_port '10000/tcp'
+iptables_rule 'ssh_external' do
+    chain 'FW_EXTERNAL'
+    match '-p tcp --dport 22 -i eth0'
+    target 'ACCEPT'
+end
+
+iptables_rule 'deny_all' do
+    chain 'FW_EXTERNAL'
+    match '-i eth0'
+    target 'DENY'
+end
