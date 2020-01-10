@@ -1,3 +1,14 @@
+#
+# Cookbook:: mszlx_baseline
+# Recipe:: baseline
+#
+# Copyright:: 2019, Mario Szpuszta, All Rights Reserved.
+#
+# Sets up the baseline requirements for a linux node. This typically includes:
+# - installing all required packages through package manager
+# - downloading and installing packages, directly
+#
+
 # 
 # Baseline package requirements (also required for Webmin)
 #

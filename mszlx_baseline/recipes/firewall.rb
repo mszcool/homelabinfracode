@@ -1,46 +1,29 @@
 #
+# Cookbook:: mszlx_baseline
+# Recipe:: firewall
+#
+# Copyright:: 2019, Mario Szpuszta, All Rights Reserved.
+#
+# Sets up an iptables-based firewall for the linux node:
+# - Activate persistent iptables using the default recipe from the iptables cookbook
+# - Add all outbound rules by including the outbound rules recipe
+# - Add all inbound rules by including the inbound rules recipe
+#
+
+#
 # Setup persistent IP tables (netfilter-persistent), needed on Ubuntu systems, specifically
 #
 include_recipe 'iptables::default'
 
 #
-# iptables Firewall rules for the external network adapter
+# Outbound rules to be added before inbound as the last rule which will be added is always "DENY all inbound"
 #
-iptables_rule 'outbound_allowall' do
-    table 'filter'
-    chain 'OUTPUT'
-    match '-o eth0 -d 0.0.0.0/0'
-    target 'ACCEPT'
-end
+include_recipe 'mszlx_baseline::firewallout'
+include_recipe 'mszlx_baseline::firewallin'
 
-iptables_rule 'outbound_allowall_response' do
-    table 'filter'
-    chain 'INPUT'
-    match '-i eth0 -m state --state ESTABLISHED,RELATED'
-    target 'ACCEPT'
-end
-
-iptables_rule 'inbound_ssh_external' do
-    table 'filter'
-    chain 'INPUT'
-    match '-p tcp --dport 22 -i eth0'
-    target 'ACCEPT'
-end
-
-iptables_rule 'inbound_webmin_external' do
-    table 'filter'
-    chain 'INPUT'
-    match '-p tcp --dport 10000 -i eth0'
-    target 'ACCEPT'
-end
-
-iptables_rule 'inbound_deny_all' do
-    table 'filter'
-    chain 'INPUT'
-    match '-i eth0'
-    target 'DROP'
-end
-
+#
+# Restart the persistent network filter service to re-load iptables
+#
 service 'netfilter-persistent' do
     action :restart
     retries 3
