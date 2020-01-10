@@ -22,10 +22,10 @@ end
 # Webmin inbound allowed
 #
 
-iptables_rule 'inbound_webmin_external' do
+iptables_rule 'inbound_cockpit_external' do
     table 'filter'
     chain 'INPUT'
-    match '-p tcp --dport 10000 -i eth0'
+    match '-p tcp --dport 9090 -i eth0'
     target 'ACCEPT'
 end
 
