@@ -1,17 +1,17 @@
 ---
-- name: Update apt cache
+- name: Update apt cache {{inventory_hostname}}
   apt:
-    update_cache: yes
+    update_cache: True
   register: apt_update_result
 
-- name: Upgrade packages
+- name: Upgrade packages {{inventory_hostname}}
   apt:
-    upgrade: yes
-    force_apt_get: yes
-    autoremove: yes
+    upgrade: "safe"
+    force_apt_get: True
+    autoremove: True
   register: apt_upgrade_result
 
-- name: Fail if upgrade fails
+- name: Fail if upgrade fails {{inventory_hostname}}
   fail:
     msg: "Failed to upgrade Ubuntu packages"
   when: apt_upgrade_result is failed
