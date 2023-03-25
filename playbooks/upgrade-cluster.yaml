@@ -5,22 +5,7 @@
   become: yes
   remote_user: "{{ lookup('env', 'USE_SSH_USER_NAME') }}"
   tasks:
-    - name: Update apt cache
-      apt:
-        update_cache: yes
-      register: apt_update_result
-
-    - name: Upgrade packages
-      apt:
-        upgrade: yes
-        force_apt_get: yes
-        autoremove: yes
-      register: apt_upgrade_result
-
-    - name: Fail if upgrade fails
-      fail:
-        msg: "Failed to upgrade Ubuntu packages"
-      when: apt_upgrade_result is failed
+    - include_tasks: ../tasklib/upgrade-tasks.yaml
 
   # Loop over the hosts one by one such that on failure it stops, immediately
   serial: 1

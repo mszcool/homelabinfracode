@@ -1,0 +1,17 @@
+---
+- name: Update apt cache
+  apt:
+    update_cache: yes
+  register: apt_update_result
+
+- name: Upgrade packages
+  apt:
+    upgrade: yes
+    force_apt_get: yes
+    autoremove: yes
+  register: apt_upgrade_result
+
+- name: Fail if upgrade fails
+  fail:
+    msg: "Failed to upgrade Ubuntu packages"
+  when: apt_upgrade_result is failed
