@@ -1,0 +1,97 @@
+---
+- hosts: all
+  become: yes
+  remote_user: "{{ lookup('env', 'USE_SSH_USER_NAME') }}"
+  serial: 1
+  strategy: linear
+  vars_files:
+    - vars.yml
+  tasks:
+    # Install prerequisites for Kubernetes
+    - name: Install prerequisites
+      apt:
+        name: "{{ item }}"
+        state: present
+      with_items:
+        - apt-transport-https
+        - ca-certificates
+        - curl
+        - gnupg
+        - lsb-release
+
+    # Add Kubernetes apt key and repository
+    - name: Add Kubernetes apt key and repository
+      apt_key:
+        url: https://packages.cloud.google.com/apt/doc/apt-key.gpg
+        state: present
+      apt_repository:
+        repo: deb https://apt.kubernetes.io/ kubernetes-xenial main
+        state: present
+
+    # Install Kubernetes packages
+    - name: Install Kubernetes packages
+      apt:
+        name: "{{ item }}"
+        state: present
+      with_items:
+        - kubelet={{ kubernetes_version }}-00
+        - kubeadm={{ kubernetes_version }}-00
+        - kubectl={{ kubernetes_version }}-00
+
+- hosts: masters
+  become: yes
+  remote_user: "{{ lookup('env', 'USE_SSH_USER_NAME') }}"
+  serial: 1
+  strategy: linear
+  vars_files:
+    - vars.yml
+  tasks:
+    # Disable swap
+    - name: Disable swap
+      command: swapoff -a
+      ignore_errors: yes
+
+    # Initialize Kubernetes master node
+    - name: Initialize Kubernetes master node
+      command: kubeadm init --pod-network-cidr={{ pod_network_cidr }}
+      register: kubeadm_init_output
+
+    # Save kubeadm join command to a file
+    - name: Save kubeadm join command to a file
+      copy:
+        content: "{{ kubeadm_init_output.stdout_lines[-2] }}"
+        dest: /etc/kubeadm_join_command
+
+    # Copy Kubernetes configuration to user's home directory
+    - name: Copy Kubernetes configuration to user's home directory
+      copy:
+        content: "{{ lookup('file', '/etc/kubernetes/admin.conf') }}"
+        dest: "{{ ansible_env.HOME }}/.kube/config"
+        mode: 0600
+
+    # Install Flannel networking
+    - name: Install Flannel networking
+      command: kubectl apply -f https://raw.githubusercontent.com/coreos/flannel/master/Documentation/kube-flannel.yml
+
+    # Install Calico network policy engine
+    - name: Install Calico network policy engine
+      command: kubectl apply -f https://docs.projectcalico.org/manifests/calico.yaml
+
+- hosts: agents
+  become: yes
+  remote_user: "{{ lookup('env', 'USE_SSH_USER_NAME') }}"
+  serial: 1
+  strategy: linear
+  vars_files:
+    - vars.yml
+  tasks:
+    # Join Kubernetes nodes to the cluster
+    - name: Join Kubernetes nodes to the cluster
+      command: "{{ lookup('file', '/etc/kubeadm_join_command') }}"
+
+    # Copy SSH key to all nodes
+    - name: Copy SSH key to all nodes
+      authorized_key:
+        user: "{{ ansible_user }}"
+        state: present
+        key: "{{ lookup('file', ssh_key_path) }}"
