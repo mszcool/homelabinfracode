@@ -1,0 +1,41 @@
+---
+- name: Install OS Prerequisites for clusters
+  hosts: pfenodes, jtwnodes
+  become: true
+  gather_facts: false
+  remote_user: "{{ lookup('env', 'USE_SSH_USER_NAME') }}"
+  pre_tasks:
+    # First, check if the user environment variable is state:
+    - include_tasks: ../tasklib/checkuserenv-tasks.yaml
+  tasks:
+    # First, do a regular machine update/upgrade
+    - include_tasks: ../tasklib/upgrade-tasks.yaml
+
+    # Now, install the pre-requisite packages on the machine
+    # Skipping update_cache because it was done with the update/upgrade task
+    - name: Install pre-requisites for the machine
+      apt:
+        name: "{{ item }}"
+        state: present
+        update_cache: true
+      loop:
+        - ufw
+        - curl
+        - sudo
+        - python3
+
+    # Now configure the firewall to allow HTTPS, HTTP, and SSH in, but nothing else
+    - name: Allow HTTPS, HTTP, and SSH through the firewall
+      ufw:
+        rule: allow
+        port: '{{ item }}'
+        proto: tcp
+      loop:
+        - '80'
+        - '443'
+        - '22'
+
+    - name: Enable UFW firewall
+      ufw:
+        state: enabled
+        policy: deny

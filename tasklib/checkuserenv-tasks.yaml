@@ -1,0 +1,11 @@
+---
+# - name: Debug Environment variables
+#   debug:
+#     msg: "Environment variables: {{ lookup('env') }}"
+- name: Check if the USE_SSH_USER_NAME environment variable is set
+  vars:
+    env_var_name: "USE_SSH_USER_NAME"
+  assert:
+    that:
+      - "lookup('env','{{env_var_name}}')"
+    fail_msg: "Please set the {{ env_var_name }} environment variable before executing this playbook!"
