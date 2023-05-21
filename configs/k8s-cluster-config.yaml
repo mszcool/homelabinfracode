@@ -1,6 +1,0 @@
----
-kubernetes_version: "1.21.0"
-cni_version: "v0.9.1"
-pod_network_cidr: "192.xxx.yyy.0/24"
-ssh_key_name: "id_k8s_cluster"
-ssh_key_path: "{{ lookup('env', 'USE_SSH_KEY_PATH') }}"
