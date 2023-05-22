@@ -6,8 +6,9 @@
   hosts: master
   become: true
   gather_facts: false
-  # First, ensure the pre-requisites are met
+  remote_user: "{{ lookup('env', 'USE_SSH_USER_NAME') }}"
 
+  # First, ensure the pre-requisites are met
   pre_tasks:
     # First, make sure the environment variable for SSH access to the nodes is present.
     - include_tasks: ../tasklib/checkuserenv-tasks.yaml
@@ -37,8 +38,12 @@
 
     - name: Install k3s master
       command:
-        cmd: /tmp/k3s_install.sh --flannel-backend=calico
-        creates: /etc/rancher/k3s/k3s.yaml
+        cmd: /tmp/k3s_install.sh
+      environment:
+        INSTALL_K3S_VERSION: "{{ k3s_version }}"
+        K3S_CLUSTER_CIDR: "{{ pod_network_cidr }}"
+        K3S_CNI: "{{ pod_network_plug_in }}"
+      when: k3s_installed.rc != 0 or kubernetes_version not in installed_version.stdout
 
     - name: Get Node Token
       command:
@@ -61,18 +66,46 @@
 - name: Install k3s on agent nodes
   hosts: agents
   become: true
-  gather_facts: true
+  gather_facts: false
+  remote_user: "{{ lookup('env', 'USE_SSH_USER_NAME') }}"
+
+  # First, ensure the pre-requisites are met
+  pre_tasks:
+    # First, make sure the environment variable for SSH access to the nodes is present.
+    - include_tasks: ../tasklib/checkuserenv-tasks.yaml
+
   tasks:
+    - name: Include k3s configuration variables
+      include_vars: ../config/k3s-cluster-config.yaml
+
+    - name: Check if k3s is already installed
+      command: command -v k3s
+      register: k3s_installed
+      changed_when: false
+      failed_when: false
+
+    - name: Get installed k3s version
+      command: k3s --version
+      register: installed_version
+      changed_when: false
+      failed_when: false
+      when: k3s_installed.rc == 0
+
     - name: Download k3s installer
       get_url:
         url: https://get.k3s.io
         dest: /tmp/k3s_install.sh
         mode: '0755'
 
-    - name: Install k3s agent
+    - name: Install k3s on agent nodes
       command:
-        cmd: /tmp/k3s_install.sh K3S_URL=https://{{ hostvars['master']['ansible_host'] }}:6443 K3S_TOKEN={{ hostvars['master']['master_node_token'].stdout }}
-        creates: /var/lib/rancher/k3s/agent/kubelet.kubeconfig
+        cmd: "/tmp/k3s_install.sh"
+      environment:
+        INSTALL_K3S_VERSION: "{{ k3s_version }}"
+        K3S_URL: "https://{{ hostvars['master'][0] }}:6443"
+        K3S_TOKEN: "{{ hostvars['master'].master_node_token.stdout }}"
+        K3S_CNI: "{{ pod_network_plug_in }}"
+      when: k3s_installed.rc != 0 or kubernetes_version not in installed_version.stdout
 
     - name: Ensure k3s service is running
       systemd:

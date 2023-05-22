@@ -1,3 +1,5 @@
 ---
 k3s_version: "1.21.0"
+k3s_tls_san: "k3s.local"
+pod_network_plug_in: "calico"
 pod_network_cidr: "192.xxx.yyy.0/24"
