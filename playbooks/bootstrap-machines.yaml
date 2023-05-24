@@ -1,6 +1,6 @@
 ---
 - name: Install OS Prerequisites for clusters
-  hosts: pfenodes, jtwnodes
+  hosts: all
   become: true
   gather_facts: false
   remote_user: "{{ lookup('env', 'USE_SSH_USER_NAME') }}"

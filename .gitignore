@@ -353,5 +353,5 @@ MigrationBackup/
 **/.vagrant/**
 
 # Ignore files which are used for local development, debugging, and co
-private/**
-!private/.gitkeep
+configs.private/**
+!configs.private/.gitkeep

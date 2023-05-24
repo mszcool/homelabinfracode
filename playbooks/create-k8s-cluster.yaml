@@ -3,10 +3,13 @@
   import_playbook: bootstrap-machines.yaml
 
 - name: Install k3s on master
-  hosts: master
+  hosts: "{{ master_hosts }}"
   become: true
   gather_facts: false
   remote_user: "{{ lookup('env', 'USE_SSH_USER_NAME') }}"
+  vars:
+    master_hosts: k3smaster
+    cluster_config: "../config/k3s-cluster-config.yaml"
 
   # First, ensure the pre-requisites are met
   pre_tasks:
@@ -15,7 +18,7 @@
 
   tasks:
     - name: Include k3s configuration variables
-      include_vars: ../config/k3s-cluster-config.yaml
+      include_vars: "{{ cluster_config }}"
 
     - name: Check if k3s is already installed
       command: command -v k3s
@@ -64,10 +67,13 @@
       delegate_to: localhost
 
 - name: Install k3s on agent nodes
-  hosts: agents
+  hosts: "{{ agent_hosts }}"
   become: true
   gather_facts: false
   remote_user: "{{ lookup('env', 'USE_SSH_USER_NAME') }}"
+  vars:
+    agent_hosts: k3sagents
+    cluster_config: "../config/k3s-cluster-config.yaml"
 
   # First, ensure the pre-requisites are met
   pre_tasks:
@@ -76,7 +82,7 @@
 
   tasks:
     - name: Include k3s configuration variables
-      include_vars: ../config/k3s-cluster-config.yaml
+      include_vars: "{{ cluster_config }}"
 
     - name: Check if k3s is already installed
       command: command -v k3s

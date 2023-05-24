@@ -1,6 +1,6 @@
 ---
 - name: Update Ubuntu machines pfe
-  hosts: pfenodes, jtwnodes
+  hosts: all
   gather_facts: false
   become: true
   remote_user: "{{ lookup('env', 'USE_SSH_USER_NAME') }}"
