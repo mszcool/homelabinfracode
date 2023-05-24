@@ -7,6 +7,8 @@
   become: true
   gather_facts: false
   remote_user: "{{ lookup('env', 'USE_SSH_USER_NAME') }}"
+
+  # These variables should be overridden through the --extra-vars argument of ansible-playbook
   vars:
     master_hosts: k3smaster
     cluster_config: "../config/k3s-cluster-config.yaml"
@@ -71,6 +73,8 @@
   become: true
   gather_facts: false
   remote_user: "{{ lookup('env', 'USE_SSH_USER_NAME') }}"
+
+  # These variables should be overridden through the --extra-vars argument of ansible-playbook
   vars:
     agent_hosts: k3sagents
     cluster_config: "../config/k3s-cluster-config.yaml"
