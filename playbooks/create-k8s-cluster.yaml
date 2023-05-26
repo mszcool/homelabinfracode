@@ -1,97 +1,123 @@
 ---
-- hosts: all
-  become: yes
+- name: Ensure k3s pre-requisites are met
+  import_playbook: bootstrap-machines.yaml
+
+- name: Install k3s on master
+  hosts: "{{ master_hosts }}"
+  become: true
+  gather_facts: false
   remote_user: "{{ lookup('env', 'USE_SSH_USER_NAME') }}"
-  serial: 1
-  strategy: linear
-  vars_files:
-    - vars.yml
+
+  # These variables should be overridden through the --extra-vars argument of ansible-playbook
+  vars:
+    master_hosts: k3smaster
+    cluster_config: "../config/k3s-cluster-config.yaml"
+
+  # First, ensure the pre-requisites are met
+  pre_tasks:
+    # First, make sure the environment variable for SSH access to the nodes is present.
+    - include_tasks: ../tasklib/checkuserenv-tasks.yaml
+
   tasks:
-    # Install prerequisites for Kubernetes
-    - name: Install prerequisites
-      apt:
-        name: "{{ item }}"
-        state: present
-      with_items:
-        - apt-transport-https
-        - ca-certificates
-        - curl
-        - gnupg
-        - lsb-release
+    - name: Include k3s configuration variables
+      include_vars: "{{ cluster_config }}"
 
-    # Add Kubernetes apt key and repository
-    - name: Add Kubernetes apt key and repository
-      apt_key:
-        url: https://packages.cloud.google.com/apt/doc/apt-key.gpg
-        state: present
-      apt_repository:
-        repo: deb https://apt.kubernetes.io/ kubernetes-xenial main
-        state: present
+    - name: Check if k3s is already installed
+      command: command -v k3s
+      register: k3s_installed
+      changed_when: false
+      failed_when: false
 
-    # Install Kubernetes packages
-    - name: Install Kubernetes packages
-      apt:
-        name: "{{ item }}"
-        state: present
-      with_items:
-        - kubelet={{ kubernetes_version }}-00
-        - kubeadm={{ kubernetes_version }}-00
-        - kubectl={{ kubernetes_version }}-00
+    - name: Get installed k3s version
+      command: k3s --version
+      register: installed_version
+      changed_when: false
+      failed_when: false
+      when: k3s_installed.rc == 0
 
-- hosts: masters
-  become: yes
-  remote_user: "{{ lookup('env', 'USE_SSH_USER_NAME') }}"
-  serial: 1
-  strategy: linear
-  vars_files:
-    - vars.yml
-  tasks:
-    # Disable swap
-    - name: Disable swap
-      command: swapoff -a
-      ignore_errors: yes
+    - name: Download k3s installer
+      get_url:
+        url: https://get.k3s.io
+        dest: /tmp/k3s_install.sh
+        mode: '0755'
 
-    # Initialize Kubernetes master node
-    - name: Initialize Kubernetes master node
-      command: kubeadm init --pod-network-cidr={{ pod_network_cidr }}
-      register: kubeadm_init_output
+    - name: Install k3s master
+      command:
+        cmd: /tmp/k3s_install.sh
+      environment:
+        INSTALL_K3S_VERSION: "{{ k3s_version }}"
+        K3S_CLUSTER_CIDR: "{{ pod_network_cidr }}"
+        K3S_CNI: "{{ pod_network_plug_in }}"
+      when: k3s_installed.rc != 0 or kubernetes_version not in installed_version.stdout
 
-    # Save kubeadm join command to a file
-    - name: Save kubeadm join command to a file
+    - name: Get Node Token
+      command:
+        cmd: cat /var/lib/rancher/k3s/server/node-token
+      register: master_node_token
+      changed_when: false
+
+    - name: Get kubeconfig
+      command: cat /etc/rancher/k3s/k3s.yaml
+      register: kubeconfig
+      changed_when: false
+
+    - name: Copy kubeconfig to local machine
       copy:
-        content: "{{ kubeadm_init_output.stdout_lines[-2] }}"
-        dest: /etc/kubeadm_join_command
+        content: "{{ kubeconfig.stdout }}"
+        dest: "~/k3s_kubeconfig.yaml"
+        mode: '0755'
+      delegate_to: localhost
 
-    # Copy Kubernetes configuration to user's home directory
-    - name: Copy Kubernetes configuration to user's home directory
-      copy:
-        content: "{{ lookup('file', '/etc/kubernetes/admin.conf') }}"
-        dest: "{{ ansible_env.HOME }}/.kube/config"
-        mode: 0600
-
-    # Install Flannel networking
-    - name: Install Flannel networking
-      command: kubectl apply -f https://raw.githubusercontent.com/coreos/flannel/master/Documentation/kube-flannel.yml
-
-    # Install Calico network policy engine
-    - name: Install Calico network policy engine
-      command: kubectl apply -f https://docs.projectcalico.org/manifests/calico.yaml
-
-- hosts: agents
-  become: yes
+- name: Install k3s on agent nodes
+  hosts: "{{ agent_hosts }}"
+  become: true
+  gather_facts: false
   remote_user: "{{ lookup('env', 'USE_SSH_USER_NAME') }}"
-  serial: 1
-  strategy: linear
-  vars_files:
-    - vars.yml
-  tasks:
-    # Join Kubernetes nodes to the cluster
-    - name: Join Kubernetes nodes to the cluster
-      command: "{{ lookup('file', '/etc/kubeadm_join_command') }}"
 
-    # Copy SSH key to all nodes
-    - name: Copy SSH key to all nodes
-      authorized_key:
-        user: "{{ ansible_user }}"
-        state: present
-        key: "{{ lookup('file', ssh_key_path) }}"
+  # These variables should be overridden through the --extra-vars argument of ansible-playbook
+  vars:
+    agent_hosts: k3sagents
+    cluster_config: "../config/k3s-cluster-config.yaml"
+
+  # First, ensure the pre-requisites are met
+  pre_tasks:
+    # First, make sure the environment variable for SSH access to the nodes is present.
+    - include_tasks: ../tasklib/checkuserenv-tasks.yaml
+
+  tasks:
+    - name: Include k3s configuration variables
+      include_vars: "{{ cluster_config }}"
+
+    - name: Check if k3s is already installed
+      command: command -v k3s
+      register: k3s_installed
+      changed_when: false
+      failed_when: false
+
+    - name: Get installed k3s version
+      command: k3s --version
+      register: installed_version
+      changed_when: false
+      failed_when: false
+      when: k3s_installed.rc == 0
+
+    - name: Download k3s installer
+      get_url:
+        url: https://get.k3s.io
+        dest: /tmp/k3s_install.sh
+        mode: '0755'
+
+    - name: Install k3s on agent nodes
+      command:
+        cmd: "/tmp/k3s_install.sh"
+      environment:
+        INSTALL_K3S_VERSION: "{{ k3s_version }}"
+        K3S_URL: "https://{{ hostvars['master'][0] }}:6443"
+        K3S_TOKEN: "{{ hostvars['master'].master_node_token.stdout }}"
+        K3S_CNI: "{{ pod_network_plug_in }}"
+      when: k3s_installed.rc != 0 or kubernetes_version not in installed_version.stdout
+
+    - name: Ensure k3s service is running
+      systemd:
+        name: k3s
+        state: started

@@ -2,8 +2,10 @@
 - name: Update Ubuntu machines pfe
   hosts: all
   gather_facts: false
-  become: yes
+  become: true
   remote_user: "{{ lookup('env', 'USE_SSH_USER_NAME') }}"
+  pre_tasks:
+    - include_tasks: ../tasklib/checkuserenv-tasks.yaml
   tasks:
     - include_tasks: ../tasklib/upgrade-tasks.yaml
   # Loop over the hosts one by one such that on failure it stops, immediately

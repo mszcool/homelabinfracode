@@ -351,3 +351,7 @@ MigrationBackup/
 
 # Ignore virtual machine disk and data files, just check-in VM definitions
 **/.vagrant/**
+
+# Ignore files which are used for local development, debugging, and co
+configs.private/**
+!configs.private/.gitkeep

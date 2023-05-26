@@ -7,7 +7,10 @@
 # Execute this script from the root directory of the project, i.e. ./scripts/upgrade-cluster.sh, instead of switching
 # to the scripts folder and executing from there.
 
-ansible-playbook --inventory ./hosts.ini --limit jtwnodes ./playbooks/upgrade-cluster.yaml &
-ansible-playbook --inventory ./hosts.ini --limit pfenodes ./playbooks/upgrade-cluster.yaml &
+# Note about "hosts.ini": this script uses a hosts.ini which is NOT checked into source code, hence 
+# the reference hosts.nopush.ini which I take from a private repository.
+
+ansible-playbook --inventory ./configs.private/hosts.ini --limit jtwmasters,jtwnodes ./playbooks/upgrade-machines.yaml &
+ansible-playbook --inventory ./configs.private/hosts.ini --limit pfemasters,pfeagents ./playbooks/upgrade-machines.yaml &
 
 wait
