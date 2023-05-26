@@ -2,6 +2,7 @@ Vagrant.configure("2") do |config|
 
   # Note: this is for Hyper-V on Windows, hence the gsub() replacing back-sslashes
   ssh_key_path = File.join(ENV['USERPROFILE'].gsub("\\","/"), ".ssh/id_rsa.pub")
+  ssh_private_key_path = File.join(ENV['USERPROFILE'].gsub("\\","/"), ".ssh/id_rsa")
 
   # Ubuntu 22.04 box for Hyper-V
   config.vm.box = "generic/ubuntu2204"
@@ -21,6 +22,10 @@ Vagrant.configure("2") do |config|
     config.vm.define "lxlab-#{i}" do |vmi|
       vmi.vm.hostname = "lxlab-#{i}"
       vmi.vm.provision "file", source: ssh_key_path, destination: "/home/vagrant/id_rsa.pub"
+      # Only copy the private key to the first VM
+      if i == 0
+        vmi.vm.provision "file", source: ssh_private_key_path, destination: "/home/vagrant/id_rsa"
+      end
 
       # Use the default network switch
       # Unfortunately the below configuration does not work with HyperV, yet
@@ -33,10 +38,19 @@ Vagrant.configure("2") do |config|
         sudo apt install -y net-tools
         sudo apt install -y ansible
         sudo apt install -y git
-        #sudo ip addr add 192.168.55.#{3 + 1}/24 dev eth1
+        
+        # SSH Public Key ownership and file settings
         cat /home/vagrant/id_rsa.pub >> /home/vagrant/.ssh/authorized_keys
         chown vagrant:vagrant /home/vagrant/.ssh/authorized_keys
         chmod 0600 /home/vagrant/.ssh/authorized_keys
+
+        # On the first machine, update the SSH private key, as well
+        if [ "#{i}" -eq "0" ]
+          then
+            mv /home/vagrant/id_rsa /home/vagrant/.ssh/id_rsa
+            chown vagrant:vagrant /home/vagrant/.ssh/id_rsa
+            chmod 0600 /home/vagrant/.ssh/id_rsa
+          fi
       SHELL
     end
   end
