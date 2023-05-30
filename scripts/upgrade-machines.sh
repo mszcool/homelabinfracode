@@ -10,6 +10,14 @@
 # Note about "hosts.ini": this script uses a hosts.ini which is NOT checked into source code, hence 
 # the reference hosts.nopush.ini which I take from a private repository.
 
+if [ "$ISPRIVATE" = "true" ]; then
+    hostsIni="./configs.private/hosts.ini"
+else
+    hostsIni="./config/hosts.ini"
+fi
+
+echo "Using '$hostsIni' as inventory..."
+
 ansible-playbook --inventory ./configs.private/hosts.ini --limit jtwmasters,jtwnodes ./playbooks/upgrade-machines.yaml &
 ansible-playbook --inventory ./configs.private/hosts.ini --limit pfemasters,pfeagents ./playbooks/upgrade-machines.yaml &
 
