@@ -11,12 +11,12 @@
   # These variables should be overridden through the --extra-vars argument of ansible-playbook
   vars:
     master_hosts: k3smaster
-    cluster_config: "../config/k3s-cluster-config.yaml"
+    cluster_config: "./config/k3s-cluster-config.yaml"
 
   # First, ensure the pre-requisites are met
   pre_tasks:
     # First, make sure the environment variable for SSH access to the nodes is present.
-    - include_tasks: ../tasklib/checkuserenv-tasks.yaml
+    - include_tasks: ./tasklib/checkuserenv-tasks.yaml
 
   tasks:
     - name: Include k3s configuration variables
@@ -77,12 +77,12 @@
   # These variables should be overridden through the --extra-vars argument of ansible-playbook
   vars:
     agent_hosts: k3sagents
-    cluster_config: "../config/k3s-cluster-config.yaml"
+    cluster_config: "./config/k3s-cluster-config.yaml"
 
   # First, ensure the pre-requisites are met
   pre_tasks:
     # First, make sure the environment variable for SSH access to the nodes is present.
-    - include_tasks: ../tasklib/checkuserenv-tasks.yaml
+    - include_tasks: ./tasklib/checkuserenv-tasks.yaml
 
   tasks:
     - name: Include k3s configuration variables
