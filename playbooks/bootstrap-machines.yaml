@@ -34,6 +34,7 @@
         - '80'
         - '443'
         - '22'
+        - '6443'
 
     - name: Enable UFW firewall
       ufw:
