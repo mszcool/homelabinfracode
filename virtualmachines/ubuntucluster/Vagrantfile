@@ -1,20 +1,18 @@
 Vagrant.configure("2") do |config|
 
-  # Note: this is for Hyper-V on Windows, hence the gsub() replacing back-sslashes
+  # Note: this is for VirtualBox on Windows, hence the gsub() replacing back-sslashes
   ssh_key_path = File.join(ENV['USERPROFILE'].gsub("\\","/"), ".ssh/id_rsa.pub")
   ssh_private_key_path = File.join(ENV['USERPROFILE'].gsub("\\","/"), ".ssh/id_rsa")
 
-  # Ubuntu 22.04 box for Hyper-V
+  # Ubuntu 22.04 box for VirtualBox
   config.vm.box = "generic/ubuntu2204"
-  config.vm.box_url = "https://app.vagrantup.com/generic/boxes/ubuntu2204/versions/4.2.14/providers/hyperv.box"
+  config.vm.box_url = "https://app.vagrantup.com/generic/boxes/ubuntu2204/versions/4.2.14/providers/virtualbox.box"
   config.vm.disk :disk, name: "osdisk", size: "30GB"
   config.ssh.insert_key = false
 
-  # Set the amount of RAM to 8GB
-  config.vm.provider "hyperv" do |hv|
-    hv.memory = 4096
-    hv.maxmemory = 8192
-    hv.enable_virtualization_extensions = true
+  config.vm.provider "virtualbox" do |vb|
+    vb.memory = 8192
+    vb.cpus = 2
   end
 
   # Provision the three virtual machines for the cluster
@@ -29,8 +27,14 @@ Vagrant.configure("2") do |config|
 
       # Use the default network switch
       # Unfortunately the below configuration does not work with HyperV, yet
-      vmi.vm.network "public_network", bridge: "Default Switch"
+      #vmi.vm.network "public_network", bridge: "Default Switch"
 
+      # Define a private network with a static IP
+      vmi.vm.network "private_network", ip: "192.168.56.#{10 + i}"
+
+      # Port forwarding to access the VM from the host
+      vmi.vm.network "forwarded_port", guest: 22, host: 2222 + i, id: "ssh"
+      
       # Update the OS after provisioning
       vmi.vm.provision "shell", inline: <<-SHELL
         sudo apt update
@@ -44,12 +48,17 @@ Vagrant.configure("2") do |config|
         chown vagrant:vagrant /home/vagrant/.ssh/authorized_keys
         chmod 0600 /home/vagrant/.ssh/authorized_keys
 
-        # On the first machine, update the SSH private key, as well
+        # On the first machine, update the SSH private key,
+        # and clone the homelab GitHub repository
         if [ "#{i}" -eq "0" ]
           then
+            # Configure the SSH Private Key
             mv /home/vagrant/id_rsa /home/vagrant/.ssh/id_rsa
             chown vagrant:vagrant /home/vagrant/.ssh/id_rsa
             chmod 0600 /home/vagrant/.ssh/id_rsa
+            # Clone the GitHub repository
+            git clone https://github.com/mszcool/homelabinfracode.git /home/vagrant/homelabinfracode
+            chown -R vagrant:vagrant /home/vagrant/homelabinfracode
           fi
       SHELL
     end
