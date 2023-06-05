@@ -46,6 +46,7 @@
       command:
         cmd: /tmp/k3s_install.sh
       environment:
+        K3S_BIND_ADDR: "{{ inventory_hostname }}"
         INSTALL_K3S_VERSION: "{{ k3s_version }}"
         K3S_CLUSTER_CIDR: "{{ pod_network_cidr }}"
         K3S_CNI: "{{ pod_network_plug_in }}"
