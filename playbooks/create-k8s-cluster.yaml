@@ -11,6 +11,7 @@
   # These variables should be overridden through the --extra-vars argument of ansible-playbook
   vars:
     master_hosts: k3smaster
+    force_install: false
     cluster_config: "../configs/k3s-cluster-config.yaml"
 
   # First, ensure the pre-requisites are met
@@ -48,7 +49,7 @@
         INSTALL_K3S_VERSION: "{{ k3s_version }}"
         K3S_CLUSTER_CIDR: "{{ pod_network_cidr }}"
         K3S_CNI: "{{ pod_network_plug_in }}"
-      when: k3s_installed.rc != 0 or kubernetes_version not in installed_version.stdout
+      when: k3s_installed.rc != 0 or kubernetes_version not in installed_version.stdout or force_install == true
 
     - name: Get Node Token
       command:
@@ -77,6 +78,7 @@
   # These variables should be overridden through the --extra-vars argument of ansible-playbook
   vars:
     agent_hosts: k3sagents
+    force_install: false
     cluster_config: "../configs/k3s-cluster-config.yaml"
 
   # First, ensure the pre-requisites are met
@@ -112,12 +114,12 @@
         cmd: "/tmp/k3s_install.sh"
       environment:
         INSTALL_K3S_VERSION: "{{ k3s_version }}"
-        K3S_URL: "https://{{ hostvars[groups[master_hosts][0]] }}:6443"
+        K3S_URL: "{{ k3s_master_url }}"
         K3S_TOKEN: "{{ hostvars[groups[master_hosts][0]].master_node_token.stdout }}"
         K3S_CNI: "{{ pod_network_plug_in }}"
-      when: k3s_installed.rc != 0 or kubernetes_version not in installed_version.stdout
+      when: k3s_installed.rc != 0 or kubernetes_version not in installed_version.stdout or force_install == true
       
     - name: Ensure k3s service is running
       systemd:
-        name: k3s
+        name: k3s-agent.service
         state: started
