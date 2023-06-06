@@ -1,5 +1,5 @@
 ---
-k3s_version: "v1.27.1+k3s1"
+k3s_version: "v1.27.2+k3s1"
 k3s_tls_san: "k3s.local"
 k3s_master_url: "https://192.168.56.11:6443"
 pod_network_plug_in: "calico"
