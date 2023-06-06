@@ -44,9 +44,8 @@
 
     - name: Install k3s master
       command:
-        cmd: /tmp/k3s_install.sh
+        cmd: "/tmp/k3s_install.sh --advertise-address {{ inventory_hostname }}"
       environment:
-        K3S_BIND_ADDR: "{{ inventory_hostname }}"
         INSTALL_K3S_VERSION: "{{ k3s_version }}"
         K3S_CLUSTER_CIDR: "{{ pod_network_cidr }}"
         K3S_CNI: "{{ pod_network_plug_in }}"
@@ -61,14 +60,20 @@
     - name: Get kubeconfig
       command: cat /etc/rancher/k3s/k3s.yaml
       register: kubeconfig
-      changed_when: false
 
     - name: Copy kubeconfig to local machine
       copy:
         content: "{{ kubeconfig.stdout }}"
-        dest: "~/k3s_kubeconfig.yaml"
+        dest: "{{ lookup('env','HOME') }}/k3s_kubeconfig.yaml"
         mode: '0755'
       delegate_to: localhost
+
+    - name: Update kubeconfig file
+      delegate_to: localhost
+      lineinfile:
+        path: "{{ lookup('env','HOME') }}/k3s_kubeconfig.yaml"
+        regexp: '^\s*server: https://127.0.0.1:6443'
+        line: "    server: {{ k3s_master_url }}"
 
 - name: Install k3s on agent nodes
   hosts: "{{ agent_hosts }}"
