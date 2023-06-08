@@ -3,21 +3,38 @@
   import_playbook: bootstrap-machines.yaml
 
 - name: Configure Raspberry Pi Edge with bridged WiFi
-  hosts: localhost
-  gather_facts: false
+  hosts: "{{ target_host }}"
   become: true
+  gather_facts: false
+  remote_user: "{{ lookup('env', 'USE_SSH_USER_NAME') }}"
 
   vars:
-    main_wifi_ip_address: 192.168.1.111
-    edge_wifi_adapter: wlan1
-    edge_local_wifi_name: edgewifiname
-    edge_wifi_ip_address: 192.168.2.1
-    edge_wifi_ip_netmask: 255.255.255.0
-    edge_wifi_forwarded_ports:
-      - 80
-      - 443
-  
+    target_host: edgepi
+    edge_config: ../configs/pi-edge-config.yaml
+
+  # First, ensure the pre-requisites are met
+  pre_tasks:
+    # First, make sure the environment variable for SSH access to the nodes is present.
+    - include_tasks: ../tasklib/checkuserenv-tasks.yaml
+
+  # Execute the main configuration flow.
   tasks:
+    - name: Include pi-edge configuration settings
+      include_vars: "{{ edge_config }}"
+
+    - name: Pre-Checks - Check if the USE_WIFI_PASSWORD environment variable is set
+      vars:
+        env_var_name: "USE_WIFI_PASSWORD"
+      assert:
+        that:
+          - "lookup('env','{{ env_var_name }}')"
+        fail_msg: "Please set the {{ env_var_name }} environment variable before executing this playbook!"
+
+    - name: Pre-Checks - Check if backup for sysctl.conf.default exists
+      stat:
+        path: "{{ lookup('env', 'HOME') }}/sysctl.conf.default"
+      register: sysctl_conf_default_file
+
     - name: Install additional pre-requisites for WiFi bridging
       apt:
         name: "{{ item }}"
@@ -25,11 +42,7 @@
       loop:
         - hostapd
         - dnsmasq
-
-    - name: Pre-Checks - Check if backup for sysctl.conf.default exists
-      stat:
-        path: {{ lookup('env', 'HOME') }}/sysctl.conf.default
-      register: sysctl_conf_default_file
+        - wpasupplicant
 
     - name: Clean-Up - Restore original sysctl.conf (if backup exists)
       copy:
@@ -42,35 +55,45 @@
 
     - name: Clean-Up - Edge-Wifi clean existing firewall rules
       command: ufw --force reset
-      ignore_errors: yes
+      ignore_errors: true
+      changed_when: command.rc == 0
+      register: cleanupresult
 
     - name: Clean-Up - Edge WiFi clean existing nftables rules
       command: nft flush ruleset
-      ignore_errors: yes
+      ignore_errors: true
+      changed_when: command.rc == 0
+      register: cleanupresult
 
     - name: Clean-Up - Stop hostapd service
       service:
         name: hostapd
         state: stopped
-        enabled: no
+        enabled: false
 
     - name: Clean-Up - Stop dnsmasq service
       service:
         name: dnsmasq
         state: stopped
-        enabled: no
+        enabled: false
 
     - name: Clean-Up - Remove local WiFi configuration using USB adapter
       command: iwconfig {{ edge_wifi_adapter }} essid "" mode managed
-      ignore_errors: yes
+      ignore_errors: true
+      changed_when: command.rc == 0
+      register: cleanupresult
 
     - name: Clean-Up - Reset IP address for USB adapter
       command: ifconfig {{ edge_wifi_adapter }} 0.0.0.0 down
-      ignore_errors: yes
-        
+      ignore_errors: true
+      changed_when: command.rc == 0
+      register: cleanupresult
+
     - name: System Config - Enable IP forwarding (current session)
       command: sysctl -w net.ipv4.ip_forward=1
-      ignore_errors: yes
+      ignore_errors: true
+      changed_when: command.rc == 0
+      register: systemconfigresult
 
     - name: System Config - Backup sysctl.conf.default in the user's home directory
       copy:
@@ -91,32 +114,41 @@
 
     - name: Edge WiFi - Create local WiFi using USB adapter
       command: iwconfig {{ edge_wifi_adapter }} essid {{ edge_local_wifi_name }} mode ad-hoc
-      ignore_errors: yes
-  
+      changed_when: command.rc == 0
+
     - name: Edge WiFi - Set IP address for USB adapter
-      command: ifconfig {{ edge_wifi_adapter }} {{ edge_wifi_ip_address }} netmask {{ edge_wifi_ip_netmask }} up
-      ignore_errors: yes
+      command: ifconfig {{ edge_wifi_adapter }} {{ edge_wifi_ip_address }} netmask {{ edge_wifi_ip_netmask }}
+      changed_when: command.rc == 0
 
     - name: Edge WiFi - Configure nftables for HTTP(S) forwarding
       command: nft add rule ip nat prerouting iifname {{ edge_wifi_adapter }} tcp dport {{ item }} dnat to {{ main_wifi_ip_address }}
       loop: "{{ edge_wifi_forwarded_ports }}"
       register: nftables_check_result
       changed_when: nftables_check_result.rc != 0
-  
+
     - name: Edge WiFi - Save nftables rules
       command: nft list ruleset > /etc/nftables.conf
-      changed_when: false
-  
-    - name: Configure hostapd
+      changed_when: command.rc == 0
+
+    - name: Edge WiFi - Generate WPA2 passphrase
+      command: wpa_passphrase "{{ edge_local_wifi_name }}" "{{ edge_wifi_password }}"
+      register: wpa_passphrase_result
+      changed_when: command.rc == 0
+
+    - name: Edge WiFi - Configure hostapd incl. wpa passphrase
       template:
         src: hostapd.conf.j2
         dest: /etc/hostapd/hostapd.conf
-  
-    - name: Configure dnsmasq
+        mode: 0644
+        vars:
+          wpa_passphrase: "{{ wpa_passphrase_result.stdout }}"
+
+    - name: Edge WiFi - Configure dnsmasq
       template:
         src: dnsmasq.conf.j2
         dest: /etc/dnsmasq.conf
-  
+        mode: 0644
+
     - name: Restart hostapd and dnsmasq
       service:
         name: "{{ item }}"
@@ -124,7 +156,7 @@
       loop:
         - hostapd
         - dnsmasq
-  
+
     - name: Enable hostapd and dnsmasq at boot
       service:
         name: "{{ item }}"
@@ -132,12 +164,12 @@
       loop:
         - hostapd
         - dnsmasq
-  
+
     - name: Firewall - Allow HTTP connections on Raspberry Pi
       command: ufw allow 80
       register: ufw_http_result
       changed_when: ufw_http_result.stdout != ""
-  
+
     - name: Firewall - Allow HTTPS connections on Raspberry Pi
       command: ufw allow 443
       register: ufw_https_result
@@ -145,8 +177,8 @@
 
     - name: Firewall - Block SSH traffic from USB WiFi
       command: ufw deny in on {{ edge_wifi_adapter }} to any port 22
-      ignore_errors: yes
-  
+      changed_when: command.rc == 0
+
     - name: Firewall - Enable ufw
       command: ufw --force enable
       changed_when: ufw_http_result.changed or ufw_https_result.changed
@@ -156,15 +188,15 @@
         path: /etc/ssh/sshd_config
         line: "ListenAddress {{ main_wifi_ip_address }}"
         state: present
-  
+
     - name: SSH - Enable connections from main WiFi
       lineinfile:
         path: /etc/ssh/sshd_config
-        line: "AllowUsers {{ admin_user }}@{{ main_wifi_ip_address }}"
+        line: "AllowUsers {{ lookup('env', 'USE_SSH_USER_NAME') }}@{{ main_wifi_ip_address }}"
         state: present
       notify:
         - Restart SSH service
-  
+
   handlers:
     - name: Restart SSH service
       service:

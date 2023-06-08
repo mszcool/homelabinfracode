@@ -7,5 +7,5 @@
     env_var_name: "USE_SSH_USER_NAME"
   assert:
     that:
-      - "lookup('env','{{env_var_name}}')"
+      - "lookup('env','{{ env_var_name }}')"
     fail_msg: "Please set the {{ env_var_name }} environment variable before executing this playbook!"

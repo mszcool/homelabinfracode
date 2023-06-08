@@ -1,0 +1,8 @@
+main_wifi_ip_address: 192.168.1.111
+edge_wifi_adapter: wlan1
+edge_local_wifi_name: edgewifiname
+edge_wifi_ip_address: 192.168.2.1
+edge_wifi_ip_netmask: 255.255.255.0
+edge_wifi_forwarded_ports:
+  - 80
+  - 443
