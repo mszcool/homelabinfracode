@@ -141,13 +141,20 @@
         dest: /etc/hostapd/hostapd.conf
         mode: 0644
         vars:
+          edge_wifi_adapter: "{{ edge_wifi_adapter }}"
           wpa_passphrase: "{{ wpa_passphrase_result.stdout }}"
+          edge_local_wifi_name: "{{ edge_local_wifi_name }}"
 
     - name: Edge WiFi - Configure dnsmasq
       template:
         src: dnsmasq.conf.j2
         dest: /etc/dnsmasq.conf
         mode: 0644
+        vars:
+          edge_wifi_adapter: "{{ edge_wifi_adapter }}"
+          edge_wifi_ip_address: "{{ edge_wifi_ip_address }}"
+          edge_wifi_dhcp_dns: "{{ edge_wifi_dhcp_dns }}"
+          edge_wifi_dhcp_range: "{{ edge_wifi_dhcp_range }}"
 
     - name: Restart hostapd and dnsmasq
       service:
