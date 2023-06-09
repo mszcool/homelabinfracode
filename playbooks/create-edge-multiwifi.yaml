@@ -165,10 +165,11 @@
       register: ip_forwarding_result
       changed_when: ip_forwarding_result.changed
 
-    # - name: Edge WiFi - Set USB WiFi adapter to Master mode
-    #   command: iwconfig {{ edge_wifi_adapter }} essid {{ edge_local_wifi_name }} mode ad-hoc
-    #   register: set_type_result
-    #   changed_when: set_type_result.failed == false
+    - name: Edge WiFi - Stop and disable wpa_supplicant service
+      service:
+        name: wpa_supplicant
+        state: stopped
+        enabled: false
 
     - name: Edge WiFi - Set IP address for USB adapter
       command: "ip addr change {{ edge_wifi_ip_address }}/{{ edge_wifi_ip_netmask }} dev {{ edge_wifi_adapter }}"
@@ -248,6 +249,31 @@
         dest: /etc/iptables/rules.v4
         mode: 0644
       when: iptables_output.stdout is defined and iptables_output.stdout|length > 0
+
+    - name: Edge WiFi - Copy edge WiFi network configuration file
+      template:
+        src: create-edge-multiwifi-network.j2
+        dest: /etc/network/interfaces.d/wlan0
+        mode: 0644
+
+    - name: Edge WiFi - Enable wlan0 network configuration
+      service:
+        name: networking
+        enabled: true
+
+    - name: Edge WiFi - Restart Networking service
+      service:
+        name: networking
+        state: restarted
+
+    - name: Edge WiFi - Configure dhcpcd to deny wlan0 interface
+      blockinfile:
+        path: /etc/dhcpcd.conf
+        marker: "# {mark} ANSIBLE MANAGED BLOCK - DO NOT EDIT"
+        block: |
+          denyinterfaces wlan0
+      register: dhcpcd_conf_result
+      changed_when: dhcpcd_conf_result.changed
 
     - name: Edge WiFi - Generate WPA2 passphrase
       command: "wpa_passphrase \"{{ edge_local_wifi_name }}\" \"{{ edge_wifi_password }}\""
