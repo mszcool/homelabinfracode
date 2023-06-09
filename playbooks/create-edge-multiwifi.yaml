@@ -368,3 +368,24 @@
       command: ufw --force enable
       register: ufw_start_result
       changed_when: ufw_start_result.changed
+
+    - name: Reboot Workaround - Create hostapd-restart.sh script
+      copy:
+        content: |
+          #!/bin/bash
+          systemctl restart hostapd
+          systemctl restart dnsmasq
+        dest: /usr/local/bin/hostapd-restart.sh
+        mode: '0755'
+
+    - name: Reboot Workaround - Create hostapd-restart systemd service
+      template:
+        src: create-edge-multiwifi-hostapd-restart.j2
+        dest: /etc/systemd/system/hostapd-restart.service
+        mode: '0644'
+
+    - name: Reboot Workaround - Enable hostapd-restart service
+      systemd:
+        name: hostapd-restart.service
+        state: started
+        enabled: true

@@ -1,0 +1,10 @@
+[Unit]
+Description=Restart hostapd after boot
+After=network.target
+After=dnsmasq.service
+
+[Service]
+ExecStart=/usr/local/bin/hostapd-restart.sh
+
+[Install]
+WantedBy=multi-user.target
