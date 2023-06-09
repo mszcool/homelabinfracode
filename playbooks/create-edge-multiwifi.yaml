@@ -123,14 +123,20 @@
         state: stopped
         enabled: false
 
-    - name: Clean-Up - Remove local WiFi configuration using USB adapter
-      command: iw dev {{ edge_wifi_adapter }} del
+    - name: Clean-Up - Remove IP address from USB adapter
+      command: "ip addr del {{ edge_wifi_ip_address }}/{{ edge_wifi_ip_netmask }} dev {{ edge_wifi_adapter }}"
+      ignore_errors: true
+      register: cleanup_ip_result
+      changed_when: cleanup_ip_result.failed == false
+
+    - name: Clean-Up - Reset IP address for USB adapter
+      command: ip addr flush dev {{ edge_wifi_adapter }}
       ignore_errors: true
       register: cleanupresult
       changed_when: cleanupresult.failed == false
 
-    - name: Clean-Up - Reset IP address for USB adapter
-      command: ip link set dev {{ edge_wifi_adapter }} down && ip addr flush dev {{ edge_wifi_adapter }}
+    - name: Clean-Up - Remove local WiFi configuration using USB adapter
+      command: ip link set {{ edge_wifi_adapter }} down
       ignore_errors: true
       register: cleanupresult
       changed_when: cleanupresult.failed == false
@@ -159,26 +165,30 @@
       register: ip_forwarding_result
       changed_when: ip_forwarding_result.changed
 
-    - name: Edge WiFi - Create local WiFi using USB adapter
-      command: iw phy phy{{ edge_wifi_adapter }} interface add {{ edge_wifi_adapter }} type __ap
-      register: updateresultwifiusb
-      changed_when: updateresultwifiusb.failed == false
-
-    - name: Edge WiFi - Set USB WiFi adapter to Master mode
-      command: iw {{ edge_wifi_adapter }} set type managed
-      register: set_type_result
-      changed_when: set_type_result.failed == false
+    # - name: Edge WiFi - Set USB WiFi adapter to Master mode
+    #   command: iwconfig {{ edge_wifi_adapter }} essid {{ edge_local_wifi_name }} mode ad-hoc
+    #   register: set_type_result
+    #   changed_when: set_type_result.failed == false
 
     - name: Edge WiFi - Set IP address for USB adapter
-      command: ip addr add {{ edge_wifi_ip_address }}/{{ edge_wifi_ip_netmask }} dev {{ edge_wifi_adapter }} && ip link set dev {{ edge_wifi_adapter }} up
+      command: "ip addr change {{ edge_wifi_ip_address }}/{{ edge_wifi_ip_netmask }} dev {{ edge_wifi_adapter }}"
       register: updateresultipusb
       changed_when: updateresultipusb.failed == false
+
+    - name: Edge WiFi - Start USB WiFi adapter
+      command: "ip link set dev {{ edge_wifi_adapter }} up"
+      register: updateresultusbstart
+      changed_when: updateresultusbstart.failed == false
 
     - name: Edge WiFi - Set default gateway for USB WiFi
       shell: |
         set -o pipefail
-        ip route del default dev {{ edge_wifi_adapter }}
-        ip route add default via $(ip route | awk '/default/ {print $3}') dev {{ main_wifi_adapter }}
+        existing_default_routes=$(ip route list match 0.0.0.0/0 dev "{{ main_wifi_adapter }}")
+        if [[ -z $existing_default_routes ]]; then
+          ip route add default via $(ip route | awk '/default/ {print $3}') dev "{{ main_wifi_adapter }}"
+        fi
+      args:
+        executable: "/bin/bash"
       register: route_output
       changed_when: route_output.rc == 0
 
@@ -269,7 +279,7 @@
     - name: Firewall - General allow connections on Raspberry Pi
       ufw:
         rule: allow
-        port: '{{ item }}'
+        port: "{{ item }}"
       loop: "{{ edge_wifi_allowed_ports }}"
       register: ufw_port_result
       changed_when: ufw_port_result.changed
@@ -278,12 +288,14 @@
       ufw:
         rule: allow
         interface: "{{ main_wifi_adapter }}"
+        direction: in
         proto: tcp
         port: "{{ edge_node_ssh_port }}"
 
     - name: Firewall - Allow SSH traffic from main ethernet (only if connected)
       ufw:
         rule: allow
+        direction: in
         interface: "{{ main_eth_adapter }}"
         proto: tcp
         port: "{{ edge_node_ssh_port }}"
@@ -292,8 +304,11 @@
       ufw:
         rule: deny
         proto: tcp
+        interface: "{{ edge_wifi_adapter }}"
+        direction: in
         port: "{{ edge_node_ssh_port }}"
 
     - name: Firewall - Enable ufw
       command: ufw --force enable
-      changed_when: ufw_http_result.changed or ufw_https_result.changed
+      register: ufw_start_result
+      changed_when: ufw_start_result.changed

@@ -9,9 +9,9 @@ edge_wifi_dhcp_dns:
   - 8.8.8.8
 edge_wifi_dhcp_range: 192.168.1.50,192.168.1.150,12h
 edge_wifi_allowed_ports:
-  - 80
-  - 443
-  - 67
-  - 68
-  - 53
-edge_node_ssh_port: 22
+  - "80"
+  - "443"
+  - "67"
+  - "68"
+  - "53"
+edge_node_ssh_port: "22"
