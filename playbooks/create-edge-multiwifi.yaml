@@ -70,13 +70,36 @@
       changed_when: cleanupresult.failed == false
 
     - name: Clean-Up - Edge WiFi clean existing iptables rules
-      command: iptables -t nat -D PREROUTING -i {{ edge_wifi_adapter }} -p tcp --dport {{ item }} -j DNAT --to-destination {{ main_wifi_ip_address }}
-      loop: "{{ edge_wifi_forwarded_ports }}"
-      ignore_errors: true
-      register: cleanupresult
-      changed_when: cleanupresult.failed == false
+      iptables:
+        table: nat
+        chain: POSTROUTING
+        out_interface: "{{ main_wifi_adapter }}"
+        jump: MASQUERADE
+        state: absent
 
-    - name: Clean-Up - Save iptables rules to variable after cleaning rules
+    - name: Clean-Up - Edge-Wifi FORWARD rule for established connections from Main WiFi to USB WiFi
+      iptables:
+        table: filter
+        chain: FORWARD
+        in_interface: "{{ main_wifi_adapter }}"
+        out_interface: "{{ edge_wifi_adapter }}"
+        match: state
+        ctstate: RELATED,ESTABLISHED
+        jump: ACCEPT
+        comment: Allow existing connections from Main Wifi to USB WiFi
+        state: absent
+
+    - name: Clean-Up Edge WiFi FORWARD rule for edge wifi to main wifi
+      iptables:
+        table: filter
+        chain: FORWARD
+        in_interface: "{{ edge_wifi_adapter }}"
+        out_interface: "{{ main_wifi_adapter }}"
+        jump: ACCEPT
+        comment: Allow USB WiFi to Main WiFi
+        state: absent
+
+    - name: Clean-Up - Save iptables rules to variable
       command: iptables-save
       register: iptables_output
       changed_when: false
@@ -147,10 +170,34 @@
       changed_when: updateresultipusb.failed == false
 
     - name: Edge WiFi - Configure iptables for HTTP(S) forwarding
-      command: iptables -t nat -A PREROUTING -i {{ edge_wifi_adapter }} -p tcp --dport {{ item }} -j DNAT --to-destination {{ main_wifi_ip_address }}
-      loop: "{{ edge_wifi_forwarded_ports }}"
-      register: iptables_check_result
-      changed_when: iptables_check_result.rc != 0
+      iptables:
+        table: nat
+        chain: POSTROUTING
+        out_interface: "{{ main_wifi_adapter }}"
+        jump: MASQUERADE
+        state: present
+
+    - name: Edge WiFi - Add FORWARD rule for established connections from Main WiFi to USB WiFi
+      iptables:
+        table: filter
+        chain: FORWARD
+        in_interface: "{{ main_wifi_adapter }}"
+        out_interface: "{{ edge_wifi_adapter }}"
+        match: state
+        ctstate: RELATED,ESTABLISHED
+        jump: ACCEPT
+        comment: Allow existing connections from Main Wifi to USB WiFi
+        state: present
+
+    - name: Edge WiFi - Add FORWARD rule for edge wifi to main wifi
+      iptables:
+        table: filter
+        chain: FORWARD
+        in_interface: "{{ edge_wifi_adapter }}"
+        out_interface: "{{ main_wifi_adapter }}"
+        jump: ACCEPT
+        comment: Allow USB WiFi to Main WiFi
+        state: present
 
     - name: Edge WiFi - Save iptables rules to variable
       command: iptables-save
@@ -182,7 +229,7 @@
     - name: Edge WiFi - Configure dnsmasq
       template:
         src: create-edge-multiwifi-dnsmasq.j2
-        dest: /etc/dnsmasq.conf
+        dest: /etc/dnsmasq.d/dhcpd.conf
         mode: 0644
 
     - name: Edge WiFi - On Raspberry Pi, after install, hostapd is masked and must be unmasked
@@ -206,20 +253,13 @@
         - hostapd
         - dnsmasq
 
-    - name: Firewall - Allow HTTP connections on Raspberry Pi
-      command: ufw allow 80
-      register: ufw_http_result
-      changed_when: ufw_http_result.stdout != ""
-
-    - name: Firewall - Allow HTTPS connections on Raspberry Pi
-      command: ufw allow 443
-      register: ufw_https_result
-      changed_when: ufw_https_result.stdout != ""
-
-    - name: Firewall - Allow SSH connections on Raspberry Pi
-      command: ufw allow 22
-      register: ufw_ssh_result
-      changed_when: ufw_ssh_result.stdout != ""
+    - name: Firewall - General allow connections on Raspberry Pi
+      ufw:
+        rule: allow
+        port: '{{ item }}'
+      loop: "{{ edge_wifi_allowed_ports }}"
+      register: ufw_port_result
+      changed_when: ufw_port_result.changed
 
     - name: Firewall - Block SSH traffic from USB WiFi
       command: ufw deny in on {{ edge_wifi_adapter }} to any port 22
