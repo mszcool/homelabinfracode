@@ -175,6 +175,21 @@
       register: updateresultipusb
       changed_when: updateresultipusb.failed == false
 
+    - name: Edge WiFi - Get all rfkill Wireless devices
+      shell: |
+        set -o pipefail
+        rfkill list | grep Wireless
+      args:
+        executable: "/bin/bash"
+      register: rfkill_output
+      changed_when: rfkill_output.failed == false
+
+    - name: Edge WiFi - Unblock all WiFi adapters from rfkill
+      command: "echo {{ item }}" # rfkill unblock {{ item }}
+      loop: "{{ rfkill_output.stdout_lines | map('regex_replace', '^(\\d+):.*$', '\\1') | list }}"
+      register: unblock_result
+      changed_when: unblock_result.stdout != ""
+
     - name: Edge WiFi - Start USB WiFi adapter
       command: "ip link set dev {{ edge_wifi_adapter }} up"
       register: updateresultusbstart
