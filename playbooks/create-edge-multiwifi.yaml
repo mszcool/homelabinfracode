@@ -124,13 +124,13 @@
         enabled: false
 
     - name: Clean-Up - Remove local WiFi configuration using USB adapter
-      command: iwconfig {{ edge_wifi_adapter }} essid "" mode managed
+      command: iw dev {{ edge_wifi_adapter }} del
       ignore_errors: true
       register: cleanupresult
       changed_when: cleanupresult.failed == false
 
     - name: Clean-Up - Reset IP address for USB adapter
-      command: ifconfig {{ edge_wifi_adapter }} 0.0.0.0 down
+      command: ip link set dev {{ edge_wifi_adapter }} down && ip addr flush dev {{ edge_wifi_adapter }}
       ignore_errors: true
       register: cleanupresult
       changed_when: cleanupresult.failed == false
@@ -160,14 +160,27 @@
       changed_when: ip_forwarding_result.changed
 
     - name: Edge WiFi - Create local WiFi using USB adapter
-      command: iwconfig {{ edge_wifi_adapter }} essid {{ edge_local_wifi_name }} mode ad-hoc
+      command: iw phy phy{{ edge_wifi_adapter }} interface add {{ edge_wifi_adapter }} type __ap
       register: updateresultwifiusb
       changed_when: updateresultwifiusb.failed == false
 
+    - name: Edge WiFi - Set USB WiFi adapter to Master mode
+      command: iw {{ edge_wifi_adapter }} set type managed
+      register: set_type_result
+      changed_when: set_type_result.failed == false
+
     - name: Edge WiFi - Set IP address for USB adapter
-      command: ifconfig {{ edge_wifi_adapter }} {{ edge_wifi_ip_address }} netmask {{ edge_wifi_ip_netmask }}
+      command: ip addr add {{ edge_wifi_ip_address }}/{{ edge_wifi_ip_netmask }} dev {{ edge_wifi_adapter }} && ip link set dev {{ edge_wifi_adapter }} up
       register: updateresultipusb
       changed_when: updateresultipusb.failed == false
+
+    - name: Edge WiFi - Set default gateway for USB WiFi
+      shell: |
+        set -o pipefail
+        ip route del default dev {{ edge_wifi_adapter }}
+        ip route add default via $(ip route | awk '/default/ {print $3}') dev {{ main_wifi_adapter }}
+      register: route_output
+      changed_when: route_output.rc == 0
 
     - name: Edge WiFi - Configure iptables for HTTP(S) forwarding
       iptables:
@@ -261,23 +274,26 @@
       register: ufw_port_result
       changed_when: ufw_port_result.changed
 
+    - name: Firewall - Allow SSH traffic from main adapter
+      ufw:
+        rule: allow
+        interface: "{{ main_wifi_adapter }}"
+        proto: tcp
+        port: "{{ edge_node_ssh_port }}"
+
+    - name: Firewall - Allow SSH traffic from main ethernet (only if connected)
+      ufw:
+        rule: allow
+        interface: "{{ main_eth_adapter }}"
+        proto: tcp
+        port: "{{ edge_node_ssh_port }}"
+
     - name: Firewall - Block SSH traffic from USB WiFi
-      command: ufw deny in on {{ edge_wifi_adapter }} to any port 22
-      register: ufw_ssh_usb_wifi_block
-      changed_when: ufw_ssh_usb_wifi_block.failed == false
+      ufw:
+        rule: deny
+        proto: tcp
+        port: "{{ edge_node_ssh_port }}"
 
     - name: Firewall - Enable ufw
       command: ufw --force enable
       changed_when: ufw_http_result.changed or ufw_https_result.changed
-
-    - name: SSH - Restrict SSH access to incoming from main WiFi, block USB WiFi
-      lineinfile:
-        path: /etc/ssh/sshd_config
-        line: "ListenAddress {{ main_wifi_ip_address }}"
-        state: present
-
-  handlers:
-    - name: Restart SSH service
-      service:
-        name: ssh
-        state: restarted
