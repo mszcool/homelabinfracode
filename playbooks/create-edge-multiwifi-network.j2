@@ -1,8 +1,0 @@
-# Network configuration for wlan0
-iface wlan0 inet static
-    address {{ edge_wifi_ip_address }}
-    netmask {{ edge_wifi_ip_netmask }}
-    gateway {{ main_ip_address }}
-    dns-nameservers {% for dns_server in edge_wifi_dhcp_dns %}{{ dns_server }} {% endfor %}
-
-up iptables-restore < /etc/iptables/rules.v4

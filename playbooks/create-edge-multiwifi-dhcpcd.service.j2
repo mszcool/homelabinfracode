@@ -1,0 +1,17 @@
+[Unit]
+Description=dhcpcd on all interfaces
+Wants=network.target
+Before=network.target
+After=hostapd.service
+Before=dnsmasq.service
+
+[Service]
+Type=forking
+PIDFile=/run/dhcpcd.pid
+ExecStart={{ dhcp_daemon_path }} -q -b
+ExecStop={{ dhcp_daemon_path }} -x
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target
+Alias=dhcpcd5

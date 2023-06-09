@@ -46,6 +46,7 @@
         - hostapd
         - dnsmasq
         - wpasupplicant
+        - iptables-persistent
 
     - name: Prepare - Create /etc/iptables directory if needed
       file:
@@ -99,17 +100,23 @@
         comment: Allow USB WiFi to Main WiFi
         state: absent
 
-    - name: Clean-Up - Save iptables rules to variable
-      command: iptables-save
-      register: iptables_output
-      changed_when: false
+    # - name: Clean-Up - Save iptables rules to variable
+    #   command: iptables-save
+    #   register: iptables_output
+    #   changed_when: false
 
-    - name: Clean-Up - Storing cleaned iptables rules in file
-      copy:
-        content: "{{ iptables_output.stdout }}"
-        dest: /etc/iptables/rules.v4
-        mode: 0644
-      when: iptables_output.stdout is defined and iptables_output.stdout|length > 0
+    # - name: Clean-Up - Storing cleaned iptables rules in file
+    #   copy:
+    #     content: "{{ iptables_output.stdout }}"
+    #     dest: /etc/iptables/rules.v4
+    #     mode: 0644
+    #   when: iptables_output.stdout is defined and iptables_output.stdout|length > 0
+
+    - name: Clean-Up - Save current iptables rules
+      command: netfilter-persistent save
+      tags: ['iptables']
+      register: iptables_save_cleanup
+      changed_when: iptables_save_cleanup.failed == false
 
     - name: Clean-Up - Stop hostapd service
       service:
@@ -186,7 +193,7 @@
       changed_when: rfkill_output.failed == false
 
     - name: Edge WiFi - Unblock all WiFi adapters from rfkill
-      command: "echo {{ item }}" # rfkill unblock {{ item }}
+      command: rfkill unblock {{ item }}
       loop: "{{ rfkill_output.stdout_lines | map('regex_replace', '^(\\d+):.*$', '\\1') | list }}"
       register: unblock_result
       changed_when: unblock_result.stdout != ""
@@ -238,42 +245,38 @@
         comment: Allow USB WiFi to Main WiFi
         state: present
 
-    - name: Edge WiFi - Save iptables rules to variable
-      command: iptables-save
-      register: iptables_output
-      changed_when: false
+    - name: Edge-Wifi - Save current iptables rules
+      command: netfilter-persistent save
+      tags: ['iptables']
+      register: iptables_setup_cleanup
+      changed_when: iptables_setup_cleanup.failed == false
 
-    - name: Edge WiFi - Store iptables rules in file
-      copy:
-        content: "{{ iptables_output.stdout }}"
-        dest: /etc/iptables/rules.v4
-        mode: 0644
-      when: iptables_output.stdout is defined and iptables_output.stdout|length > 0
-
-    - name: Edge WiFi - Copy edge WiFi network configuration file
-      template:
-        src: create-edge-multiwifi-network.j2
-        dest: /etc/network/interfaces.d/wlan0
-        mode: 0644
-
-    - name: Edge WiFi - Enable wlan0 network configuration
-      service:
-        name: networking
-        enabled: true
-
-    - name: Edge WiFi - Restart Networking service
-      service:
-        name: networking
-        state: restarted
-
-    - name: Edge WiFi - Configure dhcpcd to deny wlan0 interface
+    - name: Edge WiFi - Configure dhcpcd to assign static IP for wlan0
       blockinfile:
         path: /etc/dhcpcd.conf
         marker: "# {mark} ANSIBLE MANAGED BLOCK - DO NOT EDIT"
         block: |
-          denyinterfaces wlan0
+          interface wlan0
+          static ip_address={{ edge_wifi_ip_address }}/{{ edge_wifi_ip_cidr }}
+          static routers={{ main_ip_address }}
+          static domain_name_servers={{ edge_wifi_dhcp_dns | join(' ') }}
       register: dhcpcd_conf_result
       changed_when: dhcpcd_conf_result.changed
+
+    - name: Edge WiFi - Get the path of dhcpcd executable
+      command: which dhcpcd
+      register: dhcpcd_path_result
+      changed_when: false
+
+    - name: Edge WiFi - Set dhcp_daemon_path variable
+      set_fact:
+        dhcp_daemon_path: "{{ dhcpcd_path_result.stdout }}"
+
+    - name: Edge WiFi - Start dhcpcd only after hostapd started (so it knows this is an access point)
+      template:
+        src: create-edge-multiwifi-dhcpcd.service.j2
+        dest: /etc/systemd/system/dhcpcd.service
+        mode: 0644
 
     - name: Edge WiFi - Generate WPA2 passphrase
       command: "wpa_passphrase \"{{ edge_local_wifi_name }}\" \"{{ edge_wifi_password }}\""
@@ -303,6 +306,18 @@
         dest: /etc/dnsmasq.conf
         mode: 0644
 
+    - name: Edge WiFi - Start dnsmasq only after dhcpd started (so we have an edge adapter ip address)
+      template:
+        src: create-edge-multiwifi-dnsmasq.service.j2
+        dest: /etc/systemd/system/dnsmasq.service
+        mode: 0644
+
+    - name: Edge WiFi - Start hostapd first such that dhcpcd and dnsmasq know wlan0 is an access point
+      template:
+        src: create-edge-multiwifi-hostapd.service.j2
+        dest: /etc/systemd/system/hostapd.service
+        mode: 0644
+
     - name: Edge WiFi - On Raspberry Pi, after install, hostapd is masked and must be unmasked
       ansible.builtin.systemd:
         name: hostapd.service
@@ -316,12 +331,13 @@
         - hostapd
         - dnsmasq
 
-    - name: Edge WiFi - Restart hostapd and dnsmasq
+    - name: Edge WiFi - Restart hostapd, then dhcpcd, and finally dnsmasq
       service:
         name: "{{ item }}"
         state: restarted
       loop:
         - hostapd
+        - dhcpcd
         - dnsmasq
 
     - name: Firewall - General allow connections on Raspberry Pi
