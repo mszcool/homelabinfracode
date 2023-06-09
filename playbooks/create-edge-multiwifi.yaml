@@ -73,7 +73,7 @@
       iptables:
         table: nat
         chain: POSTROUTING
-        out_interface: "{{ main_wifi_adapter }}"
+        out_interface: "{{ main_adapter }}"
         jump: MASQUERADE
         state: absent
 
@@ -81,7 +81,7 @@
       iptables:
         table: filter
         chain: FORWARD
-        in_interface: "{{ main_wifi_adapter }}"
+        in_interface: "{{ main_adapter }}"
         out_interface: "{{ edge_wifi_adapter }}"
         match: state
         ctstate: RELATED,ESTABLISHED
@@ -94,7 +94,7 @@
         table: filter
         chain: FORWARD
         in_interface: "{{ edge_wifi_adapter }}"
-        out_interface: "{{ main_wifi_adapter }}"
+        out_interface: "{{ main_adapter }}"
         jump: ACCEPT
         comment: Allow USB WiFi to Main WiFi
         state: absent
@@ -183,9 +183,9 @@
     - name: Edge WiFi - Set default gateway for USB WiFi
       shell: |
         set -o pipefail
-        existing_default_routes=$(ip route list match 0.0.0.0/0 dev "{{ main_wifi_adapter }}")
+        existing_default_routes=$(ip route list match 0.0.0.0/0 dev "{{ main_adapter }}")
         if [[ -z $existing_default_routes ]]; then
-          ip route add default via $(ip route | awk '/default/ {print $3}') dev "{{ main_wifi_adapter }}"
+          ip route add default via $(ip route | awk '/default/ {print $3}') dev "{{ main_adapter }}"
         fi
       args:
         executable: "/bin/bash"
@@ -196,7 +196,7 @@
       iptables:
         table: nat
         chain: POSTROUTING
-        out_interface: "{{ main_wifi_adapter }}"
+        out_interface: "{{ main_adapter }}"
         jump: MASQUERADE
         state: present
 
@@ -204,7 +204,7 @@
       iptables:
         table: filter
         chain: FORWARD
-        in_interface: "{{ main_wifi_adapter }}"
+        in_interface: "{{ main_adapter }}"
         out_interface: "{{ edge_wifi_adapter }}"
         match: state
         ctstate: RELATED,ESTABLISHED
@@ -217,7 +217,7 @@
         table: filter
         chain: FORWARD
         in_interface: "{{ edge_wifi_adapter }}"
-        out_interface: "{{ main_wifi_adapter }}"
+        out_interface: "{{ main_adapter }}"
         jump: ACCEPT
         comment: Allow USB WiFi to Main WiFi
         state: present
@@ -294,16 +294,8 @@
     - name: Firewall - Allow SSH traffic from main adapter
       ufw:
         rule: allow
-        interface: "{{ main_wifi_adapter }}"
+        interface: "{{ main_adapter }}"
         direction: in
-        proto: tcp
-        port: "{{ edge_node_ssh_port }}"
-
-    - name: Firewall - Allow SSH traffic from main ethernet (only if connected)
-      ufw:
-        rule: allow
-        direction: in
-        interface: "{{ main_eth_adapter }}"
         proto: tcp
         port: "{{ edge_node_ssh_port }}"
 
