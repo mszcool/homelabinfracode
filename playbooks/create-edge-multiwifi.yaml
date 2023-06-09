@@ -255,6 +255,13 @@
         dest: /etc/dnsmasq.d/dhcpd.conf
         mode: 0644
 
+    # I had to do this to get it working.
+    - name: Edge WiFi - Configure dnsmasq part 2
+      template:
+        src: create-edge-multiwifi-dnsmasq.j2
+        dest: /etc/dnsmasq.conf
+        mode: 0644
+
     - name: Edge WiFi - On Raspberry Pi, after install, hostapd is masked and must be unmasked
       ansible.builtin.systemd:
         name: hostapd.service
