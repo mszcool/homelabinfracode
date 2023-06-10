@@ -8,7 +8,8 @@ Before=network-online.target
 [Service]
 ExecStart=/usr/sbin/dnsmasq -k
 ExecReload=/bin/kill -HUP $MAINPID
-Restart=on-failure
+Restart=always
+RestartSec=20s
 
 [Install]
 WantedBy=multi-user.target
