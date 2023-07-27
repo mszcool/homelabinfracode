@@ -1,0 +1,12 @@
+main_adapter: eth0
+main_ip_address: 192.168.1.111
+edge_wifi_adapter: wlan0
+edge_local_wifi_name: edgewifiname
+edge_bridge_name: br0
+edge_fw_allowed_ports:
+  - "80"
+  - "443"
+  - "67"
+  - "68"
+  - "53"
+edge_node_ssh_port: "22"

@@ -1,0 +1,257 @@
+---
+- name: Ensure global machine pre-requisites are met
+  import_playbook: bootstrap-machines.yaml
+  when: skip_bootstrap is not defined
+
+- name: Configure Raspberry Pi Edge with bridged WiFi
+  hosts: "{{ target_host }}"
+  become: true
+  gather_facts: false
+  remote_user: "{{ lookup('env', 'USE_SSH_USER_NAME') }}"
+
+  vars:
+    target_host: edgepi
+    edge_config: ../configs/pi-edge-config.yaml
+    target_user: "{{ lookup('env', 'USE_SSH_USER_NAME') }}"
+    edge_wifi_password: "{{ lookup('env', 'USE_WIFI_PASSWORD') }}"
+
+  # First, ensure the pre-requisites are met
+  pre_tasks:
+    # First, make sure the environment variable for SSH access to the nodes is present.
+    - include_tasks: ../tasklib/checkuserenv-tasks.yaml
+
+  # Execute the main configuration flow.
+  tasks:
+    - name: Include pi-edge configuration settings
+      include_vars: "{{ edge_config }}"
+
+    - name: Pre-Checks - Check if the USE_WIFI_PASSWORD environment variable is set
+      vars:
+        env_var_name: "USE_WIFI_PASSWORD"
+      assert:
+        that:
+          - "lookup('env','{{ env_var_name }}')"
+        fail_msg: "Please set the {{ env_var_name }} environment variable before executing this playbook!"
+
+    - name: Pre-Checks - Check if backup for sysctl.conf.default exists
+      stat:
+        path: "/home/{{ target_user }}/sysctl.conf.default"
+      register: sysctl_conf_default_file
+
+    - name: Prepare - Install additional pre-requisites for WiFi bridging
+      apt:
+        name: "{{ item }}"
+        state: present
+      loop:
+        - hostapd
+        - bridge-utils
+        - wpasupplicant
+        - iptables-persistent
+
+    - name: Prepare - Create /etc/iptables directory if needed
+      file:
+        path: /etc/iptables
+        state: directory
+        mode: '0755'
+
+    - name: Clean-Up - Restore original sysctl.conf (if backup exists)
+      copy:
+        src: "/home/{{ target_user }}/sysctl.conf.default"
+        dest: /etc/sysctl.conf
+        owner: "{{ target_user }}"
+        group: "{{ target_user }}"
+        mode: 0644
+        remote_src: true
+      when: sysctl_conf_default_file.stat.exists
+
+    - name: Clean-Up - Edge-Wifi clean existing firewall rules
+      command: ufw --force reset
+      ignore_errors: true
+      register: cleanupresult
+      changed_when: cleanupresult.failed == false
+
+    - name: Clean-Up - Stop hostapd service
+      service:
+        name: hostapd
+        state: stopped
+        enabled: false
+
+    - name: Clean-Up - Edge Bridge - Stop the bridge adapter
+      command: "ip link set dev {{ edge_bridge_name }} down"
+      ignore_errors: true
+      register: updateresultbridgedown
+      changed_when: updateresultbridgedown.failed == false
+
+    - name: Clean-Up - Edge Bridge - Remove WiFi Adapter from bridge
+      command: "brctl delif {{ edge_bridge_name }} {{ edge_wifi_adapter }}"
+      ignore_errors: true
+      register: updateresultremovewifiadapterfrombridge
+      changed_when: updateresultremovewifiadapterfrombridge.failed == false
+
+    - name: Clean-Up - Edge Bridge - Remove Main Adapter from bridge
+      command: "brctl delif {{ edge_bridge_name }} {{ main_adapter }}"
+      ignore_errors: true
+      register: updateresultremovemainadapterfrombridge
+      changed_when: updateresultremovemainadapterfrombridge.failed == false
+
+    - name: Clean-Up - Edge Bridge - Delete the bridge using bridgectl
+      command: "brctl delbr {{ edge_bridge_name  }}"
+      ignore_errors: true
+      register: updateresultbridgedeleted
+      changed_when: updateresultbridgedeleted.failed == false
+
+    - name: Clean-Up - Reset IP address for WiFi adapter
+      command: ip addr flush dev {{ edge_wifi_adapter }}
+      ignore_errors: true
+      register: cleanupresult
+      changed_when: cleanupresult.failed == false
+
+    - name: Clean-Up - Remove local WiFi configuration using WiFi adapter
+      command: ip link set {{ edge_wifi_adapter }} down
+      ignore_errors: true
+      register: cleanupresult
+      changed_when: cleanupresult.failed == false
+
+    - name: System Config - Enable IP forwarding (current session)
+      command: sysctl -w net.ipv4.ip_forward=1
+      ignore_errors: true
+      register: systemconfigresult
+      changed_when: systemconfigresult.failed == false
+
+    - name: System Config - Backup sysctl.conf.default in the user's home directory
+      copy:
+        src: /etc/sysctl.conf
+        dest: "/home/{{ target_user }}/sysctl.conf.default"
+        owner: "{{ target_user }}"
+        group: "{{ target_user }}"
+        mode: 0644
+        remote_src: true
+      when: not sysctl_conf_default_file.stat.exists
+
+    - name: System Config - Enable IP forwarding (permanent in sysctl.conf)
+      lineinfile:
+        path: /etc/sysctl.conf
+        line: "net.ipv4.ip_forward=1"
+        state: present
+      register: ip_forwarding_result
+      changed_when: ip_forwarding_result.changed
+
+    - name: Edge WiFi - Stop and disable wpa_supplicant service
+      service:
+        name: wpa_supplicant
+        state: stopped
+        enabled: false
+
+    - name: Edge WiFi - Get all rfkill Wireless devices
+      shell: |
+        set -o pipefail
+        rfkill list | grep Wireless
+      args:
+        executable: "/bin/bash"
+      register: rfkill_output
+      changed_when: rfkill_output.failed == false
+
+    - name: Edge WiFi - Unblock all WiFi adapters from rfkill
+      command: rfkill unblock {{ item }}
+      loop: "{{ rfkill_output.stdout_lines | map('regex_replace', '^(\\d+):.*$', '\\1') | list }}"
+      register: unblock_result
+      changed_when: unblock_result.stdout != ""
+
+    - name: Edge WiFi - Start WiFi adapter
+      command: "ip link set dev {{ edge_wifi_adapter }} up"
+      register: updateresultusbstart
+      changed_when: updateresultusbstart.failed == false
+
+    - name: Edge Bridge - Create a bridge using bridgectl
+      command: "brctl addbr {{ edge_bridge_name  }}"
+      register: updateresultbridgecreated
+      changed_when: updateresultbridgecreated.failed == false
+
+    - name: Edge Bridge - Add Main Adapter to bridge
+      command: "brctl addif {{ edge_bridge_name }} {{ main_adapter }}"
+      register: updateresultaddmainadaptertobridge
+      changed_when: updateresultaddmainadaptertobridge.failed == false
+
+    # This might not be needed since it is done by the bridge=br0 in hostapd.conf
+    # - name: Edge Bridge - Add WiFi Adapter to bridge
+    #   command: "brctl addif {{ edge_bridge_name }} {{ edge_wifi_adapter }}"
+    #   register: updateresultaddwifiadaptertobridge
+    #   changed_when: updateresultaddwifiadaptertobridge.failed == false
+
+    - name: Edge Bridge - Start the bridge adapter
+      command: "ip link set dev {{ edge_bridge_name }} up"
+      register: updateresultbridgeup
+      changed_when: updateresultbridgeup.failed == false
+
+    - name: Edge Access Point - Generate WPA2 passphrase
+      command: "wpa_passphrase \"{{ edge_local_wifi_name }}\" \"{{ edge_wifi_password }}\""
+      register: wpa_passphrase_result
+      changed_when: wpa_passphrase_result.failed == false
+
+    - name: Edge Access Point - Save wpa_passphrase output
+      set_fact:
+        wpa_passphrase: "{{ (wpa_passphrase_result.stdout | regex_search('(psk=)(\\w+)', '\\2'))[0] }}"
+
+    - name: Edge Access Point - Configure hostapd incl. wpa passphrase
+      template:
+        src: create-edge-multiwifi-hostapd.j2
+        dest: /etc/hostapd/hostapd.conf
+        mode: 0644
+
+    - name: Edge Access Point - Start hostapd service with custom configuration
+      template:
+        src: create-edge-multiwifi-hostapd.service.j2
+        dest: /etc/systemd/system/hostapd.service
+        mode: 0644
+
+    - name: Edge Access Point - On Raspberry Pi, after install, hostapd is masked and must be unmasked
+      ansible.builtin.systemd:
+        name: hostapd.service
+        masked: false
+
+    - name: Edge Access Point - Enable hostapd at boot
+      service:
+        name: "{{ item }}"
+        enabled: true
+      loop:
+        - hostapd
+
+    - name: Edge Access Point - Restart hostapd
+      service:
+        name: "{{ item }}"
+        state: restarted
+      loop:
+        - hostapd
+
+    - name: Firewall - General allow connections on Raspberry Pi
+      ufw:
+        rule: allow
+        port: "{{ item }}"
+      loop: "{{ edge_fw_allowed_ports }}"
+      register: ufw_port_result
+      changed_when: ufw_port_result.changed
+
+    - name: Firewall - Enable ufw
+      command: ufw --force enable
+      register: ufw_start_result
+      changed_when: ufw_start_result.changed
+
+    - name: Reboot Workaround - Create hostapd-restart.sh script
+      copy:
+        content: |
+          #!/bin/bash
+          systemctl restart hostapd
+        dest: /usr/local/bin/hostapd-restart.sh
+        mode: '0755'
+
+    - name: Reboot Workaround - Create hostapd-restart systemd service
+      template:
+        src: create-edge-multiwifi-hostapd-restart.j2
+        dest: /etc/systemd/system/hostapd-restart.service
+        mode: '0644'
+
+    - name: Reboot Workaround - Enable hostapd-restart service
+      systemd:
+        name: hostapd-restart.service
+        state: started
+        enabled: true
