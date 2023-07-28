@@ -9,4 +9,4 @@ edge_fw_allowed_ports:
   - "67"
   - "68"
   - "53"
-edge_node_ssh_port: "22"
+  - "22"

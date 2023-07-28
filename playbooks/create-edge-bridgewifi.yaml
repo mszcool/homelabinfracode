@@ -124,9 +124,6 @@
       blockinfile:
         path: /etc/network/interfaces
         block: |
-          auto {{ main_adapter }}
-          iface {{ main_adapter }} inet dhcp
-
           auto {{ edge_bridge_name }}
           iface {{ edge_bridge_name }} inet dhcp
             bridge_ports {{ main_adapter }} {{ edge_wifi_adapter }}
@@ -180,6 +177,15 @@
       loop: "{{ edge_fw_allowed_ports }}"
       register: ufw_port_result
       changed_when: ufw_port_result.changed
+
+    - name: Firewall - Add UFW rules to allow bridged traffic
+      ansible.builtin.blockinfile:
+        path: /etc/ufw/before.rules
+        marker_begin: "# Ansible-managed: Custom UFW rules for bridge, don't edit"
+        marker_end: "# Ansible-managed: Custom UFW rules for bridge, end"
+        insertbefore: 'COMMIT'
+        block: |
+          -A ufw-before-forward -i {{ '{{ edge_bridge_name }}' }} -j ACCEPT
 
     - name: Firewall - Enable ufw
       command: ufw --force enable
