@@ -9,6 +9,3 @@ wpa_psk={{ wpa_passphrase }}
 wpa_key_mgmt=WPA-PSK
 wpa_pairwise=CCMP
 rsn_pairwise=CCMP
-{% if edge_bridge_name is defined and edge_bridge_name|length > 0 %}
-bridge={{ edge_bridge_name }}
-{% endif %}

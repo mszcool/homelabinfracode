@@ -185,7 +185,7 @@
         marker_end: "# Ansible-managed: Custom UFW rules for bridge, end"
         insertbefore: 'COMMIT'
         block: |
-          -A ufw-before-forward -i {{ '{{ edge_bridge_name }}' }} -j ACCEPT
+          -A ufw-before-forward -i {{ edge_bridge_name }} -j ACCEPT
 
     - name: Firewall - Enable ufw
       command: ufw --force enable
