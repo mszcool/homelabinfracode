@@ -1,6 +1,6 @@
 ---
 - name: Ensure global machine pre-requisites are met
-  import_playbook: bootstrap-machines.yaml
+  import_playbook: ../all-base/bootstrap-machines.yaml
   when: skip_bootstrap is not defined
 
 - name: Configure Raspberry Pi Edge with bridged WiFi
@@ -18,7 +18,7 @@
   # First, ensure the pre-requisites are met
   pre_tasks:
     # First, make sure the environment variable for SSH access to the nodes is present.
-    - include_tasks: ../tasklib/checkuserenv-tasks.yaml
+    - include_tasks: ../../tasklib/checkuserenv-tasks.yaml
 
   # Execute the main configuration flow.
   tasks:
@@ -141,13 +141,13 @@
 
     - name: Edge Access Point - Configure hostapd incl. wpa passphrase
       template:
-        src: create-edge-multiwifi-hostapd.j2
+        src: ./templates/create-edge-multiwifi-hostapd.j2
         dest: /etc/hostapd/hostapd.conf
         mode: 0644
 
     - name: Edge Access Point - Start hostapd service with custom configuration
       template:
-        src: create-edge-multiwifi-hostapd.service.j2
+        src: ./templates/create-edge-multiwifi-hostapd.service.j2
         dest: /etc/systemd/system/hostapd.service
         mode: 0644
 
@@ -203,7 +203,7 @@
 
     - name: Reboot Workaround - Create hostapd-restart systemd service
       template:
-        src: create-edge-multiwifi-hostapd-restart.j2
+        src: ./templates/create-edge-multiwifi-hostapd-restart.j2
         dest: /etc/systemd/system/hostapd-restart.service
         mode: '0644'
 

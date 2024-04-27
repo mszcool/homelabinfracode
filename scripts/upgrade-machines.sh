@@ -11,14 +11,14 @@
 # the reference hosts.nopush.ini which I take from a private repository.
 
 if [ "$ISPRIVATE" = "true" ]; then
-    hostsIni="./configs.private/hosts.ini"
+    hostsIni="./configs.private/infra-bootstrap/hosts.ini"
 else
-    hostsIni="./config/hosts.ini"
+    hostsIni="./configs/hosts.ini"
 fi
 
 echo "Using '$hostsIni' as inventory..."
 
-ansible-playbook --inventory ./configs.private/hosts.ini --limit jtwmasters,jtwnodes ./playbooks/upgrade-machines.yaml &
-ansible-playbook --inventory ./configs.private/hosts.ini --limit pfemasters,pfeagents ./playbooks/upgrade-machines.yaml &
+ansible-playbook --inventory ./configs.private/infra-bootstrap/hosts.ini --limit jtwmasters,jtwnodes ./playbooks/all-base/upgrade-machines.yaml &
+ansible-playbook --inventory ./configs.private/infra-bootstrap/hosts.ini --limit pfemasters,pfeagents ./playbooks/all-base/upgrade-machines.yaml &
 
 wait

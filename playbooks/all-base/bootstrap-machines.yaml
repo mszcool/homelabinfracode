@@ -6,10 +6,10 @@
   remote_user: "{{ lookup('env', 'USE_SSH_USER_NAME') }}"
   pre_tasks:
     # First, check if the user environment variable is state:
-    - include_tasks: ../tasklib/checkuserenv-tasks.yaml
+    - include_tasks: ../../tasklib/checkuserenv-tasks.yaml
   tasks:
     # First, do a regular machine update/upgrade
-    - include_tasks: ../tasklib/upgrade-tasks.yaml
+    - include_tasks: ../../tasklib/upgrade-tasks.yaml
 
     # Now, install the pre-requisite packages on the machine
     # Skipping update_cache because it was done with the update/upgrade task
