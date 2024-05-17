@@ -46,7 +46,6 @@
         - hostapd
         - bridge-utils
         - wpasupplicant
-        - iptables-persistent
 
     - name: Clean-Up - Restore original sysctl.conf (if backup exists)
       copy:
