@@ -1,0 +1,32 @@
+---
+- name: Configure Proxmox Cluster
+  hosts: "{{ proxmox_nodes }}"
+  become: true
+  gather_facts: false
+
+  assert:
+    that:
+      - "{{ lookup('env','USE_PROXMOX_RSA_PUBLIC_KEY') }}"
+    fail_msg: "Please set the USE_PROXMOX_RSA_PUBLIC_KEY environment variable before executing this playbook!"
+
+  # These variables should be overriden through the --extra-vars argument of ansible-playbook
+  vars:
+    proxmox_nodes:
+      - node1
+      - node2
+      - node3
+    proxmox_root_user: "{{ lookup('env', 'USE_PROXMOX_ROOT_USER_NAME') | default('root') }}"
+    proxmox_root_publickey: "{{ lookup('env','USE_PROXMOX_RSA_PUBLIC_KEY') }}"
+
+  # Main execution tasks
+  tasks:
+    - name: Set the SSH user name in case it is not the default.
+      set_fact:
+        ansible_user: "{{ proxmox_root_user }}"
+
+    - name: Basic Proxmox setup for each node.
+      include_playbook:
+        file: proxmox-node-base.yaml
+        vars:
+          param_proxmox_hosts: "{{ proxmox_nodes }}"
+          param_publickey_root: "{{ proxmox_root_publickey }}"

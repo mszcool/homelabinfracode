@@ -1,0 +1,72 @@
+---
+- name: Baseline for each Proxmox node
+  hosts: "{{ param_proxmox_hosts }}"
+  become: true
+  vars:
+    proxmox_root_user: "{{ lookup('env', 'USE_PROXMOX_ROOT_USER_NAME') | default('root') }}"
+    rsa_publickey_root: "{{ param_publickey_root }}"
+  tasks:
+    - name: Set the SSH user name in case it is not the default.
+      set_fact:
+        ansible_user: "{{ proxmox_root_user }}"
+        
+    - name: Deactivate the enterprise repository since using this for home-lab scenarios, non-commercial.
+      lineinfile:
+        path: /etc/apt/sources.list.d/pve-enterprise.list
+        regexp: '^deb '
+        line: '# deb '
+        state: present
+
+    - name: Activate the community repository for non-commercial use.
+      lineinfile:
+        path: /etc/apt/sources.list
+        line: 'deb http://download.proxmox.com/debian/pve buster pve-no-subscription'
+        create: yes
+
+    - name: De-activate the subscription warning.
+      copy:
+        content: |
+          #!/bin/bash
+          sed -i.bak "s|^/#.*deb http://download.proxmox.com/.*|#deb http://download.proxmox.com/debian/pve buster pve-no-subscription|g" /usr/share/javascript/proxmox-widget-toolkit/proxmoxlib.js
+        dest: /etc/cron.daily/remove_proxmox_subscription_warning.sh
+        mode: '0755'
+
+    - name: Add the RSA public key for the root-user.
+      authorized_key:
+        user: root
+        state: present
+        key: "{{ rsa_publickey_root }}"
+
+    - name: Deactivate SSH Login via Password.
+      lineinfile:
+        path: /etc/ssh/sshd_config
+        regexp: '^#?PasswordAuthentication'
+        line: 'PasswordAuthentication no'
+      notify: Restart SSH
+
+    - name: Activate PCI passthrough through IOMMU activation in GRUB.
+      lineinfile:
+        path: /etc/default/grub
+        regexp: '^GRUB_CMDLINE_LINUX_DEFAULT'
+        line: 'GRUB_CMDLINE_LINUX_DEFAULT="quiet intel_iommu=on"'
+      notify: Update GRUB
+
+    - name: Activate IOMMU kernel configuration for PCI passthrough.
+      lineinfile:
+        path: /etc/modules
+        line: 'vfio vfio_iommu_type1 vfio_pci'
+        state: present
+
+  handlers:
+    - name: Restart SSH
+      service:
+        name: ssh
+        state: restarted
+
+    - name: Update GRUB
+      command: update-grub
+      notify: Restart Host
+
+    - name: Restart Host
+      reboot:
+        reboot_timeout: 300
