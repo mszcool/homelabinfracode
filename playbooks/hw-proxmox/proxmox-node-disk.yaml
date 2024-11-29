@@ -1,0 +1,75 @@
+---
+- name: Setup Proxmox Disks for my servers. They have either 1 large disk or 1 small and one large disk.
+  hosts: all
+  become: yes
+  vars:
+    primary_disk: /dev/sda
+    secondary_disk: /dev/sdb  # Set to empty string "" if there is no secondary disk
+    lvm_thin_pool_name: msz-main
+    lvm_pool_name: msz-pve
+    lvm_rename: True  # Set to False if you don't want to rename existing LVM pools
+    lvm_pool_size: 128G  # Size of the LVM pool for single disk scenario
+  tasks:
+    - name: Get existing LVM thin pools
+      command: lvs --noheadings -o lv_name,lv_attr
+      register: lvm_thin_pools
+
+    - name: Remove existing LVM-Thin pools if name does not match
+      command: lvremove -f {{ item }}
+      with_items: "{{ lvm_thin_pools.stdout_lines | select('search', 't') | map('split') | selectattr(0, 'ne', lvm_thin_pool_name) | list }}"
+      when: lvm_thin_pools.stdout_lines | select('search', 't') | map('split') | selectattr(0, 'ne', lvm_thin_pool_name) | list | length > 0
+
+    - name: Check if the volume group needs renaming
+      command: vgs --noheadings -o vg_name | grep ^{{ lvm_pool_name }}
+      register: vg_exists
+
+    - name: Rename existing LVM pool (if enabled and not already renamed)
+      command: vgrename {{ lvm_pool_name }} {{ lvm_thin_pool_name }}
+      when: lvm_rename and vg_exists.stdout == "{{ lvm_pool_name }}"
+
+    - name: Check if the primary disk is fully utilized
+      command: vgdisplay {{ lvm_pool_name }} | grep "Free  PE"
+      register: vg_free_pe
+
+    - name: Extend LVM pool for ISO/Backup on the primary disk (dual-disk scenario only)
+      shell: |
+        vgextend {{ lvm_pool_name }} {{ primary_disk }}
+        lvextend -l +100%FREE /dev/{{ lvm_pool_name }}/data
+        resize2fs /dev/{{ lvm_pool_name }}/data
+      when: secondary_disk != "" and vg_free_pe.stdout | int > 0
+
+    - name: Check the size of the existing LVM pool
+      command: lvdisplay /dev/{{ lvm_pool_name }}/data | grep "LV Size"
+      register: lv_size
+
+    - name: Resize LVM pool to 128GB for single disk scenario (if not already 128GB)
+      shell: |
+        lvresize -L {{ lvm_pool_size }} /dev/{{ lvm_pool_name }}/data
+        resize2fs /dev/{{ lvm_pool_name }}/data
+      when: secondary_disk == "" and lv_size.stdout.find('{{ lvm_pool_size }}') == -1
+
+    - name: Check if the LVM-Thin pool already exists with the specified name
+      command: lvs --noheadings -o lv_name | grep ^{{ lvm_thin_pool_name }}
+      register: lv_thin_exists
+
+    - name: Create LVM-Thin pool on the secondary disk (if it doesn't exist)
+      shell: |
+        pvcreate {{ secondary_disk }}
+        vgcreate {{ lvm_thin_pool_name }} {{ secondary_disk }}
+        lvcreate -l 100%FREE -T -n thinpool {{ lvm_thin_pool_name }}
+      when: secondary_disk != "" and lv_thin_exists.stdout.find('{{ lvm_thin_pool_name }}') == -1
+
+    - name: Handle single disk scenario by creating LVM-Thin pool (if it doesn't exist)
+      shell: |
+        lvcreate -l 100%FREE -T -n thinpool /dev/{{ lvm_pool_name }}
+        lvcreate -V 100%FREE --thin -n vm_disks /dev/{{ lvm_pool_name }}/thinpool
+      when: secondary_disk == "" and lv_thin_exists.stdout.find('thinpool') == -1
+
+    - name: Restart Proxmox services
+      systemd:
+        name: "{{ item }}"
+        state: restarted
+      with_items:
+        - pve-cluster
+        - pvedaemon
+        - pveproxy
