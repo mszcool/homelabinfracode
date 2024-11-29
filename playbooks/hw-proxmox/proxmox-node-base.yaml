@@ -5,6 +5,7 @@
   vars:
     proxmox_root_user: "{{ lookup('env', 'USE_PROXMOX_ROOT_USER_NAME') | default('root') }}"
     rsa_publickey_root: "{{ param_publickey_root }}"
+    repo_suites: "bookworm"
   tasks:
     - name: Set the SSH user name in case it is not the default.
       set_fact:
@@ -20,16 +21,27 @@
     - name: Activate the community repository for non-commercial use.
       lineinfile:
         path: /etc/apt/sources.list
-        line: 'deb http://download.proxmox.com/debian/pve buster pve-no-subscription'
+        line: "deb http://download.proxmox.com/debian/pve {{ repo_suites }} pve-no-subscription"
         create: yes
 
-    - name: De-activate the subscription warning.
+    - name: Create script to deactivate subscription warning
       copy:
         content: |
           #!/bin/bash
-          sed -i.bak "s|^/#.*deb http://download.proxmox.com/.*|#deb http://download.proxmox.com/debian/pve buster pve-no-subscription|g" /usr/share/javascript/proxmox-widget-toolkit/proxmoxlib.js
-        dest: /etc/cron.daily/remove_proxmox_subscription_warning.sh
+          sed -Ezi.bak "s/(Ext.Msg.show\(\{\s+title: gettext\('No valid sub)/void\(\{ \/\/\1/g" /usr/share/javascript/proxmox-widget-toolkit/proxmoxlib.js && systemctl restart pveproxy.service
+        dest: /usr/local/bin/remove_proxmox_subscription_warning.sh
         mode: '0755'
+      register: script_created
+    
+    - name: Create cron-job to continuously de-activate subscription warning as it will re-appear after updates
+      cron:
+        name: "De-activate Proxmox subscription warning"
+        minute: 0
+        hour: 8
+        job: "/usr/local/bin/remove_proxmox_subscription_warning.sh"
+
+    - name: De-activate the subscription warning now.
+      command: /usr/local/bin/remove_proxmox_subscription_warning.sh
 
     - name: Add the RSA public key for the root-user.
       authorized_key:
