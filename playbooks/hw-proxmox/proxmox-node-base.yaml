@@ -3,7 +3,7 @@
   hosts: "{{ param_proxmox_hosts | default('proxmox') }}"
   become: true
   vars:
-    proxmox_root_user: "{{ lookup('env', 'USE_PROXMOX_ROOT_USER_NAME') | default('root') }}"
+    proxmox_root_user: "{{ lookup('env', 'ANSIBLE_USER') | default('root') }}"
     rsa_publickey_root: "{{ param_publickey_root }}"
     repo_suites: "bookworm"
   tasks:
@@ -11,19 +11,21 @@
       ansible.builtin.set_fact:
         ansible_user: "{{ proxmox_root_user }}"
 
-    - name: Deactivate the enterprise repository since using this for home-lab scenarios, non-commercial.
-      ansible.builtin.lineinfile:
-        path: /etc/apt/sources.list.d/pve-enterprise.list
-        regexp: '^deb '
-        line: '# deb '
-        state: present
+    - name: Deactive Enterprise Repo - Rename pve-enterprise.list to pve-enterprise.list.bak
+      ansible.builtin.command:
+        cmd: mv /etc/apt/sources.list.d/pve-enterprise.list /etc/apt/sources.list.d/pve-enterprise.list.bak
+        removes: /etc/apt/sources.list.d/pve-enterprise.list
+
+    - name: Deactivate Enterprise Repo - Rename ceph.list to ceph.list.bak
+      ansible.builtin.command:
+        cmd: mv /etc/apt/sources.list.d/ceph.list /etc/apt/sources.list.d/ceph.list.bak
+        removes: /etc/apt/sources.list.d/ceph.list
 
     - name: Activate the community repository for non-commercial use (exists on all Proxmox installations).
       ansible.builtin.lineinfile:
         path: /etc/apt/sources.list
         line: "deb http://download.proxmox.com/debian/pve {{ repo_suites }} pve-no-subscription"
         create: false
-      notify: Set correct permissions for sources.list
 
     - name: Create script to deactivate subscription warning
       ansible.builtin.copy:
@@ -84,7 +86,7 @@
       ansible.builtin.command:
         cmd: update-grub
       notify: Restart Host
-      changed_when: false
+      changed_when: true
 
     - name: Restart Host
       ansible.builtin.reboot:
