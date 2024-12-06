@@ -1,4 +1,12 @@
 {
     "ansible.python.interpreterPath": "/bin/python3",
-    "sarif-viewer.connectToGithubCodeScanning": "off"
+    "sarif-viewer.connectToGithubCodeScanning": "off",
+    "cSpell.words": [
+        "fstype",
+        "lvmthin",
+        "pvesm",
+        "resizefs",
+        "thinpool",
+        "vmdisks"
+    ]
 }
