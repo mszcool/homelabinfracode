@@ -2,137 +2,170 @@
 - name: Setup Proxmox Disks for my servers. They have either 1 large disk or 1 small and one large disk.
   hosts: all
   become: true
+
   vars:
-    primary_disk: /dev/sda
-    secondary_disk: /dev/sdb  # Set to empty string "" if there is no secondary disk
     volume_group_name: pve
-    lvm_proxmox_pool_name: msz-pve
-    lvm_proxmox_pool_size: 30G  # Size of the LVM pool for single disk scenario
-    lvm_vmdisks_dirname: local-lvm
+    volume_group_name_vmdisk: pve-main
+    lvm_proxmox_device: /dev/sda
+    lvm_proxmox_partition_nr: 3       # Partition for the root LVM pool sits, for single disk scenarios the same as for LVM thin pool.
+    lvm_proxmox_partition: "{{ lvm_proxmox_device }}{{ lvm_proxmox_partition_nr }}"
+    lvm_vmdisks_device: /dev/sda
+    lvm_vmdisks_partition_nr: 4  # Partition for the LVM-Thin pool defaults to the same as the regular LVM pool in default Proxmox setup.
+    lvm_vmdisks_partition: "{{ lvm_vmdisks_device }}{{ lvm_vmdisks_partition_nr }}"
+    lvm_vmdisks_dirname: msz-vmdisks
     lvm_vmdisks_dirname_old: local-lvm
     lvm_vmdisks_pool_name: msz-main
     lvm_vmdisks_pool_name_old: data
+
   tasks:
-    - name: Single Disk Scenario
-      when: secondary_disk == ""
-      block:
-        - name: Check if the LVM-Thin pool already exists with the specified name
-          ansible.builtin.command:
-            cmd: lvs --noheadings -o lv_name | grep ^{{ lvm_vmdisks_pool_name_old }}
-          register: lv_thin_exists
-          changed_when: false
-          failed_when: lv_thin_exists.rc not in [0, 1]
+    - name: Ensure parted is installed on the target system
+      ansible.builtin.apt:
+        name: parted
+        state: present
+        update_cache: true
 
-        - name: If the LVM-Thin pool exists, remove Proxmox storage configuration for the LVM-Thin pool
-          ansible.builtin.command:
-            cmd: pvesm remove {{ lvm_vmdisks_dirname_old }}
-          when: lv_thin_exists.rc == 0 and lv_thin_exists.stdout.split()[0] != lvm_thin_pool_name
-          changed_when: false
+    - name: First, make sure the full space of the disk is available using parted.
+      community.general.parted:
+        resize: true
+        part_end: 100%
+        number: "{{ lvm_proxmox_partition_nr }}"
+        device: "{{ lvm_proxmox_device }}"
 
-        - name: Delete existing LVM-Thin pool if it doesn't match the specified name
-          ansible.builtin.command:
-            cmd: lvremove -f {{ volume_group_name }}/{{ lvm_vmdisks_pool_name }}
-          when: lv_thin_exists.rc == 0 and lv_thin_exists.stdout != lvm_vmdisks_pool_name
-          changed_when: false
+    - name: Check if the LVM-Thin pool already exists with the specified name
+      ansible.builtin.command:
+        cmd: "lvs --noheadings -o lv_name --select lv_name={{ lvm_vmdisks_pool_name_old }}"
+      register: lv_thin_exists
+      changed_when: false
+      failed_when: lv_thin_exists.rc not in [0, 1]
 
-        - name: Extend the regular LVM pool to the target size
-          community.general.lvol:
-            vg: "{{ volume_group_name }}"
-            lv: "root"
-            size: "{{ lvm_proxmox_pool_size }}"
-            resizefs: true
-          changed_when: false
+    - name: Remove spaces from the fact with the found LVM-Thin pool
+      ansible.builtin.set_fact:
+        lv_thin_exists: "{{ lv_thin_exists.stdout | trim }}"
 
-        - name: Create LVM-Thin pool with remaining space
-          community.general.lvol:
-            vg: "{{ volume_group_name }}"
-            lv: "{{ lvm_vmdisks_pool_name }}"
-            size: "100%FREE"
-            thinpool: true
-          when: lv_thin_exists.rc == 1 or lv_thin_exists.stdout == lvm_vmdisks_pool_name
-          changed_when: false
+    - name: If the LVM-Thin pool exists, remove Proxmox storage configuration for the LVM-Thin pool
+      ansible.builtin.command:
+        cmd: "pvesm remove {{ lvm_vmdisks_dirname_old }}"
+      when: lv_thin_exists != ""
+      changed_when: false
 
-        - name: Create filesystem on thin pool
-          community.general.filesystem:
-            fstype: ext4
-            dev: "/dev/{{ lvm_vmdisks_dirname_old }}/{{ lvm_vmdisks_pool_name }}"
-            resizefs: true
-          when: lv_thin_exists.rc == 1 or lv_thin_exists.stdout == lvm_vmdisks_pool_name
+    - name: Delete existing LVM-Thin pool if it doesn't match the specified name
+      ansible.builtin.command:
+        cmd: "lvremove -f {{ volume_group_name }}/{{ lvm_vmdisks_pool_name_old }}"
+      when: lv_thin_exists != ""
+      changed_when: false
 
-        - name: Create the Proxmox Storage configuration for the LVM-Thin pool
-          ansible.builtin.command:
-            cmd: pvesm add lvmthin {{ lvm_vmdisks_dirname }}
-          when: lv_thin_exists.rc == 1 or lv_thin_exists.stdout == lvm_vmdisks_pool_name
-          changed_when: false
+    - name: Check current physical volume size
+      ansible.builtin.command:
+        cmd: "pvs --noheadings -o pv_size --units B {{ lvm_proxmox_partition }}"
+      register: current_pv_size
+      changed_when: false
 
-    - name: Dual Disk Scenario
-      when: secondary_disk != ""
-      block:
-        - name: Check if the LVM-Thin pool already exists with the specified name
-          ansible.builtin.command:
-            cmd: lvs --noheadings -o lv_name | grep ^{{ lvm_vmdisks_pool_name }}
-          register: lv_thin_exists
-          changed_when: false
-          failed_when: lv_thin_exists.rc not in [0, 1]
+    - name: Check maximum physical volume size
+      ansible.builtin.command:
+        cmd: "pvs --noheadings -o pv_free --units B {{ lvm_proxmox_partition }}"
+      register: max_pv_size
+      changed_when: false
 
-        - name: Delete existing LVM-Thin pool if it doesn't match the specified name
-          ansible.builtin.command:
-            cmd: lvremove -f /dev/{{ lvm_vmdisks_pool_name }}/thinpool
-          when: lv_thin_exists.rc == 0 and lv_thin_exists.stdout != lvm_vmdisks_pool_name
-          changed_when: false
+    - name: Extend physical volume on for the root partition.
+      ansible.builtin.command:
+        cmd: "pvresize {{ lvm_proxmox_partition }}"
+      when: (current_pv_size.stdout | regex_replace('B', '') | int) < (max_pv_size.stdout | regex_replace('B', '') | int)
+      changed_when: false
 
-        - name: Extend LVM pool on the first disk to its full size
-          community.general.lvg:
-            vg: "{{ lvm_proxmox_pool_name | default('pve-os') }}"
-            pvs: "{{ primary_disk }}"
-          when: vg_free_pe.stdout | int > 0
-          changed_when: false
+    - name: Check current root volume size
+      ansible.builtin.command:
+        cmd: "lvs --noheadings -o lv_size --units B {{ volume_group_name }}/root"
+      register: current_lv_size
+      changed_when: false
 
-        - name: Extend logical volume
-          community.general.lvol:
-            vg: "{{ lvm_proxmox_pool_name | default('pve-os') }}"
-            lv: "data"
-            size: "100%FREE"
-          when: vg_free_pe.stdout | int > 0
-          changed_when: false
+    - name: Check maximum root volume size
+      ansible.builtin.command:
+        cmd: "vgs --noheadings -o vg_free --units B {{ volume_group_name }}"
+      register: max_lv_size
+      changed_when: false
 
-        - name: Resize filesystem
-          community.general.filesystem:
-            fstype: ext4
-            dev: "/dev/{{ lvm_proxmox_pool_name | default('pve-os') }}/data"
-            resizefs: true
-          when: vg_free_pe.stdout | int > 0
-          changed_when: false
+    - name: Extend the root volume after successfully extended the partition.
+      community.general.lvol:
+        vg: "{{ volume_group_name }}"
+        lv: "root"
+        size: "+100%FREE"
+        resizefs: true
+      when: (current_lv_size.stdout | regex_replace('B', '') | int) < (max_lv_size.stdout | regex_replace('B', '') | int)
+      changed_when: false
 
-        - name: Create LVM-Thin pool on the secondary disk
-          community.general.lvg:
-            vg: "{{ lvm_vmdisks_pool_name | default('pve-vm') }}"
-            pvs: "{{ secondary_disk }}"
-          when: lv_thin_exists.rc == 1 or lv_thin_exists.stdout == lvm_vmdisks_pool_name
-          changed_when: false
+    - name: Check if the LVM-Thin pool with the new target name already exists
+      ansible.builtin.command:
+        cmd: "lvs --noheadings -o lv_name --select lv_name={{ lvm_vmdisks_pool_name }}"
+      register: lv_thin_new_exists
+      changed_when: false
+      failed_when: lv_thin_new_exists.rc not in [0, 1]
 
-        - name: Create logical volume for thin pool
-          community.general.lvol:
-            vg: "{{ lvm_vmdisks_pool_name | default('pve-vm') }}"
-            lv: "thinpool"
-            size: "100%FREE"
-            thinpool: true
-          when: lv_thin_exists.rc == 1 or lv_thin_exists.stdout == "lvm_vmdisks_pool_name"
-          changed_when: false
+    - name: Remove spaces from the fact with the found LVM-Thin pool
+      ansible.builtin.set_fact:
+        lv_thin_new_exists: "{{ lv_thin_new_exists.stdout | trim }}"
 
-        - name: Create filesystem on thin pool
-          community.general.filesystem:
-            fstype: ext4
-            dev: "/dev/{{ lvm_vmdisks_pool_name | default('pve-vm') }}/data"
-            resizefs: true
-          when: lv_thin_exists.rc == 1 or lv_thin_exists.stdout == "lvm_vmdisks_pool_name"
-          changed_when: false
+    - name: Check if the target partition for the thin-pool exists
+      ansible.builtin.stat:
+        path: "{{ lvm_vmdisks_partition }}"
+      register: partition_stat
 
-    - name: Restart Proxmox services
-      ansible.builtin.systemd:
-        name: "{{ item }}"
-        state: restarted
-      with_items:
-        - pve-cluster
-        - pvedaemon
-        - pveproxy
+    - name: Get partition information before creating new partition
+      ansible.builtin.command:
+        cmd: "lsblk -o NAME,SIZE,TYPE -P {{ lvm_vmdisks_device }}"
+      register: lsblk_output
+      when: not partition_stat.stat.exists
+      changed_when: false
+
+    - name: Parse end of the last partition before creating new partition
+      ansible.builtin.set_fact:
+        last_partition_end: "{{ lsblk_output.stdout | regex_findall('SIZE=\"([^\"]+)\" TYPE=\"part\"') | last }}"
+      when: not partition_stat.stat.exists
+
+    - name: Create the LVM-Thin pool partition if it doesn't exist
+      community.general.parted:
+        state: present
+        device: "{{ lvm_vmdisks_device }}"
+        number: "{{ lvm_vmdisks_partition_nr }}"
+        label: gpt
+        part_start: "{{ last_partition_end }}"
+        part_end: "100%"
+      when: not partition_stat.stat.exists
+      changed_when: false
+
+    - name: Create physical volume if the partition did not exist.
+      ansible.builtin.command:
+        cmd: "pvcreate {{ lvm_vmdisks_partition }}"
+      when: not partition_stat.stat.exists
+      changed_when: false
+
+    - name: Create the volume group if it does not exist.
+      community.general.lvg:
+        vg: "{{ volume_group_name_vmdisk }}"
+        pvs: "{{ lvm_vmdisks_partition }}"
+        pvresize: true
+        state: present
+      when: not partition_stat.stat.exists
+
+    - name: Create LVM-Thin pool with remaining space
+      community.general.lvol:
+        vg: "{{ volume_group_name_vmdisk }}"
+        thinpool: "{{ lvm_vmdisks_pool_name }}"
+        pvs: "{{ lvm_vmdisks_partition }}"
+        size: "+100%FREE"
+        resizefs: true
+        state: present
+      when: lv_thin_new_exists == ""
+      changed_when: false
+
+    - name: Create filesystem on thin pool
+      community.general.filesystem:
+        fstype: ext4
+        dev: "/dev/{{ lvm_vmdisks_dirname_old }}/{{ lvm_vmdisks_pool_name }}"
+        resizefs: true
+      when: lv_thin_new_exists == ""
+
+    - name: Create the Proxmox Storage configuration for the LVM-Thin pool
+      ansible.builtin.command:
+        cmd: "pvesm add lvmthin {{ lvm_vmdisks_dirname }}"
+      when: lv_thin_new_exists == ""
+      changed_when: false

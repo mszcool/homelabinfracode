@@ -3,7 +3,7 @@
   hosts: "{{ param_proxmox_hosts | default('proxmox') }}"
   become: true
   vars:
-    proxmox_root_user: "{{ lookup('env', 'ANSIBLE_USER') | default('root') }}"
+    proxmox_root_user: "{{ lookup('env', 'ANSIBLE_USER') }}"
     rsa_publickey_root: "{{ param_publickey_root }}"
     repo_suites: "bookworm"
   tasks:
