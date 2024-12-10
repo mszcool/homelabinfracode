@@ -111,14 +111,29 @@
 
     - name: Get partition information before creating new partition
       ansible.builtin.command:
-        cmd: "lsblk -o NAME,SIZE,TYPE -P {{ lvm_vmdisks_device }}"
-      register: lsblk_output
+        cmd: "parted -m {{ lvm_vmdisks_device }} unit MiB --json print"
+      register: parted_output
       when: not partition_stat.stat.exists
       changed_when: false
 
     - name: Parse end of the last partition before creating new partition
       ansible.builtin.set_fact:
-        last_partition_end: "{{ lsblk_output.stdout | regex_findall('SIZE=\"([^\"]+)\" TYPE=\"part\"') | last }}"
+        last_partition_end: >-
+          {{
+            (parted_output.stdout | from_json).disk.partitions
+            | max(attribute='number')
+            | json_query('end')
+          }}
+      when: not partition_stat.stat.exists
+
+    - name: Increment the end of the last partition before creating the new one by 1
+      ansible.builtin.set_fact:
+        new_partition_begin: >
+          {{
+            (last_partition_end | regex_search('([0-9]+)') | int + 1)
+            | string
+            + (last_partition_end | regex_search('([A-Za-z]+)'))
+          }}
       when: not partition_stat.stat.exists
 
     - name: Create the LVM-Thin pool partition if it doesn't exist
@@ -127,7 +142,7 @@
         device: "{{ lvm_vmdisks_device }}"
         number: "{{ lvm_vmdisks_partition_nr }}"
         label: gpt
-        part_start: "{{ last_partition_end }}"
+        part_start: "{{ new_partition_begin }}"
         part_end: "100%"
       when: not partition_stat.stat.exists
       changed_when: false
@@ -157,15 +172,8 @@
       when: lv_thin_new_exists == ""
       changed_when: false
 
-    - name: Create filesystem on thin pool
-      community.general.filesystem:
-        fstype: ext4
-        dev: "/dev/{{ lvm_vmdisks_dirname_old }}/{{ lvm_vmdisks_pool_name }}"
-        resizefs: true
-      when: lv_thin_new_exists == ""
-
     - name: Create the Proxmox Storage configuration for the LVM-Thin pool
       ansible.builtin.command:
-        cmd: "pvesm add lvmthin {{ lvm_vmdisks_dirname }}"
+        cmd: "pvesm add lvmthin {{ lvm_vmdisks_dirname }} --vgname {{ volume_group_name_vmdisk }} --thinpool {{ lvm_vmdisks_pool_name }}"
       when: lv_thin_new_exists == ""
       changed_when: false
