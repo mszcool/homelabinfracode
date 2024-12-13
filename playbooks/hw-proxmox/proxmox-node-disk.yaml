@@ -7,16 +7,16 @@
     wipe_disk_if_not_root: false
     volume_group_name: pve
     volume_group_name_vmdisk: pve-main
+    lvm_vmdisks_dirname: msz-vmdisks
+    lvm_vmdisks_dirname_old: local-lvm
+    lvm_vmdisks_pool_name: msz-main
+    lvm_vmdisks_pool_name_old: data
     lvm_proxmox_device: /dev/sda
     lvm_proxmox_partition_nr: 3       # Partition for the root LVM pool sits, for single disk scenarios the same as for LVM thin pool.
     lvm_proxmox_partition: "{{ lvm_proxmox_device }}{{ lvm_proxmox_partition_nr }}"
     lvm_vmdisks_device: /dev/sdb
     lvm_vmdisks_partition_nr: 1  # Partition for the LVM-Thin pool defaults to the same as the regular LVM pool in default Proxmox setup.
     lvm_vmdisks_partition: "{{ lvm_vmdisks_device }}{{ lvm_vmdisks_partition_nr }}"
-    lvm_vmdisks_dirname: msz-vmdisks
-    lvm_vmdisks_dirname_old: local-lvm
-    lvm_vmdisks_pool_name: msz-main
-    lvm_vmdisks_pool_name_old: data
 
   tasks:
     - name: Ensure parted is installed on the target system
