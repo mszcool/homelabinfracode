@@ -3,22 +3,27 @@
   hosts: all
   become: true
 
+  # The Infra-As-Code configuration for all hosts are global variables in the inventory.
   vars:
-    wipe_disk_if_not_root: false
-    volume_group_name: pve
-    volume_group_name_vmdisk: pve-main
-    lvm_vmdisks_dirname: msz-vmdisks
-    lvm_vmdisks_dirname_old: local-lvm
-    lvm_vmdisks_pool_name: msz-main
-    lvm_vmdisks_pool_name_old: data
-    lvm_proxmox_device: /dev/sda
-    lvm_proxmox_partition_nr: 3       # Partition for the root LVM pool sits, for single disk scenarios the same as for LVM thin pool.
-    lvm_proxmox_partition: "{{ lvm_proxmox_device }}{{ lvm_proxmox_partition_nr }}"
-    lvm_vmdisks_device: /dev/sdb
-    lvm_vmdisks_partition_nr: 1  # Partition for the LVM-Thin pool defaults to the same as the regular LVM pool in default Proxmox setup.
-    lvm_vmdisks_partition: "{{ lvm_vmdisks_device }}{{ lvm_vmdisks_partition_nr }}"
+    pve_volume_group_name: "{{ volume_group_name }}"
+    pve_volume_group_name_vmdisk: "{{ volume_group_name_vmdisk }}"
+    pve_lvm_vmdisks_dirname: "{{ lvm_vmdisks_dirname }}"
+    pve_lvm_vmdisks_dirname_old: "{{ lvm_vmdisks_dirname_old }}"
+    pve_lvm_vmdisks_pool_name: "{{ lvm_vmdisks_pool_name }}"
+    pve_lvm_vmdisks_pool_name_old: "{{ lvm_vmdisks_pool_name_old }}"
 
+  # The Infra-As-Code configuration for the individual host are host variables in the inventory.
   tasks:
+    - name: Get Infra-As-Code configuration for the individual host.
+      ansible.builtin.set_fact:
+        pve_wipe_disk_if_not_root: "{{ hostvars[inventory_hostname].diskdata.wipe_disk_if_not_root }}"
+        pve_lvm_proxmox_device: "{{ hostvars[inventory_hostname].diskdata.lvm_proxmox_device }}"
+        pve_lvm_proxmox_partition_nr: "{{ hostvars[inventory_hostname].diskdata.lvm_proxmox_partition_nr }}"
+        pve_lvm_proxmox_partition: "{{ hostvars[inventory_hostname].diskdata.lvm_proxmox_partition }}"
+        pve_lvm_vmdisks_device: "{{ hostvars[inventory_hostname].diskdata.lvm_vmdisks_device }}"
+        pve_lvm_vmdisks_partition_nr: "{{ hostvars[inventory_hostname].diskdata.lvm_vmdisks_partition_nr }}"
+        pve_lvm_vmdisks_partition: "{{ hostvars[inventory_hostname].diskdata.lvm_vmdisks_partition }}"
+
     - name: Ensure parted is installed on the target system
       ansible.builtin.apt:
         name: parted
@@ -29,12 +34,12 @@
       community.general.parted:
         resize: true
         part_end: 100%
-        number: "{{ lvm_proxmox_partition_nr }}"
-        device: "{{ lvm_proxmox_device }}"
+        number: "{{ pve_lvm_proxmox_partition_nr }}"
+        device: "{{ pve_lvm_proxmox_device }}"
 
     - name: Check if the LVM-Thin pool already exists with the specified name
       ansible.builtin.command:
-        cmd: "lvs --noheadings -o lv_name --select lv_name={{ lvm_vmdisks_pool_name_old }}"
+        cmd: "lvs --noheadings -o lv_name --select lv_name={{ pve_lvm_vmdisks_pool_name_old }}"
       register: lv_thin_exists
       changed_when: false
       failed_when: lv_thin_exists.rc not in [0, 1]
@@ -45,72 +50,72 @@
 
     - name: If the LVM-Thin pool exists, remove Proxmox storage configuration for the LVM-Thin pool
       ansible.builtin.command:
-        cmd: "pvesm remove {{ lvm_vmdisks_dirname_old }}"
+        cmd: "pvesm remove {{ pve_lvm_vmdisks_dirname_old }}"
       when: lv_thin_exists != ""
       changed_when: false
 
     - name: Delete existing LVM-Thin pool if it doesn't match the specified name
       ansible.builtin.command:
-        cmd: "lvremove -f {{ volume_group_name }}/{{ lvm_vmdisks_pool_name_old }}"
+        cmd: "lvremove -f {{ pve_volume_group_name }}/{{ pve_lvm_vmdisks_pool_name_old }}"
       when: lv_thin_exists != ""
       changed_when: false
 
     - name: Check current physical volume size
       ansible.builtin.command:
-        cmd: "pvs --noheadings -o pv_size --units B {{ lvm_proxmox_partition }}"
+        cmd: "pvs --noheadings -o pv_size --units B {{ pve_lvm_proxmox_partition }}"
       register: current_pv_size
       changed_when: false
 
     - name: Check maximum physical volume size
       ansible.builtin.command:
-        cmd: "pvs --noheadings -o pv_free --units B {{ lvm_proxmox_partition }}"
+        cmd: "pvs --noheadings -o pv_free --units B {{ pve_lvm_proxmox_partition }}"
       register: max_pv_size
       changed_when: false
 
     - name: Extend physical volume on for the root partition.
       ansible.builtin.command:
-        cmd: "pvresize {{ lvm_proxmox_partition }}"
+        cmd: "pvresize {{ pve_lvm_proxmox_partition }}"
       when: (current_pv_size.stdout | regex_replace('B', '') | int) < (max_pv_size.stdout | regex_replace('B', '') | int)
       changed_when: false
 
     - name: Check current root volume size
       ansible.builtin.command:
-        cmd: "lvs --noheadings -o lv_size --units B {{ volume_group_name }}/root"
+        cmd: "lvs --noheadings -o lv_size --units B {{ pve_volume_group_name }}/root"
       register: current_lv_size
       changed_when: false
 
     - name: Check maximum root volume size
       ansible.builtin.command:
-        cmd: "vgs --noheadings -o vg_free --units B {{ volume_group_name }}"
+        cmd: "vgs --noheadings -o vg_free --units B {{ pve_volume_group_name }}"
       register: max_lv_size
       changed_when: false
 
     - name: Extend the root volume after successfully extended the partition.
       community.general.lvol:
-        vg: "{{ volume_group_name }}"
+        vg: "{{ pve_volume_group_name }}"
         lv: "root"
         size: "+100%FREE"
         resizefs: true
       when: (current_lv_size.stdout | regex_replace('B', '') | int) < (max_lv_size.stdout | regex_replace('B', '') | int)
       changed_when: false
 
-    - name: Wipe the disk for vm-disks if it is not the same as the main disk and wipe_disk_if_not_root is true
+    - name: Wipe the disk for vm-disks if it is not the same as the main disk and pve_wipe_disk_if_not_root is true
       ansible.builtin.command:
-        cmd: "wipefs -a {{ lvm_vmdisks_device }}"
-      when: wipe_disk_if_not_root and lvm_vmdisks_device != lvm_proxmox_device
-      changed_when: wipe_disk_if_not_root and lvm_vmdisks_device != lvm_proxmox_device
+        cmd: "wipefs -a {{ pve_lvm_vmdisks_device }}"
+      when: pve_wipe_disk_if_not_root and pve_lvm_vmdisks_device != pve_lvm_proxmox_device
+      changed_when: pve_wipe_disk_if_not_root and pve_lvm_vmdisks_device != pve_lvm_proxmox_device
       failed_when: false
 
-    - name: Delete all partitions for the vm-disks if it is not the same as the main disk and wipe_disk_if_not_root is true
+    - name: Delete all partitions for the vm-disks if it is not the same as the main disk and pve_wipe_disk_if_not_root is true
       ansible.builtin.command:
-        cmd: "parted {{ lvm_vmdisks_device }} rm N"
-      when: wipe_disk_if_not_root and lvm_vmdisks_device != lvm_proxmox_device
-      changed_when: wipe_disk_if_not_root and lvm_vmdisks_device != lvm_proxmox_device
+        cmd: "parted {{ pve_lvm_vmdisks_device }} rm N"
+      when: pve_wipe_disk_if_not_root and pve_lvm_vmdisks_device != pve_lvm_proxmox_device
+      changed_when: pve_wipe_disk_if_not_root and pve_lvm_vmdisks_device != pve_lvm_proxmox_device
       failed_when: false
 
     - name: Check if the LVM-Thin pool with the new target name already exists
       ansible.builtin.command:
-        cmd: "lvs --noheadings -o lv_name --select lv_name={{ lvm_vmdisks_pool_name }}"
+        cmd: "lvs --noheadings -o lv_name --select lv_name={{ pve_lvm_vmdisks_pool_name }}"
       register: lv_thin_new_exists
       changed_when: false
       failed_when: lv_thin_new_exists.rc not in [0, 1]
@@ -121,12 +126,12 @@
 
     - name: Check if the target partition for the thin-pool exists
       ansible.builtin.stat:
-        path: "{{ lvm_vmdisks_partition }}"
+        path: "{{ pve_lvm_vmdisks_partition }}"
       register: partition_stat
 
     - name: Get partition information before creating new partition
       ansible.builtin.command:
-        cmd: "parted -m {{ lvm_vmdisks_device }} unit MiB --json print"
+        cmd: "parted -m {{ pve_lvm_vmdisks_device }} unit MiB --json print"
       register: parted_output
       changed_when: false
 
@@ -161,8 +166,8 @@
     - name: Create the LVM-Thin pool partition if it doesn't exist
       community.general.parted:
         state: present
-        device: "{{ lvm_vmdisks_device }}"
-        number: "{{ lvm_vmdisks_partition_nr }}"
+        device: "{{ pve_lvm_vmdisks_device }}"
+        number: "{{ pve_lvm_vmdisks_partition_nr }}"
         label: gpt
         part_start: "{{ new_partition_begin }}"
         part_end: "100%"
@@ -170,36 +175,36 @@
 
     - name: Check if physical Proxmox volume exists
       ansible.builtin.command:
-        cmd: "pvs --noheadings -o pv_name {{ lvm_vmdisks_partition }}"
+        cmd: "pvs --noheadings -o pv_name {{ pve_lvm_vmdisks_partition }}"
       register: pv_check
       changed_when: false
       failed_when: false
 
     - name: Create physical volume if the partition did not exist.
       ansible.builtin.command:
-        cmd: "pvcreate {{ lvm_vmdisks_partition }}"
+        cmd: "pvcreate {{ pve_lvm_vmdisks_partition }}"
       when: pv_check.stdout == ""
       changed_when: false
 
     - name: Create the volume group if it does not exist.
       community.general.lvg:
-        vg: "{{ volume_group_name_vmdisk }}"
-        pvs: "{{ lvm_vmdisks_partition }}"
+        vg: "{{ pve_volume_group_name_vmdisk }}"
+        pvs: "{{ pve_lvm_vmdisks_partition }}"
         pvresize: true
         state: present
 
     - name: Create LVM-Thin pool with remaining space
       community.general.lvol:
-        vg: "{{ volume_group_name_vmdisk }}"
-        thinpool: "{{ lvm_vmdisks_pool_name }}"
-        pvs: "{{ lvm_vmdisks_partition }}"
+        vg: "{{ pve_volume_group_name_vmdisk }}"
+        thinpool: "{{ pve_lvm_vmdisks_pool_name }}"
+        pvs: "{{ pve_lvm_vmdisks_partition }}"
         size: "+100%FREE"
         resizefs: true
         state: present
       changed_when: false
 
     - name: Check if the storage is already registered with pvesm
-      ansible.builtin.shell: "pvesm status | grep -w '{{ lvm_vmdisks_dirname }}'"
+      ansible.builtin.shell: "pvesm status | grep -w '{{ pve_lvm_vmdisks_dirname }}'"
       register: pvesm_storage_check
       ignore_errors: true
       failed_when: false
@@ -207,6 +212,6 @@
 
     - name: Create the Proxmox Storage configuration for the LVM-Thin pool
       ansible.builtin.command:
-        cmd: "pvesm add lvmthin {{ lvm_vmdisks_dirname }} --vgname {{ volume_group_name_vmdisk }} --thinpool {{ lvm_vmdisks_pool_name }}"
+        cmd: "pvesm add lvmthin {{ pve_lvm_vmdisks_dirname }} --vgname {{ pve_volume_group_name_vmdisk }} --thinpool {{ pve_lvm_vmdisks_pool_name }}"
       changed_when: false
       when: pvesm_storage_check.rc != 0
