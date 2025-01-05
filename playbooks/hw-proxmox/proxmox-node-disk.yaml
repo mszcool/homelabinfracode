@@ -2,6 +2,7 @@
 - name: Setup Proxmox Disks for my servers. They have either 1 large disk or 1 small and one large disk.
   hosts: all
   become: true
+  remote_user: "{{ root_user }}"
 
   # The Infra-As-Code configuration for all hosts are global variables in the inventory.
   vars:

@@ -2,6 +2,8 @@
 - name: Baseline for each Proxmox node
   hosts: all
   become: true
+  gather_facts: false
+
   # This playbook uses global Infra-As-Code configuration variables for Proxmox hosts, only.
   vars:
     pve_root_user: "{{ root_user }}"
@@ -11,6 +13,13 @@
     - name: Set the SSH user name in case it is not the default.
       ansible.builtin.set_fact:
         ansible_user: "{{ pve_root_user }}"
+
+    - name: Write variables for debugging
+      ansible.builtin.debug:
+        msg: |
+          Root user: {{ pve_root_user }}
+          Public Key: {{ pve_root_publickey }}
+          Repo Suite: {{ pve_repo_suite }}
 
     - name: Deactive Enterprise Repo - Rename pve-enterprise.list to pve-enterprise.list.bak
       ansible.builtin.command:
