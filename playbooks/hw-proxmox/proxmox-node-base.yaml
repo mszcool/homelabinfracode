@@ -1,8 +1,9 @@
 ---
 - name: Baseline for each Proxmox node
-  hosts: all
+  hosts: proxmox
   become: true
-  gather_facts: false
+  gather_facts: true
+  remote_user: "{{ root_user }}"
 
   # This playbook uses global Infra-As-Code configuration variables for Proxmox hosts, only.
   vars:

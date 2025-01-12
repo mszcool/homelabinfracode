@@ -1,6 +1,6 @@
 ---
 - name: Setup Proxmox Disks for my servers. They have either 1 large disk or 1 small and one large disk.
-  hosts: all
+  hosts: proxmox
   become: true
   remote_user: "{{ root_user }}"
 

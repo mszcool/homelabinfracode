@@ -9,24 +9,26 @@ all:
     lvm_vmdisks_dirname_old: local-lvm
     lvm_vmdisks_pool_name: local-main
     lvm_vmdisks_pool_name_old: data
-  hosts:
-    10.10.0.2:
-      hostname: mszpvetest1
-      diskdata:
-        wipe_disk_if_not_root: false
-        lvm_proxmox_device: /dev/sda
-        lvm_proxmox_partition_nr: 3       # Partition for the root LVM pool sits, for single disk scenarios the same as for LVM thin pool.
-        lvm_proxmox_partition: "/dev/sda3"
-        lvm_vmdisks_device: /dev/sda
-        lvm_vmdisks_partition_nr: 4  # Partition for the LVM-Thin pool defaults to the same as the regular LVM pool in default Proxmox setup.
-        lvm_vmdisks_partition: "/dev/sda4"
-    10.10.0.3:
-      hostname: mszpvetest2
-      diskdata:
-        wipe_disk_if_not_root: false
-        lvm_proxmox_device: /dev/sda
-        lvm_proxmox_partition_nr: 3       # Partition for the root LVM pool sits, for single disk scenarios the same as for LVM thin pool.
-        lvm_proxmox_partition: "/dev/sda3"
-        lvm_vmdisks_device: /dev/sdb
-        lvm_vmdisks_partition_nr: 1  # Partition for the LVM-Thin pool defaults to the same as the regular LVM pool in default Proxmox setup.
-        lvm_vmdisks_partition: "/dev/sdb1"
+  children:
+    proxmox:
+      hosts:
+        10.10.0.2:
+          hostname: mszpvetest1
+          diskdata:
+            wipe_disk_if_not_root: false
+            lvm_proxmox_device: /dev/sda
+            lvm_proxmox_partition_nr: 3       # Partition for the root LVM pool sits, for single disk scenarios the same as for LVM thin pool.
+            lvm_proxmox_partition: "/dev/sda3"
+            lvm_vmdisks_device: /dev/sda
+            lvm_vmdisks_partition_nr: 4  # Partition for the LVM-Thin pool defaults to the same as the regular LVM pool in default Proxmox setup.
+            lvm_vmdisks_partition: "/dev/sda4"
+        10.10.0.3:
+          hostname: mszpvetest2
+          diskdata:
+            wipe_disk_if_not_root: false
+            lvm_proxmox_device: /dev/sda
+            lvm_proxmox_partition_nr: 3       # Partition for the root LVM pool sits, for single disk scenarios the same as for LVM thin pool.
+            lvm_proxmox_partition: "/dev/sda3"
+            lvm_vmdisks_device: /dev/sdb
+            lvm_vmdisks_partition_nr: 1  # Partition for the LVM-Thin pool defaults to the same as the regular LVM pool in default Proxmox setup.
+            lvm_vmdisks_partition: "/dev/sdb1"
