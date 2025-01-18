@@ -6,58 +6,94 @@
   remote_user: "{{ root_user }}"
 
   vars:
-    api_token_duration: 30  # Duration in days
+    pve_api_user: "{{ api_user.name }}"
+    pve_proxmox_realm: "{{ api_user.realm }}"
+    pve_api_user_password: "{{ lookup('env', api_user.password_env) }}"
+    pve_api_token_id: "{{ api_user.token_id }}"
+    pve_api_token_duration: "{{ api_user.expires_in_days }}"
+    pve_api_token_permissions: >
+      VM.PowerMgmt,VM.Config.Disk,VM.Config.CDROM,VM.Config.CPU,VM.Config.HWType,
+      VM.Config.Memory,VM.Config.Network,VM.Config.Options,VM.Monitor,VM.Console,
+      Datastore.AllocateSpace,Datastore.Audit,VM.Audit,Pool.Audit,Sys.Modify
 
   tasks:
     - name: Check if the user exists
-      command: pveum user list
+      ansible.builtin.command:
+        cmd: pveum user list
       register: user_list
+      changed_when: false
 
     - name: Create a Proxmox user if not exists
-      command: pveum useradd {{ api_user }}@{{ proxmox_realm }} -comment 'User for API token' -password {{ api_user_password }}
-      when: "'{{ api_user }}@{{ proxmox_realm }}' not in user_list.stdout"
+      ansible.builtin.command:
+        cmd: pveum useradd {{ pve_api_user }}@{{ pve_proxmox_realm }} -comment 'User for API token' -password {{ api_user_password }}
+      when: "'{}@{}'.format(pve_api_user, pve_proxmox_realm) not in user_list.stdout"
       register: result_user
+      changed_when: result_user is defined and result_user.rc == 0
+      failed_when: result_user is defined and result_user.rc != 0
 
     - name: Ensure user was created or already exists
-      debug:
+      ansible.builtin.debug:
         var: result_user
+      changed_when: false
 
     - name: Check if API token exists
-      command: pveum user token list {{ api_user }}@{{ proxmox_realm }}
+      ansible.builtin.command:
+        cmd: pveum user token list {{ pve_api_user }}@{{ pve_proxmox_realm }}
       register: token_list
+      changed_when: false
 
     - name: Get current date
-      command: date +%s
+      ansible.builtin.command:
+        cmd: date +%s
       register: current_date
+      changed_when: false
 
     - name: Check if API token is expired
-      command: |
-        token_expiry=$(pveum user token info {{ api_user }}@{{ proxmox_realm }} {{ tokenid }} | grep 'expire:' | awk '{print $2}')
-        if [ ! -z "$token_expiry" ] && [ "$token_expiry" -le "$(($(date +%s) - 60 * 60 * 24 * {{ api_token_duration }}))" ]; then
+      ansible.builtin.shell: |
+        set -o pipefail
+        token_expiry=$(pveum user token info {{ pve_api_user }}@{{ pve_proxmox_realm }} {{ pve_api_token_id }} | grep 'expire:' | awk '{print $2}')
+        if [ ! -z "$token_expiry" ] && [ "$token_expiry" -le "$(($(date +%s) - 60 * 60 * 24 * {{ pve_api_token_duration }}))"; then
           echo "expired"
         else
           echo "valid"
         fi
+      args:
+        executable: /bin/bash
       register: token_expiry_status
-      when: "'{{ tokenid }}' in token_list.stdout"
+      when: pve_api_token_id in token_list.stdout
+      changed_when: false
 
     - name: Delete expired API token
-      command: pveum user token del {{ api_user }}@{{ proxmox_realm }} {{ tokenid }}
+      ansible.builtin.command:
+        cmd: pveum user token del {{ pve_api_user }}@{{ pve_proxmox_realm }} {{ pve_api_token_id }}
       when: token_expiry_status.stdout == "expired"
+      register: result_token_del
+      changed_when: result_token_del is defined and result_token_del.rc == 0
 
     - name: Create API token
-      command: pveum user token add {{ api_user }}@{{ proxmox_realm }} {{ tokenid }} --expire $(date -d @$(($(date +%s) + 60 * 60 * 24 * {{ api_token_duration }})) +%Y-%m-%dT%H:%M:%SZ)
-      when: "'{{ tokenid }}' not in token_list.stdout or token_expiry_status.stdout == 'expired'"
+      ansible.builtin.command:
+        cmd: |
+          pveum user token add {{ pve_api_user }}@{{ pve_proxmox_realm }} {{ pve_api_token_id }} \
+          --expire $(date -d @$(($(date +%s) + 60 * 60 * 24 * {{ pve_api_token_duration }})) +%Y-%m-%dT%H:%M:%SZ)
+      when: pve_api_token_id not in token_list.stdout or token_expiry_status.stdout == 'expired'
       register: result_token
+      changed_when: result_token is defined and result_token.rc == 0
 
     - name: Ensure API token was created
-      debug:
+      ansible.builtin.debug:
         var: result_token
+      changed_when: false
 
     - name: Assign permissions for the API token
-      command: pveum aclmod / -role 'VM.PowerMgmt,VM.Config.Disk,VM.Config.CDROM,VM.Config.CPU,VM.Config.HWType,VM.Config.Memory,VM.Config.Network,VM.Config.Options,VM.Monitor,VM.Console,Datastore.AllocateSpace,Datastore.Audit,VM.Audit,Pool.Audit,Sys.Modify' -user {{ api_user }}@{{ proxmox_realm }}
+      ansible.builtin.command:
+        cmd: |
+          pveum aclmod / \
+          -role '{{ pve_api_token_permissions }}' \
+          -user '{{ pve_api_user }}@{{ pve_proxmox_realm }}'
       register: result_acl
+      changed_when: result_acl is defined and result_acl.rc == 0
 
     - name: Ensure permissions were assigned
-      debug:
+      ansible.builtin.debug:
         var: result_acl
+      changed_when: false
