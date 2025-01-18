@@ -1,0 +1,63 @@
+---
+- name: Create a Proxmox API token for automated VM and container creation.
+  hosts: proxmox
+  become: true
+  gather_facts: true
+  remote_user: "{{ root_user }}"
+
+  vars:
+    api_token_duration: 30  # Duration in days
+
+  tasks:
+    - name: Check if the user exists
+      command: pveum user list
+      register: user_list
+
+    - name: Create a Proxmox user if not exists
+      command: pveum useradd {{ api_user }}@{{ proxmox_realm }} -comment 'User for API token' -password {{ api_user_password }}
+      when: "'{{ api_user }}@{{ proxmox_realm }}' not in user_list.stdout"
+      register: result_user
+
+    - name: Ensure user was created or already exists
+      debug:
+        var: result_user
+
+    - name: Check if API token exists
+      command: pveum user token list {{ api_user }}@{{ proxmox_realm }}
+      register: token_list
+
+    - name: Get current date
+      command: date +%s
+      register: current_date
+
+    - name: Check if API token is expired
+      command: |
+        token_expiry=$(pveum user token info {{ api_user }}@{{ proxmox_realm }} {{ tokenid }} | grep 'expire:' | awk '{print $2}')
+        if [ ! -z "$token_expiry" ] && [ "$token_expiry" -le "$(($(date +%s) - 60 * 60 * 24 * {{ api_token_duration }}))" ]; then
+          echo "expired"
+        else
+          echo "valid"
+        fi
+      register: token_expiry_status
+      when: "'{{ tokenid }}' in token_list.stdout"
+
+    - name: Delete expired API token
+      command: pveum user token del {{ api_user }}@{{ proxmox_realm }} {{ tokenid }}
+      when: token_expiry_status.stdout == "expired"
+
+    - name: Create API token
+      command: pveum user token add {{ api_user }}@{{ proxmox_realm }} {{ tokenid }} --expire $(date -d @$(($(date +%s) + 60 * 60 * 24 * {{ api_token_duration }})) +%Y-%m-%dT%H:%M:%SZ)
+      when: "'{{ tokenid }}' not in token_list.stdout or token_expiry_status.stdout == 'expired'"
+      register: result_token
+
+    - name: Ensure API token was created
+      debug:
+        var: result_token
+
+    - name: Assign permissions for the API token
+      command: pveum aclmod / -role 'VM.PowerMgmt,VM.Config.Disk,VM.Config.CDROM,VM.Config.CPU,VM.Config.HWType,VM.Config.Memory,VM.Config.Network,VM.Config.Options,VM.Monitor,VM.Console,Datastore.AllocateSpace,Datastore.Audit,VM.Audit,Pool.Audit,Sys.Modify' -user {{ api_user }}@{{ proxmox_realm }}
+      register: result_acl
+
+    - name: Ensure permissions were assigned
+      debug:
+        var: result_acl
