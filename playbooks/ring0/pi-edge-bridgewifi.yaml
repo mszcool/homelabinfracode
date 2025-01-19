@@ -140,13 +140,13 @@
 
     - name: Edge Access Point - Configure hostapd incl. wpa passphrase
       template:
-        src: ./templates/create-edge-multiwifi-hostapd.j2
+        src: ./pi-edge-templates/create-edge-multiwifi-hostapd.j2
         dest: /etc/hostapd/hostapd.conf
         mode: 0644
 
     - name: Edge Access Point - Start hostapd service with custom configuration
       template:
-        src: ./templates/create-edge-multiwifi-hostapd.service.j2
+        src: ./pi-edge-templates/create-edge-multiwifi-hostapd.service.j2
         dest: /etc/systemd/system/hostapd.service
         mode: 0644
 
@@ -202,7 +202,7 @@
 
     - name: Reboot Workaround - Create hostapd-restart systemd service
       template:
-        src: ./templates/create-edge-multiwifi-hostapd-restart.j2
+        src: ./pi-edge-templates/create-edge-multiwifi-hostapd-restart.j2
         dest: /etc/systemd/system/hostapd-restart.service
         mode: '0644'
 
