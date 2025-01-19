@@ -1,0 +1,64 @@
+---
+- name: Configure Proxmox networking devices, addresses and hostname.
+  hosts: proxmox
+  become: true
+  gather_facts: true
+  remote_user: "{{ root_user }}"
+
+  vars:
+    pve_localdomain: "{{ localdomain }}"
+    pve_hostip: "{{ inventory_hostname }}"
+    pve_hostname: "{{ hostvars[inventory_hostname].hostname }}"
+    pve_main_interface: "{{ hostvars[inventory_hostname].network.main_interface }}"
+    pve_ext_interface: "{{ hostvars[inventory_hostname].network.ext_interface }}"
+
+  tasks:
+    - name: Remove vmbr0 configuration which exists by default on Proxmox.
+      community.general.interfaces_file:
+        dest: /etc/network/interfaces
+        iface: "vmbr0"
+        state: absent
+
+    - name: Configure network interfaces using templates.
+      ansible.builtin.template:
+        src: ./proxmox-node-templates/network-interfaces.j2
+        dest: /etc/network/interfaces
+        owner: root
+        group: root
+        mode: '0644'
+
+    - name: Set the hostname.
+      ansible.builtin.hostname:
+        name: "{{ pve_hostname }}"
+
+    - name: Update /etc/hostname
+      ansible.builtin.copy:
+        dest: /etc/hostname
+        content: "{{ pve_hostname }}\n"
+        owner: root
+        group: root
+        mode: '0644'
+
+    - name: Update /etc/hosts
+      ansible.builtin.lineinfile:
+        path: /etc/hosts
+        regexp: "^{{ pve_hostip }}\\s+"
+        line: "{{ pve_hostip }} {{ pve_hostname }}.{{ pve_localdomain }} {{ pve_hostname }}"
+
+    - name: Update Postfix myhostname
+      ansible.builtin.lineinfile:
+        path: /etc/postfix/main.cf
+        regexp: '^myhostname ='
+        line: 'myhostname = {{ pve_hostname }}.{{ pve_localdomain }}'
+
+    - name: Restart Postfix
+      ansible.builtin.systemd:
+        name: postfix
+        state: restarted
+        enabled: true
+    
+    - name: Restart networking
+      ansible.builtin.systemd:
+        name: networking
+        state: restarted
+        enabled: true
