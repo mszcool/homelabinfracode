@@ -1,0 +1,77 @@
+all:
+  vars:
+    localdomain: mszlocal
+    timezone: "Etc/UTC"
+    language: "en_US"
+    admin_user:
+      name: "admin"
+      password_env: "admin_password"
+      ssh_pubkey: "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQCg0Y6vbXyN0q70R2Wkl6HhrH3GoE8163Uv19xFSmMrLJ2bFtzpGttlJ8tpHFWIh4eIKss0oq5TydCUC0p2c5v48Oj318y4CO9EBTtPafgzHyz6PkvBqL6uFv8NN8TvLZdwMaKdEpdVDLB+WD8dXqf+fPe8atY2YbIkd5XDIE1wjvjrA8Br6iSjNcaIW4jpsUNWKufEM+zkiYyVrTEIn/AMCA2E2eCJCasSq3sj/8R5ujJqTFxjo46XGhbjbsx4QRDzkApJVyKeA5+zv6DoRyBEFOmZ6MQjMqtPPtdtZwflRZ8GMKyRTMqgmnG0N6CFsd5aIHZ2plZljHF82U3LaX1D"
+    automation_user:
+      name: "automation"
+      password_env: "automation_password"
+      ssh_pubkey: "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQCg0Y6vbXyN0q70R2Wkl6HhrH3GoE8163Uv19xFSmMrLJ2bFtzpGttlJ8tpHFWIh4eIKss0oq5TydCUC0p2c5v48Oj318y4CO9EBTtPafgzHyz6PkvBqL6uFv8NN8TvLZdwMaKdEpdVDLB+WD8dXqf+fPe8atY2YbIkd5XDIE1wjvjrA8Br6iSjNcaIW4jpsUNWKufEM+zkiYyVrTEIn/AMCA2E2eCJCasSq3sj/8R5ujJqTFxjo46XGhbjbsx4QRDzkApJVyKeA5+zv6DoRyBEFOmZ6MQjMqtPPtdtZwflRZ8GMKyRTMqgmnG0N6CFsd5aIHZ2plZljHF82U3LaX1D"
+    dhcp_server_config:
+      address_pools:
+        - name: "lan"
+          from: "10.10.0.100"
+          to: "10.10.0.255"
+        - name: "vlan-test"
+          from: "10.10.90.100"
+          to: "10.10.90.200"
+      static_mappings:
+        - name: "ProxmoxTest1"
+          mac: "00:15:5D:63:A6:06"
+          ip: "10.10.0.2"
+        - name: "ProxmoxTest2"
+          mac: "00:15:5D:63:A6:07"
+          ip: "10.10.0.3"
+    firewall_rules:
+      - interface: wan
+        rules:
+          - name: "Block all incoming"
+            ip_version: "ipv4"
+            action: "block"
+            direction: "in"
+            protocol: "*"
+            source: "*"
+            sourcePort: "*"
+            destination: "*"
+            destinationPort: "*"
+            log: true
+          - name: "Allow SSH in to test-gateway node"
+            ip_version: "ipv4"
+            action: "pass"
+            direction: "in"
+            protocol: "tcp"
+            source: "*"
+            sourcePort: "*"
+            destination: "10.10.0.1"
+            destinationPort: "22"
+      - interface: lan
+        rules:
+          - name: "Allow all outgoing (v4)"
+            ip_version: "ipv4"
+            action: "pass"
+            direction: "out"
+            protocol: "*"
+            source: "*"
+            sourcePort: "*"
+            destination: "*"
+            destinationPort: "*"
+            log: true
+  children:
+    networking:
+      hosts:
+        10.10.0.1:
+          hostname: maininternetrouter
+          wan_interface:
+            name: wan
+            interface: hn0
+            ipaddr: "dhcp"
+            ipaddrv6: "dhcp6"
+          lan_interface: 
+            name: lan
+            interface: hn1
+            ipaddr: "10.10.0.1"
+            subnet: "24"
