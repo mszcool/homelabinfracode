@@ -1,4 +1,7 @@
+# ansible-galaxy collection install -r ansible-requirements.yaml
 ---
 collections:
   - name: community.general
     version: 10.2.0
+  - name: pfsensible.core
+    version: 0.6.1

@@ -11,7 +11,24 @@ all:
       name: "automation"
       password_env: "automation_password"
       ssh_pubkey: "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQCg0Y6vbXyN0q70R2Wkl6HhrH3GoE8163Uv19xFSmMrLJ2bFtzpGttlJ8tpHFWIh4eIKss0oq5TydCUC0p2c5v48Oj318y4CO9EBTtPafgzHyz6PkvBqL6uFv8NN8TvLZdwMaKdEpdVDLB+WD8dXqf+fPe8atY2YbIkd5XDIE1wjvjrA8Br6iSjNcaIW4jpsUNWKufEM+zkiYyVrTEIn/AMCA2E2eCJCasSq3sj/8R5ujJqTFxjo46XGhbjbsx4QRDzkApJVyKeA5+zv6DoRyBEFOmZ6MQjMqtPPtdtZwflRZ8GMKyRTMqgmnG0N6CFsd5aIHZ2plZljHF82U3LaX1D"
+    devices_mapped:
+      - alias: "ProxmoxTest1"
+        dns_name: "mszpvetest1"
+        static_dhcp:
+          mac: "00:15:5D:63:A6:06"
+          ip: "10.10.0.2"
+      - alias: "ProxmoxTest2"
+        dns_name: "mszpvetest2"
+        static_dhcp:
+          mac: "00:15:5D:63:A6:07"
+          ip: "10.10.0.3"
     dhcp_server_config:
+      default_lease_in_seconds: 300
+      max_lease_in_seconds: 7200
+      dns_servers:
+        - "10.10.0.1"
+        - "10.10.0.10"
+        - "10.10.0.11"
       address_pools:
         - name: "lan"
           from: "10.10.0.100"
@@ -19,13 +36,6 @@ all:
         - name: "vlan-test"
           from: "10.10.90.100"
           to: "10.10.90.200"
-      static_mappings:
-        - name: "ProxmoxTest1"
-          mac: "00:15:5D:63:A6:06"
-          ip: "10.10.0.2"
-        - name: "ProxmoxTest2"
-          mac: "00:15:5D:63:A6:07"
-          ip: "10.10.0.3"
     firewall_rules:
       - interface: wan
         rules:
@@ -46,7 +56,16 @@ all:
             protocol: "tcp"
             source: "*"
             sourcePort: "*"
-            destination: "10.10.0.1"
+            destination: "mszpvetest1"
+            destinationPort: "22"
+            log: true
+        nat_port_forward_rules:
+          - name: "Inbound to SSH gateway node"
+            ip_version: "ipv4"
+            protocol: "tcp"
+            source: "*"
+            sourcePort: "*"
+            destination: "mszpvetest1"
             destinationPort: "22"
       - interface: lan
         rules:
@@ -60,6 +79,47 @@ all:
             destination: "*"
             destinationPort: "*"
             log: true
+          - name: "Allow all outgoing (v6)"
+            ip_version: "ipv6"
+            action: "pass"
+            direction: "out"
+            protocol: "*"
+            source: "*"
+            sourcePort: "*"
+            destination: "*"
+            destinationPort: "*"
+            log: true
+    site_vpn_config:
+      - name: "local-to-local"
+        enabled: true
+        mode: ike2
+        peer:
+          name: "remote-site"
+          ip: "172.27.152.10/32"
+        ipsec:
+          encryption: aes256
+          integrity: sha256
+          dh_group: ecp384
+          enc_algorithm: aes256
+          hash_algorithm: sha256
+          prf_algorithm: sha256
+          nat_traversal: true
+          lifetime: 28800
+      - name: "azure-vpn"
+        enabled: true
+        mode: ike2
+        peer:
+          name: "Azure"
+          ip: "20.126.58.44/32"
+        ipsec:
+          encryption: aes256
+          integrity: sha256
+          dh_group: ecp384
+          enc_algorithm: aes256
+          hash_algorithm: sha256
+          prf_algorithm: sha256
+          nat_traversal: true
+          lifetime: 28800
   children:
     networking:
       hosts:
