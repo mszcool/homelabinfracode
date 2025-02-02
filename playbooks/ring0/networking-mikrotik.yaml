@@ -1,0 +1,9 @@
+---
+- name: Networking setup for devices (DNS names, static address assignments etc.) for Mikrotik.
+  hosts: networking
+  become: true
+  gather_facts: false
+  remote_user: "{{ root_user }}"
+
+  tasks:
+  

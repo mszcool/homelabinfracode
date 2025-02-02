@@ -1,0 +1,21 @@
+---
+- name: Networking setup for devices (DNS names, static address assignments etc.) for pfSense.
+  hosts: networking
+  become: true
+  gather_facts: false
+  remote_user: "{{ root_user }}"
+
+  tasks:
+    - name: Set the python interpreter for pfsense.
+      ansible.builtin.set_fact:
+        ansible_python_interpreter: /usr/local/bin/python3.11
+
+    - name: Create the static DHCP mappings for the devices of the network configuration
+      pfsensible.core.pfsense_dhcp_static:
+        name: "{{ item.alias }}"
+        macaddr: "{{ item.static_dhcp.mac }}"
+        ipaddr: "{{ item.static_dhcp.ip }}"
+        state: present
+      loop: "{{ devices_mapped }}"
+      loop_control:
+        label: "{{ item.alias }}"
