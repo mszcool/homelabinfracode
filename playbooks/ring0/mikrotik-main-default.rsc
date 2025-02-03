@@ -64,6 +64,10 @@ add name=$lanInterfaceName comment="default configuration / local bridge interfa
 }
 
 /interface list member
+:local existingMembers [/interface list member find]
+:foreach member in=$existingMembers do={
+    /interface list member remove $member
+}
 :if ([:len [/interface list member find interface=$lanInterfaceName list=$lanInterfaceList]] = 0) do={
     add interface=$lanInterfaceName list=$lanInterfaceList comment="default configuration / add LAN bridge to LAN interface list"
 }
@@ -74,32 +78,32 @@ add name=$lanInterfaceName comment="default configuration / local bridge interfa
 # Set the default firewall rules which allow outbound traffic for LAN and block all inbound traffic from WAN.
 :put "Configuring default firewall rules"
 /ip firewall filter
-:if ([:len [/ip firewall filter print where chain=input action=accept connection-state="established,related"]] = 0) do={
-    add priority=1 chain=input action=accept connection-state=established,related comment="default configuration / allow established and related connections"
+:if ([:len [/ip firewall filter find where comment~"default_300"]] = 0) do={
+    add chain=input action=accept connection-state=established,related comment="default_300 / allow established and related connections"
 }
-:if ([:len [/ip firewall filter print where chain=input action=accept in-interface-list=$lanInterfaceList protocol=icmp]] = 0) do={
-    add priority=2 chain=input action=accept in-interface-list=$lanInterfaceList protocol=icmp comment="default configuration / allow ICMP traffic from all except WAN"
+:if ([:len [/ip firewall filter find where comment~"default_310"]] = 0) do={
+    add chain=input action=accept in-interface-list=$lanInterfaceList protocol=icmp comment="default_310 / allow ICMP traffic from all except WAN"
 }
-:if ([:len [/ip firewall filter print where chain=input action=accept dst-address=127.0.0.1 in-interface=$loopbackInterfaceName]] = 0) do={
-    add priority=3 chain=input action=accept dst-address=127.0.0.1 in-interface=$loopbackInterfaceName comment="default configuration / allow traffic to the router itself (for CAPsMAN)"
+:if ([:len [/ip firewall filter find where comment~"default_320"]] = 0) do={
+    add chain=input action=accept dst-address=127.0.0.1 in-interface=$loopbackInterfaceName comment="default_320 / allow traffic to the router itself (for CAPsMAN)"
 }
-:if ([:len [/ip firewall filter print where chain=forward action=accept connection-state="established,related"]] = 0) do={
-    add priority=4 chain=forward action=accept connection-state=established,related comment="default configuration / allow established and related connections"
+:if ([:len [/ip firewall filter find where comment~"default_330"]] = 0) do={
+    add chain=forward action=accept connection-state=established,related comment="default_330 / allow established and related connections"
 }
-:if ([:len [/ip firewall filter print where chain=forward action=accept out-interface-list=$wanInterfaceList]] = 0) do={
-    add priority=5 chain=forward action=accept out-interface-list=$wanInterfaceList comment="default configuration / allow all outbound traffic from LAN"
+:if ([:len [/ip firewall filter find where comment~"default_340"]] = 0) do={
+    add chain=forward action=accept out-interface-list=$wanInterfaceList comment="default_340 / allow all outbound traffic from LAN"
 }
-:if ([:len [/ip firewall filter print where chain=forward action=drop connection-state=invalid]] = 0) do={
-    add priority=6 chain=forward action=drop connection-state=invalid comment="default configuration / drop invalid connections"
+:if ([:len [/ip firewall filter find where comment~"default_500"]] = 0) do={
+    add chain=input action=drop in-interface-list=$wanInterfaceList comment="default_500 / drop all inbound traffic from WAN"
 }
-:if ([:len [/ip firewall filter print where chain=forward action=drop connection-nat-state=!dstnat connection-state=new in-interface-list=$wanInterfaceList]] = 0) do={
-    add priority=7 chain=forward action=drop connection-nat-state=!dstnat connection-state=new in-interface-list=$wanInterfaceList comment="default configuration / drop all new connections from WAN without destination NAT"
+:if ([:len [/ip firewall filter find where comment~"default_510"]] = 0) do={
+    add chain=input action=drop in-interface-list="!$lanInterfaceList" comment="default_510 / drop all inbound traffic not from LAN"
 }
-:if ([:len [/ip firewall filter print where chain=input action=drop comment="default configuration / drop all inbound traffic from WAN"]] = 0) do={
-    add priority=8 chain=input action=drop comment="default configuration / drop all inbound traffic from WAN"
+:if ([:len [/ip firewall filter find where comment~"default_520"]] = 0) do={
+    add chain=forward action=drop connection-state=invalid comment="default_520 / drop invalid connections"
 }
-:if ([:len [/ip firewall filter print where chain=input action=drop comment="default configuration / drop all traffic not coming from LAN"]] = 0) do={
-    add priority=9 chain=input action=drop comment="default configuration / drop all traffic not coming from LAN"
+:if ([:len [/ip firewall filter find where comment~"default_530"]] = 0) do={
+    add chain=forward action=drop connection-nat-state=!dstnat connection-state=new in-interface-list=$wanInterfaceList comment="default_530 / drop all new connections from WAN without destination NAT"
 }
 
 # Disable insecure services.
