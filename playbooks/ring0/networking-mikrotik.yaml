@@ -1,9 +1,28 @@
 ---
 - name: Networking setup for devices (DNS names, static address assignments etc.) for Mikrotik.
-  hosts: networking
-  become: true
+  hosts: localhost
+  become: false
   gather_facts: false
-  remote_user: "{{ root_user }}"
+
+  vars:
+    param_router_name: "{{ hostsConfig['10.10.0.1'].hostname }}"
+    param_router_time_zone: "{{ timezone }}"
+    param_wan_interface_list: "{{ hostsConfig['10.10.0.1'].wan_interface_list }}"
+    param_lan_interface_list: "{{ hostsConfig['10.10.0.1'].lan_interface_list }}"
+    param_loopback_interface_name: "{{ hostsConfig['10.10.0.1'].loopback_interface_name }}"
+    param_wan_interface_name: "{{ hostsConfig['10.10.0.1'].wan_interface.interface }}"
+    param_lan_interface_bridge_name: "{{ hostsConfig['10.10.0.1'].lan_interface.bridge }}"
+    param_lan_interface_members: "{{ hostsConfig['10.10.0.1'].lan_interface.interface }}"
+    param_lan_interface_bridge_ip_address: "{{ hostsConfig['10.10.0.1'].lan_interface.ipaddr }}"
+    param_firewall_rule_groups: "{{ firewall_rules }}"
 
   tasks:
-  
+    - name: Get the current user running the playbook
+      ansible.builtin.set_fact:
+        current_user: "{{ lookup('env', 'USER') }}"
+
+    - name: Create Mikrotik bootstrap script file. Copy this on your RouterOS target and execute there without any changes!
+      ansible.builtin.template:
+        src: networking-templates/mikrotik-main-default.rsc.j2
+        dest: "/home/{{ current_user }}/{{ param_router_name }}-bootstrap-script.rsc"
+        mode: "0644"

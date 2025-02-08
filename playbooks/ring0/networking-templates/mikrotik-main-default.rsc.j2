@@ -1,0 +1,132 @@
+#
+# Default configuration for a new Mikrotik router.
+# This part of the configuration needs to be done before automation with Ansible can start
+# from remote configuration hosts. Use Winbox with MAC-based access to configure the router
+# and copy & paste these contents to the router Terminal, or upload it as script to the router.
+#
+
+:local routerHostName "{{ param_router_name }}"
+:local routerTimeZone "{{ param_router_time_zone }}"
+:local wanInterfaceList "{{ param_wan_interface_list }}"
+:local lanInterfaceList "{{ param_lan_interface_list }}"
+:local loopbackInterfaceName "{{ param_loopback_interface_name }}"
+:local wanInterfaceName "{{ param_wan_interface_name }}"
+:local lanInterfaceName "{{ param_lan_interface_bridge_name }}"
+:local lanInterfaceMembers "{{ param_lan_interface_members }}"
+:local lanBridgeAddress "{{ param_lan_interface_bridge_ip_address }}"
+
+#
+# First, set the hostname and time zone.
+#
+:put "Setting hostname and time zone"
+/system identity set name=$routerHostName
+/system clock set time-zone-name=$routerTimeZone
+
+#
+# Now configure DHCP for the WAN interface.
+#
+:put "Configuring DHCP for WAN interface"
+:if ([:len [/ip dhcp-client find interface=$wanInterfaceName]] > 0) do={
+    /ip dhcp-client remove [find interface=$wanInterfaceName]
+}
+/ip dhcp-client add interface=$wanInterfaceName disabled=no default-route-distance=5 comment="default / DHCP client for WAN"
+
+#
+# Now configure the LAN bridge-interface with all members.
+#
+:put "Configuring LAN bridge interface and members"
+/interface bridge
+:if ([:len [/interface bridge find name=$lanInterfaceName]] > 0) do={
+    :local bridgePorts [/interface bridge port find bridge=$lanInterfaceName]
+    :foreach port in=$bridgePorts do={
+        /interface bridge port remove $port
+    }
+    /interface bridge remove [find name=$lanInterfaceName]
+}
+add name=$lanInterfaceName comment="default / local bridge interface"
+/interface bridge port
+:local interfaceArray [:toarray $lanInterfaceMembers]
+:foreach i in=$interfaceArray do={
+  :local interfaceName $i
+  add bridge=$lanInterfaceName interface=$interfaceName
+}
+
+#
+# Configure the static IP for the LAN bridge interface.
+#
+:put "Configuring static IP for LAN bridge interface"
+:local bridgeIpAddress "$lanBridgeAddress/24"
+:if ([:len [/ip address find address=$bridgeIpAddress]] > 0) do={
+    /ip address remove [find address=$bridgeIpAddress]
+}
+/ip address add address=$bridgeIpAddress interface=$lanInterfaceName comment="default / LAN bridge address"
+
+#
+# Configure the interface lists for LAN and WAN
+#
+:put "Configuring interface lists for LAN and WAN"
+/interface list
+:if ([:len [/interface list find name=$wanInterfaceList]] = 0) do={
+    add name=$wanInterfaceList comment="default / WAN interface list"
+}
+:if ([:len [/interface list find name=$lanInterfaceList]] = 0) do={
+    add name=$lanInterfaceList comment="default / LAN interface list"
+}
+
+/interface list member
+:local existingMembers [/interface list member find]
+:foreach member in=$existingMembers do={
+    /interface list member remove $member
+}
+:if ([:len [/interface list member find interface=$lanInterfaceName list=$lanInterfaceList]] = 0) do={
+    add interface=$lanInterfaceName list=$lanInterfaceList comment="default / add LAN bridge to LAN interface list"
+}
+:if ([:len [/interface list member find interface=$wanInterfaceName list=$wanInterfaceList]] = 0) do={
+    add interface=$wanInterfaceName list=$wanInterfaceList comment="default / add LAN bridge to WAN interface list"
+}
+
+#
+# Set the default firewall rules which allow outbound traffic for LAN and block all inbound traffic from WAN.
+#
+:put "Configuring default firewall rules"
+/ip firewall filter
+{%- for paramRuleGroup in param_firewall_rule_groups %}
+{% if paramRuleGroup.required_for_blank_setup == true %}
+
+remove [find where comment~"{{ paramRuleGroup.comment }}"]
+add chain=input action=passthrough comment="*** {{ paramRuleGroup.comment }} -- {{ paramRuleGroup.name }} ***"
+{% for paramRule in paramRuleGroup.filter_rules %}
+
+remove [find where comment~"{{ paramRule.comment }}"]
+add chain={{ paramRule.direction }} action={{ paramRule.action }} comment="{{ paramRule.comment }} -- {{ paramRule.name }}"
+{%- if paramRule.srcAddress is defined and '*' not in paramRule.srcAddress %} src-address={{ paramRule.srcAddress }}{%- endif -%}
+{%- if paramRule.destAddress is defined and '*' not in paramRule.destAddress %} dst-address={{ paramRule.destAddress }}{%- endif -%}
+{%- if paramRule.srcPort is defined and '*' not in paramRule.srcPort %} src-port={{ paramRule.srcPort }}{%- endif -%}
+{%- if paramRule.destPort is defined and '*' not in paramRule.destPort %} dst-port={{ paramRule.destPort }}{%- endif -%}
+{%- if paramRule.protocol is defined and '*' not in paramRule.protocol %} protocol={{ paramRule.protocol }}{%- endif -%}
+{%- if paramRule.connectionState is defined and '*' not in paramRule.connectionState %} connection-state={{ paramRule.connectionState }}{%- endif -%}
+{%- if paramRule.connectionNatState is defined and '*' not in paramRule.connectionNatState %} connection-nat-state={{ paramRule.connectionNatState }}{%- endif -%}
+{%- if paramRule.inInterface is defined and '*' not in paramRule.inInterface %} in-interface={{ paramRule.inInterface }}{%- endif -%}
+{%- if paramRule.outInterface is defined and '*' not in paramRule.outInterface %} out-interface={{ paramRule.outInterface }}{%- endif -%}
+{%- if paramRule.inInterfaceList is defined and '*' not in paramRule.inInterfaceList %} in-interface-list={{ paramRule.inInterfaceList }}{%- endif -%}
+{%- if paramRule.outInterfaceList is defined and '*' not in paramRule.outInterfaceList %} out-interface-list={{ paramRule.outInterfaceList }}{%- endif -%}
+{%- if paramRule.srcAddressList is defined and '*' not in paramRule.srcAddressList %} src-address-list={{ paramRule.srcAddressList }}{%- endif -%}
+{%- if paramRule.destAddressList is defined and '*' not in paramRule.destAddressList %} dst-address-list={{ paramRule.destAddressList }}{%- endif -%}
+{% endfor %}
+{% endif %}
+
+{% endfor %}
+
+#
+# Currently no support for IPv6, hence drop all packets
+#
+/ipv6 firewall filter
+add chain=output action=drop 
+add chain=forward action=drop
+add chain=input action=drop
+
+#
+# Disable insecure services.
+#
+:put "Disabling insecure services, setting up SSL will follow in ring1 with GitOps"
+/ip service disable telnet,ftp
