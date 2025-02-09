@@ -3,12 +3,15 @@ all:
     localdomain: mszlocal
     timezone: "Etc/UTC"
     language: "en_US"
-    root_user: "admin"
-    additional_users:
-      - automation_user:
+    users:
+      root:
+        name: "admin"
+        password_env: "ROOT_PWD"
+        ssh_key: "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQCg0Y6vbXyN0q70R2Wkl6HhrH3GoE8163Uv19xFSmMrLJ2bFtzpGttlJ8tpHFWIh4eIKss0oq5TydCUC0p2c5v48Oj318y4CO9EBTtPafgzHyz6PkvBqL6uFv8NN8TvLZdwMaKdEpdVDLB+WD8dXqf+fPe8atY2YbIkd5XDIE1wjvjrA8Br6iSjNcaIW4jpsUNWKufEM+zkiYyVrTEIn/AMCA2E2eCJCasSq3sj/8R5ujJqTFxjo46XGhbjbsx4QRDzkApJVyKeA5+zv6DoRyBEFOmZ6MQjMqtPPtdtZwflRZ8GMKyRTMqgmnG0N6CFsd5aIHZ2plZljHF82U3LaX1D"
+      automation:
         name: "automation"
-        password_env: "automation_password"
-        ssh_pubkey: "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQCg0Y6vbXyN0q70R2Wkl6HhrH3GoE8163Uv19xFSmMrLJ2bFtzpGttlJ8tpHFWIh4eIKss0oq5TydCUC0p2c5v48Oj318y4CO9EBTtPafgzHyz6PkvBqL6uFv8NN8TvLZdwMaKdEpdVDLB+WD8dXqf+fPe8atY2YbIkd5XDIE1wjvjrA8Br6iSjNcaIW4jpsUNWKufEM+zkiYyVrTEIn/AMCA2E2eCJCasSq3sj/8R5ujJqTFxjo46XGhbjbsx4QRDzkApJVyKeA5+zv6DoRyBEFOmZ6MQjMqtPPtdtZwflRZ8GMKyRTMqgmnG0N6CFsd5aIHZ2plZljHF82U3LaX1D"
+        password_env: "AUTOM_PWD"
+        ssh_key: "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQCg0Y6vbXyN0q70R2Wkl6HhrH3GoE8163Uv19xFSmMrLJ2bFtzpGttlJ8tpHFWIh4eIKss0oq5TydCUC0p2c5v48Oj318y4CO9EBTtPafgzHyz6PkvBqL6uFv8NN8TvLZdwMaKdEpdVDLB+WD8dXqf+fPe8atY2YbIkd5XDIE1wjvjrA8Br6iSjNcaIW4jpsUNWKufEM+zkiYyVrTEIn/AMCA2E2eCJCasSq3sj/8R5ujJqTFxjo46XGhbjbsx4QRDzkApJVyKeA5+zv6DoRyBEFOmZ6MQjMqtPPtdtZwflRZ8GMKyRTMqgmnG0N6CFsd5aIHZ2plZljHF82U3LaX1D"
     devices_mapped:
       - alias: "ProxmoxTest1"
         dns_name: "mszpvetest1"
@@ -274,4 +277,3 @@ all:
     networking:
       hosts:
         10.10.0.1
-

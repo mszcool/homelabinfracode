@@ -14,6 +14,13 @@
 :local lanInterfaceName "{{ param_lan_interface_bridge_name }}"
 :local lanInterfaceMembers "{{ param_lan_interface_members }}"
 :local lanBridgeAddress "{{ param_lan_interface_bridge_ip_address }}"
+:local automationUserName "{{ param_automation_user_name }}"
+:local automationUserPassword "{{ param_automation_user_password }}"
+:local automationUserSshPubKey "{{ param_automation_user_ssh_pub_key }}"
+:local rootUserName "{{ param_root_user_name }}"
+:local rootUserPassword "{{ param_root_user_password }}"
+:local rootUserSshPubKey "{{ param_root_user_ssh_pub_key }}"
+:local scriptFileName "{{ param_script_file_name }}"
 
 #
 # First, set the hostname and time zone.
@@ -21,6 +28,42 @@
 :put "Setting hostname and time zone"
 /system identity set name=$routerHostName
 /system clock set time-zone-name=$routerTimeZone
+
+#
+# Set the root user password and SSH key.
+#
+:put "Setting root user password and SSH key"
+/user
+:local uid [find name=$rootUserName]
+set $uid password=$rootUserPassword;
+:log info ("User " . $rootUserName . " password updated.");
+
+/user/ssh-keys
+:foreach key in=[find user=$rootUserName] do={
+    remove $key;
+}
+add user=$rootUserName key=$rootUserSshPubKey;
+
+#
+# Add the user that is used for automation.
+#
+:put "Adding automation user.."
+/user
+:local uid [find name=$automationUserName]
+:if ([:len $uid] = 0) do={
+    add name=$automationUserName group=full password=$automationUserPassword;
+    :log info ("User " . $automationUserName . " added.");
+} else={
+    set $uid password=$automationUserPassword;
+    :log info ("User " . $automationUserName . " password updated.");
+}
+
+/user/ssh-keys
+:foreach key in=[find user=$automationUserName] do={
+    remove $key;
+}
+add user=$automationUserName key=$automationUserSshPubKey;
+:log info ("SSH key for user " . $automationUserName . " has been set to the new key.");
 
 #
 # Now configure DHCP for the WAN interface.
@@ -130,3 +173,11 @@ add chain=input action=drop
 #
 :put "Disabling insecure services, setting up SSL will follow in ring1 with GitOps"
 /ip service disable telnet,ftp
+
+#
+# Self-delete the script file
+#
+:put "Deleting script file"
+:do {
+/file remove [find where name="$scriptFileName" || name="flash/$scriptFileName"]
+} on-error={:log error "Unable to delete Config Script File..."};

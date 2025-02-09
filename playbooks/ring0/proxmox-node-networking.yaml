@@ -56,7 +56,7 @@
         name: postfix
         state: restarted
         enabled: true
-    
+
     - name: Restart networking
       ansible.builtin.systemd:
         name: networking
