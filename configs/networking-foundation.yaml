@@ -34,9 +34,11 @@ all:
         - name: "lan"
           from: "10.10.0.100"
           to: "10.10.0.255"
+          interface: "lanBridge"
         - name: "vlan-test"
           from: "10.10.90.100"
           to: "10.10.90.200"
+          interface: "vlan-test"
     firewall_rules:
       - name: "Custom rules for the home network"
         required_for_blank_setup: false

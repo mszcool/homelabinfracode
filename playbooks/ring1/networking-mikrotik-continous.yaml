@@ -1,0 +1,49 @@
+---
+- name: Networking continuous setup for Mikrotik router with firewall rules, devices, DNS registrations etc.
+  hosts: networking
+  become: false
+  gather_facts: false
+  remote_user: "{{ users.automation.name }}"
+
+  vars:
+    ansible_connection: ansible.netcommon.network_cli
+    ansible_network_os: community.network.routeros
+    param_firewall_rule_groups: "{{ firewall_rules }}"
+    param_devices_mapped: "{{ devices_mapped }}"
+    param_dhcp_server_config: "{{ dhcp_server_config }}"
+    param_site_vpn_config: "{{ site_vpn_config }}"
+
+  tasks:
+    - name: Information -- Let user know which system-wide packages to install
+      ansible.builtin.debug:
+        msg: "Please install system-wide python packages with 'sudo apt install python3-paramiko'"
+
+    - name: DHCP-Server -- Create or update address pools on the RouterOS target.
+      community.routeros.command:
+        commands:
+          - >
+            :if ([:len [/ip pool find where name={{ item.name }}]] > 0) do={
+              /ip pool set [find where name={{ item.name }}] ranges="{{ item.from }}-{{ item.to }}"
+            } else={
+              /ip pool add name={{ item.name }} ranges="{{ item.from }}-{{ item.to }}"
+            }
+      loop: "{{ param_dhcp_server_config.address_pools }}"
+      loop_control:
+        label: "{{ item.name }}"
+
+    - name: DHCP-Server -- Create or update DHCP-Server configuration on the RouterOS target.
+      community.routeros.command:
+        commands:
+          - >
+            :if ([:len [/ip dhcp-server find where name="dhcp-server-{{ item.name }}"]] > 0) do={
+              /ip dhcp-server set [find where name="dhcp-sever-{{ item.name }}"] \
+              lease-time={{ param_dhcp_server_config.default_lease_in_seconds }}s \
+              interface={{ item.interface }} address-pool={{ item.name }}
+            } else={
+              /ip dhcp-server add name="dhcp-server-{{ item.name }}" \
+              lease-time={{ param_dhcp_server_config.default_lease_in_seconds }}s \
+              interface={{ item.interface }} address-pool={{ item.name }}
+            }
+      loop: "{{ param_dhcp_server_config.address_pools }}"
+      loop_control:
+        label: "{{ item.name }}"
