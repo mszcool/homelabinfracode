@@ -3,18 +3,18 @@
   hosts: all
   become: true
   gather_facts: false
-  remote_user: "{{ lookup('env', 'USE_SSH_USER_NAME') }}"
-  pre_tasks:
-    # First, check if the user environment variable is state:
-    - include_tasks: ../../tasklib/checkuserenv-tasks.yaml
+  remote_user: "{{ root_user }}"
+
   tasks:
     # First, do a regular machine update/upgrade
-    - include_tasks: ../../tasklib/upgrade-tasks.yaml
+    - name: Update and upgrade machine
+      ansible.builtin.import_playbook:
+        file: upgrade-machines.yaml
 
     # Now, install the pre-requisite packages on the machine
     # Skipping update_cache because it was done with the update/upgrade task
     - name: Install pre-requisites for the machine
-      apt:
+      ansible.builtin.apt:
         name: "{{ item }}"
         state: present
         update_cache: true
@@ -26,7 +26,7 @@
 
     # Now configure the firewall to allow HTTPS, HTTP, and SSH in, but nothing else
     - name: Allow HTTPS, HTTP, and SSH through the firewall
-      ufw:
+      community.general.ufw:
         rule: allow
         port: '{{ item }}'
         proto: tcp
@@ -37,6 +37,6 @@
         - '6443'
 
     - name: Enable UFW firewall
-      ufw:
+      community.general.ufw:
         state: enabled
         policy: deny
