@@ -13,21 +13,14 @@ all:
         password_env: "AUTOM_PWD"
         ssh_key: "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQCg0Y6vbXyN0q70R2Wkl6HhrH3GoE8163Uv19xFSmMrLJ2bFtzpGttlJ8tpHFWIh4eIKss0oq5TydCUC0p2c5v48Oj318y4CO9EBTtPafgzHyz6PkvBqL6uFv8NN8TvLZdwMaKdEpdVDLB+WD8dXqf+fPe8atY2YbIkd5XDIE1wjvjrA8Br6iSjNcaIW4jpsUNWKufEM+zkiYyVrTEIn/AMCA2E2eCJCasSq3sj/8R5ujJqTFxjo46XGhbjbsx4QRDzkApJVyKeA5+zv6DoRyBEFOmZ6MQjMqtPPtdtZwflRZ8GMKyRTMqgmnG0N6CFsd5aIHZ2plZljHF82U3LaX1D"
     vlans:
-      - name: "vlan-test"
+      - name: "vlan-test-1"
         id: 90
         description: "Test VLAN"
         subnet: "10.20.0.0/24"
-    devices_mapped:
-      - alias: "ProxmoxTest1"
-        dns_name: "mszpvetest1"
-        static_dhcp:
-          mac: "00:15:5D:63:A6:06"
-          ip: "10.10.0.2"
-      - alias: "ProxmoxTest2"
-        dns_name: "mszpvetest2"
-        static_dhcp:
-          mac: "00:15:5D:63:A6:07"
-          ip: "10.10.0.3"
+      - name: "vlan-test-2"
+        id: 91
+        description: "Test VLAN"
+        subnet: "10.30.0.0/24"
     dhcp_server_config:
       default_lease_in_seconds: 300
       max_lease_in_seconds: 7200
@@ -44,26 +37,60 @@ all:
           from: "10.10.90.100"
           to: "10.10.90.200"
           interface: "vlan-test"
+    devices_mapped:
+      - alias: "ProxmoxTest1"
+        dns_name: "mszpvetest1"
+        static_dhcp:
+          mac: "00:15:5D:63:A6:06"
+          ip: "10.10.0.2"
+      - alias: "ProxmoxTest2"
+        dns_name: "mszpvetest2"
+        static_dhcp:
+          mac: "00:15:5D:63:A6:07"
+          ip: "10.10.0.3"
     firewall_rules:
       - name: "Custom rules for the home network"
+        comment: "custom_100"
         required_for_blank_setup: false
         filter_rules:
           - name: "Allow SSH In"
-            interface: "wan"
-            direction: "in"
-            action: "pass"
+            direction: "input"
+            action: "accept"
+            comment: "custom_105"
+            srcAddress: "*"
+            destAddress: "*"
+            srcPort: "*"
+            destPort: "2022"
             protocol: "tcp"
-            source: "*"
-            sourcePort: "*"
-            destination: "*"
-            destinationPort: "8822"
+            connectionState: "*"
+            connectionNatState: "*"
+            inInterface: "wan"
+            outInterface: "*"
+            inInterfaceList: "*"
+            outInterfaceList: "*"
+            srcAddressList: "*"
+            destAddressList: "*"
+            log: false
         inbound_nat_rules:
           - name: "Inbound to SSH gateway node"
+            direction: "dstnat"
+            action: "dst-nat"
+            comment: "custom_nat_105"
+            srcAddress: "*"
+            destAddress: "*"
+            srcPort: "*"
+            destPort: "*"
             protocol: "tcp"
-            source: "*"
-            sourcePort: "8822"
-            destination: "mszpvetest1"
-            destinationPort: "22"
+            localTargetAddress: "10.10.0.2"
+            localTargetPort: "22"
+            inInterface: "*"
+            outInterface: "*"
+            inInterfaceList: "wan"
+            outInterfaceList: "*"
+            srcAddressList: "*"
+            destAddressList: "*"
+            ipSecPolicy: "*"
+            log: false
       - name: "Defaults for allowing internet connections from LAN"
         comment: "default_500"
         required_for_blank_setup: true
@@ -157,6 +184,26 @@ all:
             outInterfaceList: "wan"
             srcAddressList: "*"
             destAddressList: "*"
+            log: false
+        inbound_nat_rules:
+          - name: "Masquerade everything outgoing"
+            direction: "srcnat"
+            action: "masquerade"
+            comment: "default_nat_505"
+            srcAddress: "*"
+            destAddress: "*"
+            srcPort: "*"
+            destPort: "*"
+            protocol: "*"
+            localTargetAddress: "*"
+            localTargetPort: "*"
+            inInterface: "*"
+            outInterface: "*"
+            inInterfaceList: "*"
+            outInterfaceList: "wan"
+            srcAddressList: "*"
+            destAddressList: "*"
+            ipSecPolicy: "out,none"
             log: false
       - name: "Drop all remaining traffic"
         comment: "default_900"

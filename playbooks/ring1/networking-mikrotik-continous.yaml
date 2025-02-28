@@ -14,9 +14,37 @@
     param_site_vpn_config: "{{ site_vpn_config }}"
 
   tasks:
-    - name: Information -- Let user know which system-wide packages to install
-      ansible.builtin.debug:
-        msg: "Please install system-wide python packages with 'sudo apt install python3-paramiko'"
+    - name: Prepare localhost -- install python3-paramiko on host.
+      ansible.builtin.apt:
+        name: python3-paramiko
+        state: present
+      delegate_to: localhost
+
+    - name: VLAN -- Create or update VLAN interfaces on the RouterOS target.
+      community.routeros.command:
+        commands:
+          - >
+            :if ([:len [/interface vlan find where name={{ item.name }}]] > 0) do={
+              /interface vlan set [find where name={{ item.name }}] vlan-id={{ item.id }} comment="{{ item.description }}"
+            } else={
+              /interface vlan add name={{ item.name }} vlan-id={{ item.id }} comment="{{ item.description }}" interface=ether1
+            }
+      loop: "{{ vlans }}"
+      loop_control:
+        label: "{{ item.name }}"
+
+    - name: VLAN-IP -- Create or update IP addresses on the VLAN interfaces.
+      community.routeros.command:
+        commands:
+          - >
+            :if ([:len [/ip address find where interface={{ item.name }}]] > 0) do={
+              /ip address set [find where interface={{ item.name }}] address={{ item.subnet }} comment="{{ item.description }}"
+            } else={
+              /ip address add address={{ item.subnet }} interface={{ item.name }} comment="{{ item.description }}"
+            }
+      loop: "{{ vlans }}"
+      loop_control:
+        label: "{{ item.name }}"
 
     - name: DHCP-Server -- Create or update address pools on the RouterOS target.
       community.routeros.command:
@@ -47,3 +75,101 @@
       loop: "{{ param_dhcp_server_config.address_pools }}"
       loop_control:
         label: "{{ item.name }}"
+
+    - name: Devices -- Create or update static DHCP leases for mapped devices.
+      community.routeros.command:
+        commands:
+          - >
+            :if ([:len [/ip dhcp-server lease find where mac-address={{ item.static_dhcp.mac }}]] > 0) do={
+              /ip dhcp-server lease set [find where mac-address={{ item.static_dhcp.mac }}] address={{ item.static_dhcp.ip }} comment="{{ item.alias }}"
+            } else={
+              /ip dhcp-server lease add mac-address={{ item.static_dhcp.mac }} address={{ item.static_dhcp.ip }} comment="{{ item.alias }}"
+            }
+      loop: "{{ devices_mapped }}"
+      loop_control:
+        label: "{{ item.alias }}"
+
+    - name: Devices -- Create or update static DNS entries for mapped devices.
+      community.routeros.command:
+        commands:
+          - >
+            :if ([:len [/ip dns static find where name={{ item.dns_name }}]] > 0) do={
+              /ip dns static set [find where name={{ item.dns_name }}] address={{ item.static_dhcp.ip }} ttl=1d comment="{{ item.alias }}"
+            } else={
+              /ip dns static add name={{ item.dns_name }} address={{ item.static_dhcp.ip }} ttl=1d comment="{{ item.alias }}"
+            }
+      loop: "{{ devices_mapped }}"
+      loop_control:
+        label: "{{ item.alias }}"
+
+    - name: Firewall Filter -- Create or update firewall filter rules on the RouterOS target.
+      community.routeros.command:
+        commands:
+          - >
+            :local grp_comment "{{ item.0.comment | default(item.0.name) }}";
+            :local rule_comment "{{ item.1.comment | default(item.1.name) }}";
+            :local full_comment "($grp_comment . " -- " . $rule_comment)";
+            :if ([:len [/ip firewall filter find where comment~=$full_comment]] > 0) do={
+              /ip firewall filter set [find where comment~=$full_comment] chain={{ item.1.direction }} action={{ item.1.action }}
+              {%- if item.1.protocol is defined and item.1.protocol != "*" %} protocol={{ item.1.protocol }}{%- endif %}
+              {%- if item.1.srcAddress is defined and item.1.srcAddress != "*" %} src-address={{ item.1.srcAddress }}{%- endif %}
+              {%- if item.1.destination is defined and item.1.destination != "*" %} dst-address={{ item.1.destination }}{%- endif %}
+              {%- if item.1.sourcePort is defined and item.1.sourcePort != "*" %} src-port={{ item.1.sourcePort }}{%- endif %}
+              {%- if item.1.destinationPort is defined and item.1.destinationPort != "*" %} dst-port={{ item.1.destinationPort }}{%- endif %}
+              {%- if item.1.connectionState is defined and item.1.connectionState != "*" %} connection-state={{ item.1.connectionState }}{%- endif %}
+              {%- if item.1.connectionNatState is defined and item.1.connectionNatState != "*" %} \
+                connection-nat-state={{ item.1.connectionNatState }}{%- endif %}
+              {%- if item.1.inInterface is defined and item.1.inInterface != "*" %} in-interface={{ item.1.inInterface }}{%- endif %}
+              {%- if item.1.outInterface is defined and item.1.outInterface != "*" %} out-interface={{ item.1.outInterface }}{%- endif %}
+              {%- if item.1.inInterfaceList is defined and item.1.inInterfaceList != "*" %} in-interface-list={{ item.1.inInterfaceList }}{%- endif %}
+              {%- if item.1.outInterfaceList is defined and item.1.outInterfaceList != "*" %} out-interface-list={{ item.1.outInterfaceList }}{%- endif %}
+              {%- if item.1.srcAddressList is defined and item.1.srcAddressList != "*" %} src-address-list={{ item.1.srcAddressList }}{%- endif %}
+              {%- if item.1.destAddressList is defined and item.1.destAddressList != "*" %} dst-address-list={{ item.1.destAddressList }}{%- endif %}
+              {%- if item.1.log is defined %} log={{ "yes" if item.1.log else "no" }}{%- endif %}
+            } else={
+              /ip firewall filter add chain={{ item.1.direction }} action={{ item.1.action }} comment=$full_comment
+              {%- if item.1.protocol is defined and item.1.protocol != "*" %} protocol={{ item.1.protocol }}{%- endif %}
+              {%- if item.1.srcAddress is defined and item.1.srcAddress != "*" %} src-address={{ item.1.srcAddress }}{%- endif %}
+              {%- if item.1.destination is defined and item.1.destination != "*" %} dst-address={{ item.1.destination }}{%- endif %}
+              {%- if item.1.sourcePort is defined and item.1.sourcePort != "*" %} src-port={{ item.1.sourcePort }}{%- endif %}
+              {%- if item.1.destinationPort is defined and item.1.destinationPort != "*" %} dst-port={{ item.1.destinationPort }}{%- endif %}
+              {%- if item.1.connectionState is defined and item.1.connectionState != "*" %} connection-state={{ item.1.connectionState }}{%- endif %}
+              {%- if item.1.connectionNatState is defined and item.1.connectionNatState != "*" %} \
+                connection-nat-state={{ item.1.connectionNatState }}{%- endif %}
+              {%- if item.1.inInterface is defined and item.1.inInterface != "*" %} in-interface={{ item.1.inInterface }}{%- endif %}
+              {%- if item.1.outInterface is defined and item.1.outInterface != "*" %} out-interface={{ item.1.outInterface }}{%- endif %}
+              {%- if item.1.inInterfaceList is defined and item.1.inInterfaceList != "*" %} in-interface-list={{ item.1.inInterfaceList }}{%- endif %}
+              {%- if item.1.outInterfaceList is defined and item.1.outInterfaceList != "*" %} out-interface-list={{ item.1.outInterfaceList }}{%- endif %}
+              {%- if item.1.srcAddressList is defined and item.1.srcAddressList != "*" %} src-address-list={{ item.1.srcAddressList }}{%- endif %}
+              {%- if item.1.destAddressList is defined and item.1.destAddressList != "*" %} dst-address-list={{ item.1.destAddressList }}{%- endif %}
+              {%- if item.1.log is defined %} log={{ "yes" if item.1.log else "no" }}{%- endif %}
+            }
+      loop: "{{ firewall_rules | subelements('filter_rules') }}"
+      loop_control:
+        label: "{{ item.0.name }} -- {{ item.1.name }}"
+
+    - name: Firewall NAT -- Create or update inbound NAT rules on the RouterOS target.
+      community.routeros.command:
+        commands:
+          - >
+            :set grp_comment="{{ item.0.comment | default(item.0.name) }}";
+            :set rule_comment="{{ item.1.comment | default(item.1.name) }}";
+            :set full_comment=($grp_comment . " -- " . $rule_comment);
+            :if ([:len [/ip firewall nat find where comment~=$full_comment]] > 0) do={
+              /ip firewall nat set [find where comment~=$full_comment] chain=dstnat action=dst-nat
+              {%- if item.1.protocol is defined and item.1.protocol != "*" %} protocol={{ item.1.protocol }}{%- endif %}
+              {%- if item.1.source is defined and item.1.source != "*" %} src-address={{ item.1.source }}{%- endif %}
+              {%- if item.1.sourcePort is defined and item.1.sourcePort != "*" %} src-port={{ item.1.sourcePort }}{%- endif %}
+              {%- if item.1.destination is defined and item.1.destination != "*" %} dst-address={{ item.1.destination }}{%- endif %}
+              {%- if item.1.destinationPort is defined and item.1.destinationPort != "*" %} dst-port={{ item.1.destinationPort }}{%- endif %}
+            } else={
+              /ip firewall nat add chain=dstnat action=dst-nat comment=$full_comment
+              {%- if item.1.protocol is defined and item.1.protocol != "*" %} protocol={{ item.1.protocol }}{%- endif %}
+              {%- if item.1.source is defined and item.1.source != "*" %} src-address={{ item.1.source }}{%- endif %}
+              {%- if item.1.sourcePort is defined and item.1.sourcePort != "*" %} src-port={{ item.1.sourcePort }}{%- endif %}
+              {%- if item.1.destination is defined and item.1.destination != "*" %} dst-address={{ item.1.destination }}{%- endif %}
+              {%- if item.1.destinationPort is defined and item.1.destinationPort != "*" %} dst-port={{ item.1.destinationPort }}{%- endif %}
+            }
+      loop: "{{ firewall_rules | subelements('inbound_nat_rules') }}"
+      loop_control:
+        label: "{{ item.0.name }} -- {{ item.1.name }}"
