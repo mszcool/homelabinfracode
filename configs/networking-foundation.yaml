@@ -281,6 +281,20 @@ all:
           ipaddr: "10.10.0.1"
           subnet: "24"
   children:
-    networking:
+    mainrouter:
       hosts:
         10.10.0.1
+    piwifiaccesspoint:
+      hosts:
+        10.10.0.5:
+          main_adapter: eth0
+          edge_wifi_adapter: wlan0
+          edge_local_wifi_name: piwifitest
+          edge_bridge_name: br0
+          edge_fw_allowed_ports:
+            - "80"
+            - "443"
+            - "67"
+            - "68"
+            - "53"
+            - "22"

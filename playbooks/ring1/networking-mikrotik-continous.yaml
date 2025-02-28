@@ -1,6 +1,6 @@
 ---
 - name: Networking continuous setup for Mikrotik router with firewall rules, devices, DNS registrations etc.
-  hosts: networking
+  hosts: mainrouter
   become: false
   gather_facts: false
   remote_user: "{{ users.automation.name }}"
