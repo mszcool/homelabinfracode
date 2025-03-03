@@ -12,6 +12,7 @@
     param_devices_mapped: "{{ devices_mapped }}"
     param_dhcp_server_config: "{{ dhcp_server_config }}"
     param_site_vpn_config: "{{ site_vpn_config }}"
+    param_end_marker_text: "{{ end_marker_text }}"
 
   tasks:
     - name: Prepare localhost -- install python3-paramiko on host.
@@ -149,27 +150,15 @@
         label: "{{ item.0.name }} -- {{ item.1.name }}"
 
     - name: Firewall NAT -- Create or update inbound NAT rules on the RouterOS target.
-      community.routeros.command:
-        commands:
-          - >
-            :set grp_comment="{{ item.0.comment | default(item.0.name) }}";
-            :set rule_comment="{{ item.1.comment | default(item.1.name) }}";
-            :set full_comment=($grp_comment . " -- " . $rule_comment);
-            :if ([:len [/ip firewall nat find where comment~=$full_comment]] > 0) do={
-              /ip firewall nat set [find where comment~=$full_comment] chain=dstnat action=dst-nat
-              {%- if item.1.protocol is defined and item.1.protocol != "*" %} protocol={{ item.1.protocol }}{%- endif %}
-              {%- if item.1.source is defined and item.1.source != "*" %} src-address={{ item.1.source }}{%- endif %}
-              {%- if item.1.sourcePort is defined and item.1.sourcePort != "*" %} src-port={{ item.1.sourcePort }}{%- endif %}
-              {%- if item.1.destination is defined and item.1.destination != "*" %} dst-address={{ item.1.destination }}{%- endif %}
-              {%- if item.1.destinationPort is defined and item.1.destinationPort != "*" %} dst-port={{ item.1.destinationPort }}{%- endif %}
-            } else={
-              /ip firewall nat add chain=dstnat action=dst-nat comment=$full_comment
-              {%- if item.1.protocol is defined and item.1.protocol != "*" %} protocol={{ item.1.protocol }}{%- endif %}
-              {%- if item.1.source is defined and item.1.source != "*" %} src-address={{ item.1.source }}{%- endif %}
-              {%- if item.1.sourcePort is defined and item.1.sourcePort != "*" %} src-port={{ item.1.sourcePort }}{%- endif %}
-              {%- if item.1.destination is defined and item.1.destination != "*" %} dst-address={{ item.1.destination }}{%- endif %}
-              {%- if item.1.destinationPort is defined and item.1.destinationPort != "*" %} dst-port={{ item.1.destinationPort }}{%- endif %}
-            }
-      loop: "{{ firewall_rules | subelements('inbound_nat_rules') }}"
+      ansible.builtin.include_tasks:
+        file: networking-mikrotik-continuous-firewall-tasks.yaml
+      loop: "{{ firewall_rules }}"
+      vars:
+        firewall_group_name: "{{ item.name }}"
+        firewall_group_comment: "{{ item.comment }}"
+        firewall_group_filter_rules: "{{ item.filter_rules }}"
+        firewall_group_inbound_nat_rules: "{{ item.inbound_nat_rules }}"
+        firewall_block_end_marker_text: "{{ param_end_marker_text }}"
       loop_control:
-        label: "{{ item.0.name }} -- {{ item.1.name }}"
+        label: "Processing {{ item.name }}"
+      when: not item.required_for_blank_setup or (include_blank_setup_tasks is defined and include_blank_setup_tasks)

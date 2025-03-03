@@ -21,7 +21,7 @@
     param_lan_interface_bridge_name: "{{ hostsConfig['10.10.0.1'].lan_interface.bridge }}"
     param_lan_interface_members: "{{ hostsConfig['10.10.0.1'].lan_interface.interface }}"
     param_lan_interface_bridge_ip_address: "{{ hostsConfig['10.10.0.1'].lan_interface.ipaddr }}"
-    param_end_marker_text: "END-OF-BLOCK"
+    param_end_marker_text: "{{ end_marker_text }}"
 
   tasks:
     - name: Get the current user running the playbook

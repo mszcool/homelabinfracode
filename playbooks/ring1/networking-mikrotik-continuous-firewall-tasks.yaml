@@ -1,0 +1,85 @@
+---
+- name: Firewall - Filter Rules Beginn Marker (order is preserved by deleting and re-adding)
+  community.routeros.command:
+    commands:
+      - "/ip firewall filter remove [find where comment~\"{{ firewall_group_comment }}\"]"
+      - "/ip firewall filter add chain=input action=passthrough comment=\"*** {{ firewall_group_comment }} -- {{ firewall_group_name }} ***\" disabled=yes"
+  when: firewall_group_filter_rules is defined
+
+- name: Firewall - Process filter rules for the current group
+  community.routeros.command:
+    commands:
+      - >
+        :local rule_comment "{{ item.comment }} -- {{ item.name }}";
+        :if ([:len [/ip firewall filter find where comment~=$rule_comment]] > 0) do={
+          /ip firewall filter remove [find where comment~=$rule_comment]
+        }
+        /ip firewall filter set [find where comment~=$rule_comment] chain={{ item.direction }} action={{ item.action }}
+        {%- if item.srcAddress is defined and '*' not in item.srcAddress %} src-address={{ item.srcAddress }}{%- endif -%}
+        {%- if item.destAddress is defined and '*' not in item.destAddress %} dst-address={{ item.destAddress }}{%- endif -%}
+        {%- if item.srcPort is defined and '*' not in item.srcPort %} src-port={{ item.srcPort }}{%- endif -%}
+        {%- if item.destPort is defined and '*' not in item.destPort %} dst-port={{ item.destPort }}{%- endif -%}
+        {%- if item.protocol is defined and '*' not in item.protocol %} protocol={{ item.protocol }}{%- endif -%}
+        {%- if item.connectionState is defined and '*' not in item.connectionState %} connection-state={{ item.connectionState }}{%- endif -%}
+        {%- if item.connectionNatState is defined and '*' not in item.connectionNatState %} connection-nat-state={{ item.connectionNatState }}{%- endif -%}
+        {%- if item.inInterface is defined and '*' not in item.inInterface %} in-interface={{ item.inInterface }}{%- endif -%}
+        {%- if item.outInterface is defined and '*' not in item.outInterface %} out-interface={{ item.outInterface }}{%- endif -%}
+        {%- if item.inInterfaceList is defined and '*' not in item.inInterfaceList %} in-interface-list={{ item.inInterfaceList }}{%- endif -%}
+        {%- if item.outInterfaceList is defined and '*' not in item.outInterfaceList %} out-interface-list={{ item.outInterfaceList }}{%- endif -%}
+        {%- if item.srcAddressList is defined and '*' not in item.srcAddressList %} src-address-list={{ item.srcAddressList }}{%- endif -%}
+        {%- if item.destAddressList is defined and '*' not in item.destAddressList %} dst-address-list={{ item.destAddressList }}{%- endif -%}
+        {%- if item.log is defined and '*' not in item.log %} log={{ item.log }}{%- endif -%}
+  loop: "{{ firewall_group.filter_rules }}"
+  loop_control:
+    label: "Filter rule {{ firewall_group.name }} -- {{ item.name }}"
+  when: firewall_group_filter_rules is defined
+
+- name: Firewall - Filter Rules End Marker (order is preserved by deleting and re-adding)
+  community.routeros.command:
+    commands:
+      - "/ip firewall filter remove [find where comment~\"{{ firewall_group_comment }} -- {{ firewall_group_name }} -- {{ firewall_block_end_marker_text }}\"]"
+      - "/ip firewall filter add chain=input action=passthrough comment=\"*** {{ firewall_group_comment }} -- {{ firewall_group_name }} -- {{ firewall_block_end_marker_text }} ***\" disabled=yes"
+  when: firewall_group_filter_rules is defined
+
+- name: Firewall - NAT Rules Beginn Marker (order is preserved by deleting and re-adding)
+  community.routeros.command:
+    commands:
+      - "/ip firewall nat remove [find where comment~\"{{ firewall_group_comment }}\"]"
+      - "/ip firewall nat add chain=input action=passthrough comment=\"*** {{ firewall_group_comment }} -- {{ firewall_group_name }} ***\" disabled=yes"
+  when: firewall_group_inbound_nat_rules is defined
+
+- name: Firewall - Process inbound NAT rules for the current group.
+  community.routeros.command:
+    commands:
+      - >
+        :local rule_comment "{{ item.comment }} -- {{ item.name }}";
+        :if ([:len [/ip firewall nat find where comment~=$rule_comment]] > 0) do={
+          /ip firewall nat remove [find where comment~=$rule_comment]
+        }
+        /ip firewall nat add chain={{ item.direction }} action={{ item.action }} comment="$rule_comment"
+        {%- if item.srcAddress is defined and '*' not in item.srcAddress %} src-address={{ item.srcAddress }}{%- endif -%}
+        {%- if item.destAddress is defined and '*' not in item.destAddress %} dst-address={{ item.destAddress }}{%- endif -%}
+        {%- if item.srcPort is defined and '*' not in item.srcPort %} src-port={{ item.srcPort }}{%- endif -%}
+        {%- if item.destPort is defined and '*' not in item.destPort %} dst-port={{ item.destPort }}{%- endif -%}
+        {%- if item.protocol is defined and '*' not in item.protocol %} protocol={{ item.protocol }}{%- endif -%}
+        {%- if item.localTargetAddress is defined and '*' not in item.localTargetAddress %} to-addresses={{ item.localTargetAddress }}{%- endif -%}
+        {%- if item.localTargetPort is defined and '*' not in item.localTargetPort %} to-ports={{ item.localTargetPort }}{%- endif -%}
+        {%- if item.inInterface is defined and '*' not in item.inInterface %} in-interface={{ item.inInterface }}{%- endif -%}
+        {%- if item.outInterface is defined and '*' not in item.outInterface %} out-interface={{ item.outInterface }}{%- endif -%}
+        {%- if item.inInterfaceList is defined and '*' not in item.inInterfaceList %} in-interface-list={{ item.inInterfaceList }}{%- endif -%}
+        {%- if item.outInterfaceList is defined and '*' not in item.outInterfaceList %} out-interface-list={{ item.outInterfaceList }}{%- endif -%}
+        {%- if item.srcAddressList is defined and '*' not in item.srcAddressList %} src-address-list={{ item.srcAddressList }}{%- endif -%}
+        {%- if item.destAddressList is defined and '*' not in item.destAddressList %} dst-address-list={{ item.destAddressList }}{%- endif -%}
+        {%- if item.ipSecPolicy is defined and '*' not in item.ipSecPolicy %} ipsec-policy={{ item.ipSecPolicy }}{%- endif -%}
+        {%- if item.log is defined and '*' not in item.log %} log={{ item.log }}{%- endif -%}
+  loop: "{{ firewall_group.inbound_nat_rules }}"
+  loop_control:
+    label: "Inbound NAT rule {{ firewall_group.name }} -- {{ item.name }}"
+  when: firewall_group_inbound_nat_rules is defined
+
+- name: Firewall - NAT Rules End Marker (order is preserved by deleting and re-adding)
+  community.routeros.command:
+    commands:
+      - "/ip firewall nat remove [find where comment~\"{{ firewall_group_comment }} -- {{ firewall_group_name }} -- {{ firewall_block_end_marker_text }}\"]"
+      - "/ip firewall nat add chain=input action=passthrough comment=\"*** {{ firewall_group_comment }} -- {{ firewall_group_name }} -- {{ firewall_block_end_marker_text }} ***\" disabled=yes"
+  when: firewall_group_inbound_nat_rules is defined

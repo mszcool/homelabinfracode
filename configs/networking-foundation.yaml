@@ -3,6 +3,7 @@ all:
     localdomain: mszlocal
     timezone: "Etc/UTC"
     language: "en_US"
+    end_marker_text: "END-OF-BLOCK"
     users:
       root:
         name: "admin"
