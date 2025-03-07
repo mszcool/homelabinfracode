@@ -103,53 +103,7 @@
       loop_control:
         label: "{{ item.alias }}"
 
-    - name: Firewall Filter -- Create or update firewall filter rules on the RouterOS target.
-      community.routeros.command:
-        commands:
-          - >
-            :local grp_comment "{{ item.0.comment | default(item.0.name) }}";
-            :local rule_comment "{{ item.1.comment | default(item.1.name) }}";
-            :local full_comment "($grp_comment . " -- " . $rule_comment)";
-            :if ([:len [/ip firewall filter find where comment~=$full_comment]] > 0) do={
-              /ip firewall filter set [find where comment~=$full_comment] chain={{ item.1.direction }} action={{ item.1.action }}
-              {%- if item.1.protocol is defined and item.1.protocol != "*" %} protocol={{ item.1.protocol }}{%- endif %}
-              {%- if item.1.srcAddress is defined and item.1.srcAddress != "*" %} src-address={{ item.1.srcAddress }}{%- endif %}
-              {%- if item.1.destination is defined and item.1.destination != "*" %} dst-address={{ item.1.destination }}{%- endif %}
-              {%- if item.1.sourcePort is defined and item.1.sourcePort != "*" %} src-port={{ item.1.sourcePort }}{%- endif %}
-              {%- if item.1.destinationPort is defined and item.1.destinationPort != "*" %} dst-port={{ item.1.destinationPort }}{%- endif %}
-              {%- if item.1.connectionState is defined and item.1.connectionState != "*" %} connection-state={{ item.1.connectionState }}{%- endif %}
-              {%- if item.1.connectionNatState is defined and item.1.connectionNatState != "*" %} \
-                connection-nat-state={{ item.1.connectionNatState }}{%- endif %}
-              {%- if item.1.inInterface is defined and item.1.inInterface != "*" %} in-interface={{ item.1.inInterface }}{%- endif %}
-              {%- if item.1.outInterface is defined and item.1.outInterface != "*" %} out-interface={{ item.1.outInterface }}{%- endif %}
-              {%- if item.1.inInterfaceList is defined and item.1.inInterfaceList != "*" %} in-interface-list={{ item.1.inInterfaceList }}{%- endif %}
-              {%- if item.1.outInterfaceList is defined and item.1.outInterfaceList != "*" %} out-interface-list={{ item.1.outInterfaceList }}{%- endif %}
-              {%- if item.1.srcAddressList is defined and item.1.srcAddressList != "*" %} src-address-list={{ item.1.srcAddressList }}{%- endif %}
-              {%- if item.1.destAddressList is defined and item.1.destAddressList != "*" %} dst-address-list={{ item.1.destAddressList }}{%- endif %}
-              {%- if item.1.log is defined %} log={{ "yes" if item.1.log else "no" }}{%- endif %}
-            } else={
-              /ip firewall filter add chain={{ item.1.direction }} action={{ item.1.action }} comment=$full_comment
-              {%- if item.1.protocol is defined and item.1.protocol != "*" %} protocol={{ item.1.protocol }}{%- endif %}
-              {%- if item.1.srcAddress is defined and item.1.srcAddress != "*" %} src-address={{ item.1.srcAddress }}{%- endif %}
-              {%- if item.1.destination is defined and item.1.destination != "*" %} dst-address={{ item.1.destination }}{%- endif %}
-              {%- if item.1.sourcePort is defined and item.1.sourcePort != "*" %} src-port={{ item.1.sourcePort }}{%- endif %}
-              {%- if item.1.destinationPort is defined and item.1.destinationPort != "*" %} dst-port={{ item.1.destinationPort }}{%- endif %}
-              {%- if item.1.connectionState is defined and item.1.connectionState != "*" %} connection-state={{ item.1.connectionState }}{%- endif %}
-              {%- if item.1.connectionNatState is defined and item.1.connectionNatState != "*" %} \
-                connection-nat-state={{ item.1.connectionNatState }}{%- endif %}
-              {%- if item.1.inInterface is defined and item.1.inInterface != "*" %} in-interface={{ item.1.inInterface }}{%- endif %}
-              {%- if item.1.outInterface is defined and item.1.outInterface != "*" %} out-interface={{ item.1.outInterface }}{%- endif %}
-              {%- if item.1.inInterfaceList is defined and item.1.inInterfaceList != "*" %} in-interface-list={{ item.1.inInterfaceList }}{%- endif %}
-              {%- if item.1.outInterfaceList is defined and item.1.outInterfaceList != "*" %} out-interface-list={{ item.1.outInterfaceList }}{%- endif %}
-              {%- if item.1.srcAddressList is defined and item.1.srcAddressList != "*" %} src-address-list={{ item.1.srcAddressList }}{%- endif %}
-              {%- if item.1.destAddressList is defined and item.1.destAddressList != "*" %} dst-address-list={{ item.1.destAddressList }}{%- endif %}
-              {%- if item.1.log is defined %} log={{ "yes" if item.1.log else "no" }}{%- endif %}
-            }
-      loop: "{{ firewall_rules | subelements('filter_rules') }}"
-      loop_control:
-        label: "{{ item.0.name }} -- {{ item.1.name }}"
-
-    - name: Firewall NAT -- Create or update inbound NAT rules on the RouterOS target.
+    - name: Firewall Rules -- Create or update all firewall rules.
       ansible.builtin.include_tasks:
         file: networking-mikrotik-continuous-firewall-tasks.yaml
       loop: "{{ firewall_rules }}"
