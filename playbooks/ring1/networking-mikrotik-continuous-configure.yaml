@@ -12,6 +12,7 @@
     param_devices_mapped: "{{ devices_mapped }}"
     param_dhcp_server_config: "{{ dhcp_server_config }}"
     param_site_vpn_config: "{{ site_vpn_config }}"
+    param_start_marker_text: "{{ start_marker_text }}"
     param_end_marker_text: "{{ end_marker_text }}"
 
   tasks:
@@ -109,9 +110,11 @@
       loop: "{{ firewall_rules }}"
       vars:
         firewall_group_name: "{{ item.name }}"
+        firewall_group_place_before: "{{ item.place_before if item.place_before is defined else '0' }}"
         firewall_group_comment: "{{ item.comment }}"
         firewall_group_filter_rules: "{{ item.filter_rules }}"
         firewall_group_inbound_nat_rules: "{{ item.inbound_nat_rules }}"
+        firewall_block_start_marker_text: "{{ param_start_marker_text }}"
         firewall_block_end_marker_text: "{{ param_end_marker_text }}"
       loop_control:
         label: "Processing {{ item.name }}"

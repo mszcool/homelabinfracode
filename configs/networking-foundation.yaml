@@ -3,7 +3,8 @@ all:
     localdomain: mszlocal
     timezone: "Etc/UTC"
     language: "en_US"
-    end_marker_text: "END-OF-BLOCK"
+    start_marker_text: "START"
+    end_marker_text: "END"
     users:
       root:
         name: "admin"
@@ -53,6 +54,7 @@ all:
       - name: "Custom rules for the home network"
         comment: "custom_100"
         required_for_blank_setup: false
+        place_before: "default_900"
         filter_rules:
           - name: "Allow SSH In"
             direction: "input"

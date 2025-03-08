@@ -1,9 +1,35 @@
 ---
+- name: Setting the start- and end-marker comments for the group
+  ansible.builtin.set_fact:
+    firewall_group_start_text: "{{ firewall_group_comment }}_{{ firewall_block_start_marker_text }} -- {{ firewall_group_name }}"
+    firewall_group_end_text: "{{ firewall_group_comment }}_{{ firewall_block_end_marker_text }} -- {{ firewall_group_name }}"
+
+- name: Firewall - Filter Rules End Marker (order is preserved by deleting and re-adding)
+  community.routeros.command:
+    commands:
+      - >
+        :local placebeforeval 0;
+        {% if firewall_group_place_before is defined and firewall_group_place_before and firewall_group_place_before != '0' %}
+          :if ([:len [/ip firewall filter find where comment~"{{ firewall_group_place_before }}_{{ firewall_block_start_marker_text }}"]] > 0) do={
+            :set placebeforeval [/ip firewall filter find where comment~"{{ firewall_group_place_before }}_{{ firewall_block_start_marker_text }}"]
+          };
+        {% endif %}
+        /ip firewall filter remove [find where comment="{{ firewall_group_end_text }}"];
+        :if ( $placebeforeval = 0) do={
+          /ip firewall filter add chain=input action=passthrough comment="{{ firewall_group_end_text }}" disabled=yes;
+        } else={
+          /ip firewall filter add chain=input action=passthrough place-before $placebeforeval comment="{{ firewall_group_end_text }}" disabled=yes;
+        }
+  when: firewall_group_filter_rules is defined
+
 - name: Firewall - Filter Rules Beginn Marker (order is preserved by deleting and re-adding)
   community.routeros.command:
     commands:
-      - "/ip firewall filter remove [find where comment=\"*** {{ firewall_group_comment }} -- {{ firewall_group_name }} ***\"]"
-      - "/ip firewall filter add chain=input action=passthrough comment=\"*** {{ firewall_group_comment }} -- {{ firewall_group_name }} ***\" disabled=yes"
+      - >
+        /ip firewall filter remove [find where comment="{{ firewall_group_start_text }}"];
+        /ip firewall filter add chain=input action=passthrough comment="{{ firewall_group_start_text }}" \
+            place-before [/ip firewall filter find where comment="{{ firewall_group_end_text }}"] \
+            disabled=yes;
   when: firewall_group_filter_rules is defined
 
 - name: Firewall - Process filter rules for the current group
@@ -15,6 +41,7 @@
           /ip firewall filter remove [find where comment="$rulecomment"]
         };
         /ip firewall filter add chain="{{ filterItem.direction }}" action="{{ filterItem.action }}" comment="$rulecomment"
+        place-before [/ip firewall filter find where comment="{{ firewall_group_end_text }}"]
         {%- if filterItem.srcAddress is defined and filterItem.srcAddress and '*' not in filterItem.srcAddress %} src-address={{ filterItem.srcAddress }}{%- endif -%}
         {%- if filterItem.destAddress is defined and filterItem.destAddress and '*' not in filterItem.destAddress %} dst-address={{ filterItem.destAddress }}{%- endif -%}
         {%- if filterItem.srcPort is defined and filterItem.srcPort and '*' not in filterItem.srcPort %} src-port={{ filterItem.srcPort }}{%- endif -%}
@@ -35,31 +62,44 @@
     label: "Filter rule {{ firewall_group_name }} -- {{ filterItem.name }}"
   when: firewall_group_filter_rules is defined
 
-- name: Firewall - Filter Rules End Marker (order is preserved by deleting and re-adding)
+- name: Firewall - NAT Rules End Marker (order is preserved by deleting and re-adding)
   community.routeros.command:
     commands:
       - >
-        /ip firewall filter remove [find where comment="*** {{ firewall_group_comment }} -- {{ firewall_group_name }} -- {{ firewall_block_end_marker_text }} ***"];
-        /ip firewall filter add chain=input action=passthrough \
-            comment="*** {{ firewall_group_comment }} -- {{ firewall_group_name }} -- {{ firewall_block_end_marker_text }} ***" disabled=yes;
-  when: firewall_group_filter_rules is defined
+        :local placebeforeval 0;
+        {% if firewall_group_place_before is defined and firewall_group_place_before and firewall_group_place_before != '0' %}
+          :if ([:len [/ip firewall nat find where comment~"{{ firewall_group_place_before }}_{{ firewall_block_start_marker_text }}"]] > 0) do={
+            :set placebeforeval [/ip firewall nat find where comment~"{{ firewall_group_place_before }}_{{ firewall_block_start_marker_text }}"]
+          };
+        {% endif %}
+        /ip firewall nat remove [find where comment="{{ firewall_group_end_text }}"];
+        :if ( $placebeforeval = 0) do={
+          /ip firewall nat add chain=input action=passthrough comment="{{ firewall_group_end_text }}" disabled=yes;
+        } else={
+          /ip firewall nat add chain=input action=passthrough place-before $placebeforeval comment="{{ firewall_group_end_text }}" disabled=yes;
+        }
+  when: firewall_group_inbound_nat_rules is defined
 
 - name: Firewall - NAT Rules Beginn Marker (order is preserved by deleting and re-adding)
   community.routeros.command:
     commands:
-      - "/ip firewall nat remove [find where comment=\"*** {{ firewall_group_comment }} -- {{ firewall_group_name }} ***\"]"
-      - "/ip firewall nat add chain=input action=passthrough comment=\"*** {{ firewall_group_comment }} -- {{ firewall_group_name }} ***\" disabled=yes"
+      - >
+        /ip firewall nat remove [find where comment="{{ firewall_group_start_text }}"];
+        /ip firewall nat add chain=input action=passthrough comment="{{ firewall_group_start_text }}" \
+            place-before [/ip firewall nat find where comment="{{ firewall_group_end_text }}"] \
+            disabled=yes;
   when: firewall_group_inbound_nat_rules is defined
 
 - name: Firewall - Process inbound NAT rules for the current group.
   community.routeros.command:
-   commands:
+    commands:
       - >
         :local rulecomment "{{ natItem.comment }} -- {{ natItem.name }}";
         :if ([:len [/ip firewall nat find where comment="$rulecomment"]] > 0) do={
           /ip firewall nat remove [find where comment="$rulecomment"]
         };
         /ip firewall nat add chain="{{ natItem.direction }}" action="{{ natItem.action }}" comment="$rulecomment"
+        place-before [/ip firewall nat find where comment="{{ firewall_group_end_text }}"]
         {%- if natItem.srcAddress is defined and natItem.srcAddress and '*' not in natItem.srcAddress %} src-address={{ natItem.srcAddress }}{%- endif -%}
         {%- if natItem.destAddress is defined and natItem.destAddress and '*' not in natItem.destAddress %} dst-address={{ natItem.destAddress }}{%- endif -%}
         {%- if natItem.srcPort is defined and natItem.srcPort and '*' not in natItem.srcPort %} src-port={{ natItem.srcPort }}{%- endif -%}
@@ -79,13 +119,4 @@
   loop_control:
     loop_var: natItem
     label: "Inbound NAT rule {{ firewall_group_name }} -- {{ natItem.name }}"
-  when: firewall_group_inbound_nat_rules is defined
-
-- name: Firewall - NAT Rules End Marker (order is preserved by deleting and re-adding)
-  community.routeros.command:
-    commands:
-      - >
-        /ip firewall nat remove [find where comment="*** {{ firewall_group_comment }} -- {{ firewall_group_name }} -- {{ firewall_block_end_marker_text }} ***"];
-        /ip firewall nat add chain=input action=passthrough \
-            comment="*** {{ firewall_group_comment }} -- {{ firewall_group_name }} -- {{ firewall_block_end_marker_text }} ***" disabled=yes
   when: firewall_group_inbound_nat_rules is defined

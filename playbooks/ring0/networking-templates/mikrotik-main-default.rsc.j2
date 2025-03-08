@@ -21,6 +21,7 @@
 :local rootUserPassword "{{ param_root_user_password }}"
 :local rootUserSshPubKey "{{ param_root_user_ssh_pub_key }}"
 :local scriptFileName "{{ param_script_file_name }}"
+:local startMarkerText "{{ param_start_marker_text }}"
 :local endMarkerText "{{ param_end_marker_text }}"
 
 #
@@ -137,8 +138,8 @@ add name=$lanInterfaceName comment="default / local bridge interface"
 {%- for paramRuleGroup in param_firewall_rule_groups %}
 {% if paramRuleGroup.required_for_blank_setup == true %}
 
-remove [find where comment~"{{ paramRuleGroup.comment }}"]
-add chain=input action=passthrough comment="*** {{ paramRuleGroup.comment }} -- {{ paramRuleGroup.name }} ***" disabled=yes
+remove [find where comment~"{{ paramRuleGroup.comment }}_{{ param_start_marker_text }}"]
+add chain=input action=passthrough comment="{{ paramRuleGroup.comment }}_{{ param_start_marker_text }} -- {{ paramRuleGroup.name }}" disabled=yes
 {% for paramRule in paramRuleGroup.filter_rules %}
 
 remove [find where comment~"{{ paramRule.comment }}"]
@@ -158,8 +159,8 @@ add chain={{ paramRule.direction }} action={{ paramRule.action }} comment="{{ pa
 {%- if paramRule.destAddressList is defined and '*' not in paramRule.destAddressList %} dst-address-list={{ paramRule.destAddressList }}{%- endif -%}
 {% endfor %}
 
-remove [find where comment~"{{ paramRuleGroup.comment }} -- {{ paramRuleGroup.name }} -- {{ param_end_marker_text }}"]
-add chain=input action=passthrough comment="*** {{ paramRuleGroup.comment }} -- {{ paramRuleGroup.name }} -- {{ param_end_marker_text }} ***" disabled=yes
+remove [find where comment~"{{ paramRuleGroup.comment }}_{{ param_end_marker_text }} -- {{ paramRuleGroup.name }}"]
+add chain=input action=passthrough comment="{{ paramRuleGroup.comment }}_{{ param_end_marker_text }} -- {{ paramRuleGroup.name }}" disabled=yes
 {% endif %}
 
 {% endfor %}
