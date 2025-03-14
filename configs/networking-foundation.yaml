@@ -82,7 +82,7 @@ all:
             srcAddress: "*"
             destAddress: "*"
             srcPort: "*"
-            destPort: "*"
+            destPort: "2022"
             protocol: "tcp"
             localTargetAddress: "10.10.0.2"
             localTargetPort: "22"
