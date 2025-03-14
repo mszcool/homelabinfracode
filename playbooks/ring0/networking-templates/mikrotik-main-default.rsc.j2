@@ -32,6 +32,22 @@
 /system clock set time-zone-name=$routerTimeZone
 
 #
+# Disable default SMB users.
+#
+/ip smb users
+set [ find default=yes ] disabled=yes
+
+#
+# Some device defaults per Mikrotik default config.
+#
+/port set 0 name=serial0
+/interface lte apn set [ find default=yes ] ip-type=ipv4 use-network-apn=no
+/ip settings set accept-source-route=yes
+/ipv6 settings set disable-ipv6=yes
+/interface detect-internet set detect-interface-list=all
+/system note set show-at-login=no
+
+#
 # Set the root user password and SSH key.
 #
 :put "Setting root user password and SSH key"
@@ -93,7 +109,7 @@ add name=$lanInterfaceName comment="default / local bridge interface"
 :local interfaceArray [:toarray $lanInterfaceMembers]
 :foreach i in=$interfaceArray do={
   :local interfaceName $i
-  add bridge=$lanInterfaceName interface=$interfaceName
+  add bridge=$lanInterfaceName interface=$interfaceName ingress-filtering=no internal-path-cost=10 path-cost=10
 }
 
 #
@@ -130,10 +146,15 @@ add name=$lanInterfaceName comment="default / local bridge interface"
     add interface=$wanInterfaceName list=$wanInterfaceList comment="default / add LAN bridge to WAN interface list"
 }
 
+/ip neighbor discovery-settings set discover-interface-list=$lanInterfaceList
+
 #
 # Set the default firewall rules which allow outbound traffic for LAN and block all inbound traffic from WAN.
 #
 :put "Configuring default firewall rules"
+
+/ip firewall connection tracking set udp-timeout=10s
+
 /ip firewall filter
 {%- for paramRuleGroup in param_firewall_rule_groups %}
 {% if paramRuleGroup.required_for_blank_setup == true %}
@@ -178,6 +199,13 @@ add chain=input action=drop
 #
 :put "Disabling insecure services, setting up SSL will follow in ring1 with GitOps"
 /ip service disable telnet,ftp
+
+#
+# Limit Winbox to the LAN interface, only.
+#
+/tool mac-server set allowed-interface-list=$lanInterfaceList
+/tool mac-server mac-winbox set allowed-interface-list=$lanInterfaceList
+
 
 #
 # Self-delete the script file

@@ -92,6 +92,13 @@
       loop_control:
         label: "{{ item.alias }}"
 
+    - name: Devices -- Enable DNS queries
+      community.routeros.command:
+        commands:
+          - >
+            /ip dns set allow-remote-requests=yes
+      when: param_site_vpn_config.enable_dns is defined and param_site_vpn_config.enable_dns
+
     - name: Devices -- Create or update static DNS entries for mapped devices.
       community.routeros.command:
         commands:
