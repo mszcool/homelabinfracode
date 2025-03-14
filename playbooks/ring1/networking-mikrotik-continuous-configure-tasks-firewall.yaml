@@ -114,7 +114,7 @@
         {%- if natItem.srcAddressList is defined and natItem.srcAddressList and '*' not in natItem.srcAddressList %} src-address-list={{ natItem.srcAddressList }}{%- endif -%}
         {%- if natItem.destAddressList is defined and natItem.destAddressList and '*' not in natItem.destAddressList %} dst-address-list={{ natItem.destAddressList }}{%- endif -%}
         {%- if natItem.ipSecPolicy is defined and natItem.ipSecPolicy and '*' not in natItem.ipSecPolicy %} ipsec-policy={{ natItem.ipSecPolicy }}{%- endif -%}
-        {%- if natItem.log is defined and natItem.log and '*' not in natItem.log %} log={{ natItem.log }}{%- endif -%}
+        {%- if natItem.log is defined and natItem.log %} log=yes{% else %} log=no{%- endif -%}
   loop: "{{ firewall_group_inbound_nat_rules }}"
   loop_control:
     loop_var: natItem
