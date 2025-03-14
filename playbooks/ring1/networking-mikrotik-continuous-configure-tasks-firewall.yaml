@@ -55,7 +55,7 @@
         {%- if filterItem.outInterfaceList is defined and filterItem.outInterfaceList and '*' not in filterItem.outInterfaceList %} out-interface-list={{ filterItem.outInterfaceList }}{%- endif -%}
         {%- if filterItem.srcAddressList is defined and filterItem.srcAddressList and '*' not in filterItem.srcAddressList %} src-address-list={{ filterItem.srcAddressList }}{%- endif -%}
         {%- if filterItem.destAddressList is defined and filterItem.destAddressList and '*' not in filterItem.destAddressList %} dst-address-list={{ filterItem.destAddressList }}{%- endif -%}
-        {%- if filterItem.log is defined and filterItem.log and '*' not in filterItem.log %} log={{ filterItem.log }}{%- endif -%}
+        {%- if filterItem.log is defined and filterItem.log %} log=yes{% else %} log=no{%- endif -%}
   loop: "{{ firewall_group_filter_rules }}"
   loop_control:
     loop_var: filterItem

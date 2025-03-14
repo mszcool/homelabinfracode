@@ -14,6 +14,7 @@
     param_site_vpn_config: "{{ site_vpn_config }}"
     param_start_marker_text: "{{ start_marker_text }}"
     param_end_marker_text: "{{ end_marker_text }}"
+    param_include_blank_setup_tasks: "{{ include_blank_setup_tasks }}"
 
   tasks:
     - name: Prepare localhost -- install python3-paramiko on host.
@@ -104,10 +105,9 @@
       loop_control:
         label: "{{ item.alias }}"
 
-    - name: Firewall Rules -- Create or update all firewall rules.
+    - name: Firewall Rules -- Create or update baseline firewall rules (those who are also required for blank setup).
       ansible.builtin.include_tasks:
         file: networking-mikrotik-continuous-configure-tasks-firewall.yaml
-      loop: "{{ firewall_rules }}"
       vars:
         firewall_group_name: "{{ item.name }}"
         firewall_group_place_before: "{{ item.place_before if item.place_before is defined else '0' }}"
@@ -116,6 +116,28 @@
         firewall_group_inbound_nat_rules: "{{ item.inbound_nat_rules }}"
         firewall_block_start_marker_text: "{{ param_start_marker_text }}"
         firewall_block_end_marker_text: "{{ param_end_marker_text }}"
+      loop: >
+        {{ firewall_rules | selectattr('required_for_blank_setup', 'defined')
+           | selectattr('required_for_blank_setup', 'equalto', true)
+           | sort(attribute='comment') }}
       loop_control:
         label: "Processing {{ item.name }}"
-      when: not item.required_for_blank_setup or (include_blank_setup_tasks is defined and include_blank_setup_tasks)
+      when: param_include_blank_setup_tasks is defined and param_include_blank_setup_tasks
+
+    - name: Firewall Rules -- Create or update all other firewall rules.
+      ansible.builtin.include_tasks:
+        file: networking-mikrotik-continuous-configure-tasks-firewall.yaml
+      vars:
+        firewall_group_name: "{{ item.name }}"
+        firewall_group_place_before: "{{ item.place_before if item.place_before is defined else '0' }}"
+        firewall_group_comment: "{{ item.comment }}"
+        firewall_group_filter_rules: "{{ item.filter_rules }}"
+        firewall_group_inbound_nat_rules: "{{ item.inbound_nat_rules }}"
+        firewall_block_start_marker_text: "{{ param_start_marker_text }}"
+        firewall_block_end_marker_text: "{{ param_end_marker_text }}"
+      loop: >
+        {{ (firewall_rules | selectattr('required_for_blank_setup', 'undefined') | list +
+            firewall_rules | selectattr('required_for_blank_setup', 'equalto', false) | list)
+           | sort(attribute='comment') }}
+      loop_control:
+        label: "Processing {{ item.name }}"
