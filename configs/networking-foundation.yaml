@@ -290,11 +290,19 @@ all:
         mode: ike2
         peer:
           name: "remote-site"
-          ip: "172.27.152.10/32"
+          ip: "10.200.0.1/32"
+          local_wan_address: "17.100.0.1"
+          local_private_address_range: "10.10.0.0/24"
+          remote_private_address_range: "10.20.0.0/24"
         ipsec:
+          auth_algorithms: sha256
+          encryption_algorithms: "aes-256-cbc,aes-256-ctr,aes-256-gcm,aes-128-cbc,aes-128-ctr,aes-128-gcm"
+          pfs_group: "ecp384"
           encryption: aes256
           integrity: sha256
           dh_group: ecp384
+          dpd_interval: 2m
+          dpd_maximum_failures: 5
           enc_algorithm: aes256
           hash_algorithm: sha256
           prf_algorithm: sha256
@@ -306,10 +314,18 @@ all:
         peer:
           name: "Azure"
           ip: "20.126.58.44/32"
+          local_wan_address: "17.100.0.1"
+          local_private_address_range: "10.10.0.0/24"
+          remote_private_address_range: "10.30.0.0/24"
         ipsec:
+          auth_algorithms: "sha256,sha1"
+          encryption_algorithms: "aes-256-cbc,aes-128-cbc"
+          pfs_group: "ecp384"
           encryption: aes256
           integrity: sha256
           dh_group: ecp384
+          dpd_interval: 2m
+          dpd_maximum_failures: 5
           enc_algorithm: aes256
           hash_algorithm: sha256
           prf_algorithm: sha256

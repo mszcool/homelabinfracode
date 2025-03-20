@@ -148,3 +148,13 @@
            | sort(attribute='comment') }}
       loop_control:
         label: "Processing {{ item.name }}"
+
+    - name: Site2Site VPN Configurations -- Run through all configurations and make necessary changes.
+      ansible.builtin.include_tasks:
+        file: networking-mikrotik-continuous-configure-tasks-site2site-vpn.yaml
+      vars:
+        site_vpn_config: "{{ item }}"
+      loop: "{{ param_site_vpn_config }}"
+      loop_control:
+        label: "Processing S2S VPN configuration {{ item.name }}"
+      when: param_site_vpn_config is defined and param_site_vpn_config.site2site_vpn_configurations is defined
