@@ -1,4 +1,15 @@
 ---
+- name: Site-2-Site VPN - Check if environment variable for pre shared key is set.
+  ansible.builtin.set_fact:
+    site_vpn_security_pre_shared_key: "{{ lookup('env', site_vpn_config.security.pre_shared_key) }}"
+  failed_when: site_vpn_config is not defined or site_vpn_config == "" or site_vpn_config.security.pre_shared_key is not defined or site_vpn_config.security.pre_shared_key == ""
+
+- name: Site-2-Site VPN - Check if environment variable for pre shared key is set.
+  ansible.builtin.assert:
+    that:
+      - site_vpn_security_pre_shared_key is not defined or site_vpn_security_pre_shared_key != ""
+    fail_msg: "The environment variable {{ site_vpn_config.security.pre_shared_key }} for the pre-shared key is not set."
+
 - name: Site-2-Site VPN - Configure Profile.
   community.routeros.command:
     commands:
@@ -97,6 +108,30 @@
           level=require \
           ipsec-protocols=esp \
           proposal="{{ site_vpn_config.name }}" \
+          {%- if site_vpn_config.enabled %} disabled=no {% else %} disabled=yes{%- endif %} \
+          comment="{{ site_vpn_config.name }} -- {{ site_vpn_config.peer.name }}"
+        }
+
+- name: Site-2-Site VPN - Configure Identity.
+  community.routeros.command:
+    commands:
+      - >
+        :if ([:len [/ip ipsec identity find where name="{{ site_vpn_config.name }}"]] > 0) do={
+          /ip ipsec identity set [find where name="{{ site_vpn_config.name }}"] \
+          peer="{{ site_vpn_config.name }}" \
+          auth-method={{ site_von_config.security.auth_method }} \
+          secret="{{ site_vpn_security_pre_shared_key }}" \
+          generate-policy=no \
+          policy-template-group="{{ site_vpn_config.name }}" \
+          {%- if site_vpn_config.enabled %} disabled=no {% else %} disabled=yes{%- endif %} \
+          comment="{{ site_vpn_config.name }} -- {{ site_vpn_config.peer.name }}"
+        } else={
+          /ip ipsec identity add name="{{ site_vpn_config.name }}" \
+          peer="{{ site_vpn_config.name }}" \
+          auth-method={{ site_von_config.security.auth_method }} \
+          secret="{{ site_vpn_security_pre_shared_key }}" \
+          generate-policy=no \
+          policy-template-group="{{ site_vpn_config.name }}" \
           {%- if site_vpn_config.enabled %} disabled=no {% else %} disabled=yes{%- endif %} \
           comment="{{ site_vpn_config.name }} -- {{ site_vpn_config.peer.name }}"
         }

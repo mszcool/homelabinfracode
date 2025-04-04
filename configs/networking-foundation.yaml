@@ -288,6 +288,9 @@ all:
       - name: "local-to-local"
         enabled: true
         mode: ike2
+        security:
+          auth_method: "pre-shared-key"
+          pre_shared_key_env: "IPSEC_KEY"
         peer:
           name: "remote-site"
           ip: "10.200.0.1/32"
