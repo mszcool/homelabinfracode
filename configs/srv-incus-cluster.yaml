@@ -1,0 +1,70 @@
+all:
+  vars:
+    localdomain: mszlocal
+    root_user: "root"
+    publickey_root: "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQCg0Y6vbXyN0q70R2Wkl6HhrH3GoE8163Uv19xFSmMrLJ2bFtzpGttlJ8tpHFWIh4eIKss0oq5TydCUC0p2c5v48Oj318y4CO9EBTtPafgzHyz6PkvBqL6uFv8NN8TvLZdwMaKdEpdVDLB+WD8dXqf+fPe8atY2YbIkd5XDIE1wjvjrA8Br6iSjNcaIW4jpsUNWKufEM+zkiYyVrTEIn/AMCA2E2eCJCasSq3sj/8R5ujJqTFxjo46XGhbjbsx4QRDzkApJVyKeA5+zv6DoRyBEFOmZ6MQjMqtPPtdtZwflRZ8GMKyRTMqgmnG0N6CFsd5aIHZ2plZljHF82U3LaX1D"
+    volume_group_name: "vg0"
+    volume_group_volume_root: "root"
+    volume_group_volume_images: "images"
+    volume_group_volume_instances: "instances"
+  children:
+    proxmox:
+      hosts:
+        10.10.0.20:
+          hostname: mszpvetest1
+          diskdata:
+            wipe_disk_if_not_root: false
+            root_partition:
+              device: "/dev/sda"
+              partition_nr: 2
+              size: "20G"
+            volume_group_images:
+              device: "/dev/sda"
+              partition_nr: 3
+              size: "50G"
+            volume_group_instances:
+              device: "/dev/sda"
+              partition_nr: 4
+              size: "all"
+          network:
+            main_interface:
+              name: intbr0
+              method: static
+              address: "10.10.0.2/24"
+              netmask: 255.255.255.0
+              #gateway: 
+              bridge_ports: eth0
+              bridge_vlan_aware: yes
+            ext_interface:
+              name: extbr0
+              bridge_ports: eth1
+              method: dhcp
+        10.10.0.21:
+          hostname: mszpvetest2
+          diskdata:
+            wipe_disk_if_not_root: false
+            root_partition:
+              device: "/dev/sda"
+              partition_nr: 2
+              size: "20G"
+            volume_group_images:
+              device: "/dev/sda"
+              partition_nr: 3
+              size: "50G"
+            volume_group_instances:
+              device: "/dev/sdb"
+              partition_nr: 1
+              size: "all"
+          network:
+            main_interface:
+              name: intbr0
+              method: static
+              address: "10.10.0.3/24"
+              #netmask: 255.255.255.0
+              #gateway: 
+              bridge_ports: eth0
+              bridge_vlan_aware: yes
+            ext_interface:
+              name: extbr0
+              bridge_ports: eth1
+              method: dhcp

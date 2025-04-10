@@ -1,0 +1,18 @@
+---
+- name: Baseline for each Proxmox node
+  hosts: incus
+  become: true
+  gather_facts: true
+  remote_user: "{{ root_user }}"
+
+  vars:
+    incus_root_user: "{{ root_user }}"
+
+  tasks:
+    - name: Set the SSH user name in case it is not the default.
+      ansible.builtin.set_fact:
+        ansible_user: "{{ incus_root_user }}"
+
+    - name: Run baseline installation tasks
+      ansible.builtin.import_playbook:
+        file: ../all-base/bootstrap-machines.yaml
