@@ -53,17 +53,6 @@
       does not exist or doesn't have the expected size of {{ diskdata.root_partition.size }}.
   when: lv_root_check is changed or lv_root_check is failed
 
-- name: Check if images logical volume exists and has correct size
-  community.general.lvol:
-    vg: "{{ param_volume_group_name }}"
-    lv: "{{ param_volume_group_volume_images }}"
-    size: "{{ diskdata.volume_group_images.size }}"
-    state: present
-  check_mode: true
-  register: lv_images_check
-  failed_when: false
-  changed_when: false
-
 - name: Get current partition information using parted
   community.general.parted:
     device: "{{ diskdata.expected_partition_setup.device }}"
@@ -95,8 +84,7 @@
     success_msg: "Partition {{ current_part.num }} matches expected configuration"
   vars:
     expected_part: "{{ expected_partitions | selectattr('partition_nr', 'equalto', current_part.num) | first }}"
-  when: 
-    - expected_partitions | selectattr('partition_nr', 'equalto', current_part.num) | list | length > 0
+  when: expected_partitions | selectattr('partition_nr', 'equalto', current_part.num) | list | length > 0
   loop: "{{ current_partition_info.partitions }}"
   loop_control:
     loop_var: current_part
@@ -116,7 +104,7 @@
       {{ expected_part.size | float }}
       {% endif %}
     size_threshold: 0.1  # Allow 10% tolerance for size difference
-  when: 
+  when:
     - expected_partitions | selectattr('partition_nr', 'equalto', current_part.num) | list | length > 0
   loop: "{{ current_partition_info.partitions }}"
   loop_control:

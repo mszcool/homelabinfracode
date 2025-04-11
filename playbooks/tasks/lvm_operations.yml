@@ -25,7 +25,7 @@
     state: present
     part_type: primary
     part_start: "{{ device_info.partitions[-1].end | default('0%') }}"
-    part_end: "{{ (param_tasks_partdata.size | regex_replace('G$', 'GiB')) if param_tasks_partdata.size != 'all' else '100%' }}"
+    part_end: "{{ (param_tasks_partdata.size | regex_replace('G$', 'GiB')) }}"
     resize: true
   register: partition_result
   when: >
@@ -44,6 +44,7 @@
     vg: "{{ param_tasks_vgname }}"
     pvs: "{{ param_tasks_partdata.device }}{{ param_tasks_partdata.partition_nr }}"
     pvresize: true
+    remove_extra_pvs: false
     state: present
   register: lvg_result
 
@@ -52,7 +53,7 @@
   community.general.lvol:
     vg: "{{ param_tasks_vgname }}"
     lv: "{{ param_tasks_lvname }}"
-    size: "{{ param_tasks_partdata.size }}"
+    size: "{{ '100%FREE' if param_tasks_partdata.size == '100%' else param_tasks_partdata.size }}"
     force: false
     shrink: false
   register: lv_images_result

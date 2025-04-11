@@ -35,7 +35,7 @@ all:
             volume_group_instances:
               device: "/dev/sda"
               partition_nr: 2
-              size: "100%FREE"
+              size: "100%"
           network:
             main_interface:
               name: intbr0
@@ -49,22 +49,31 @@ all:
               name: extbr0
               bridge_ports: eth1
               method: dhcp
-        10.10.0.21:
+        10.10.0.30:
           hostname: mszpvetest2
           diskdata:
             wipe_disk_if_not_root: false
+            expected_partition_setup:
+              device: "/dev/sda"
+              partitions:
+                - partition:
+                    partition_nr: 1
+                    size: "1GiB"
+                - partition:
+                    partition_nr: 2
+                    size: "100GiB"
             root_partition:
               device: "/dev/sda"
               partition_nr: 2
               size: "20G"
             volume_group_images:
               device: "/dev/sda"
-              partition_nr: 3
-              size: "50G"
+              partition_nr: 2
+              size: "100%"
             volume_group_instances:
               device: "/dev/sdb"
               partition_nr: 1
-              size: "all"
+              size: "100%"
           network:
             main_interface:
               name: intbr0
