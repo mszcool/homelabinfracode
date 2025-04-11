@@ -30,12 +30,13 @@
   register: partition_result
   when: >
     (device_info.partitions | default([]) | length == 0) or
-    (device_info.partitions | selectattr('num', 'equalto', param_tasks_partdata.partition_nr | int) | list | length == 0) or
-    (param_tasks_partdata.size != 'all')
+    (device_info.partitions | selectattr('num', 'equalto', param_tasks_partdata.partition_nr | int) | list | length == 0)
+  changed_when: partition_result is changed
 
 - name: Inform kernel about partition table changes
   ansible.builtin.command: partprobe
   when: partition_result is changed
+  changed_when: partition_result is changed
 
 # Use lvg module to manage physical volumes and volume group
 - name: Manage physical volume and volume group

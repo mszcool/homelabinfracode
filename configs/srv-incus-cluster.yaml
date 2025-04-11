@@ -30,12 +30,12 @@ all:
               size: "20G"
             volume_group_images:
               device: "/dev/sda"
-              partition_nr: 3
+              partition_nr: 2
               size: "50G"
             volume_group_instances:
               device: "/dev/sda"
-              partition_nr: 4
-              size: "all"
+              partition_nr: 2
+              size: "100%FREE"
           network:
             main_interface:
               name: intbr0

@@ -48,3 +48,12 @@
 
     - name: Create the LVM Volumes for images
       ansible.builtin.include_tasks: ../tasks/lvm_operations.yml
+
+    - name: Set variables for LVM Volumes for images
+      ansible.builtin.set_fact:
+        param_tasks_vgname: "{{ param_volume_group_name }}"
+        param_tasks_lvname: "{{ param_volume_group_volume_instances }}"
+        param_tasks_partdata: "{{ param_host_disk_data.volume_group_instances }}"
+
+    - name: Create the LVM Volumes for images
+      ansible.builtin.include_tasks: ../tasks/lvm_operations.yml
