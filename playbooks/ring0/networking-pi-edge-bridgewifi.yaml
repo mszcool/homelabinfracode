@@ -95,8 +95,12 @@
           band: bg
           channel: 6
         wifi_sec:
+          auth-alg: "open"
           key-mgmt: "wpa-psk"
           psk: "{{ edge_wifi_password }}"
+          proto: ["rsn"]
+          pairwise: ["ccmp"]
+          group: ["ccmp"]
         method4: shared
         master: "bridge0"
         slave_type: bridge
