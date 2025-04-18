@@ -10,6 +10,9 @@
         "vmdisks"
     ],
     "yaml.schemas": {
-        "https://raw.githubusercontent.com/ansible/ansible-lint/main/src/ansiblelint/schemas/ansible.json#/$defs/tasks": "file:///home/mszcool/src/personal/homelabinfracode/tasks/lvm_validate_rootfs.yml"
+        "https://raw.githubusercontent.com/ansible/ansible-lint/main/src/ansiblelint/schemas/ansible.json#/$defs/tasks": [
+            "file:///home/mszcool/src/personal/homelabinfracode/tasks/lvm_validate_rootfs.yml",
+            "file:///home/mszcool/src/personal/homelabinfracode/playbooks/ring0/host-incus-image-process-disk-tasks.yml"
+        ]
     }
 }

@@ -2,40 +2,58 @@ all:
   vars:
     localdomain: mszlocal
     root_user: "mszcool"
-    publickey_root: "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQCg0Y6vbXyN0q70R2Wkl6HhrH3GoE8163Uv19xFSmMrLJ2bFtzpGttlJ8tpHFWIh4eIKss0oq5TydCUC0p2c5v48Oj318y4CO9EBTtPafgzHyz6PkvBqL6uFv8NN8TvLZdwMaKdEpdVDLB+WD8dXqf+fPe8atY2YbIkd5XDIE1wjvjrA8Br6iSjNcaIW4jpsUNWKufEM+zkiYyVrTEIn/AMCA2E2eCJCasSq3sj/8R5ujJqTFxjo46XGhbjbsx4QRDzkApJVyKeA5+zv6DoRyBEFOmZ6MQjMqtPPtdtZwflRZ8GMKyRTMqgmnG0N6CFsd5aIHZ2plZljHF82U3LaX1D"
+    root_user_fullname: "mszcool main user"
+    root_user_password_env: "ROOT_PASSWORD"
+    root_user_publickey: "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQCg0Y6vbXyN0q70R2Wkl6HhrH3GoE8163Uv19xFSmMrLJ2bFtzpGttlJ8tpHFWIh4eIKss0oq5TydCUC0p2c5v48Oj318y4CO9EBTtPafgzHyz6PkvBqL6uFv8NN8TvLZdwMaKdEpdVDLB+WD8dXqf+fPe8atY2YbIkd5XDIE1wjvjrA8Br6iSjNcaIW4jpsUNWKufEM+zkiYyVrTEIn/AMCA2E2eCJCasSq3sj/8R5ujJqTFxjo46XGhbjbsx4QRDzkApJVyKeA5+zv6DoRyBEFOmZ6MQjMqtPPtdtZwflRZ8GMKyRTMqgmnG0N6CFsd5aIHZ2plZljHF82U3LaX1D"
+    iso_source_url: "http://releases.ubuntu.com/noble/ubuntu-24.04.2-live-server-amd64.iso"
+    iso_source_path: "~/iso/ubuntu-24.04.2-live-server-amd64.iso"
+    iso_destination_path: "~/iso"
+    iso_working_path: "~/iso/temp"
     incus_port: 8443
     volume_group_name: "vg0"
-    volume_group_volume_root: "root"
-    volume_group_volume_images: "images"
-    volume_group_volume_instances: "instances"
+    volume_disk_configs:
+      - name: "msz_single_disk_server"
+        root_partition:
+          device: "/dev/sda"
+          size_MB: "20480"
+        volume_group_partitions:
+          - device: "/dev/sda"
+        volume_group_volumes:
+          images:
+            size_MB: "51200"
+          instances:
+            all_remaining_space: true
+      - name: "msz_dual_disk_server"
+        root_partition:
+          device: "/dev/sda"
+          size_MB: "20480"
+        volume_group_partitions:
+          - device: "/dev/sda"
+          - device: "/dev/sdb"
+        volume_group_volumes:
+          images:
+            size_MB: "51200"
+          instances:
+            all_remaining_space: true
+    minimum_packages:
+      - openssh-server
+      - curl
+      - ufw
+      - sudo
+      - lvm2
+      - parted
+      - net-tools
+      - bridge-utils
+      - thin-provisioning-tools
+      - ca-certificates
+      - gnupg
+      - acl
   children:
     incus:
       hosts:
         10.10.0.20:
           hostname: mszpvetest1
-          diskdata:
-            wipe_disk_if_not_root: false
-            expected_partition_setup:
-              device: "/dev/sda"
-              partitions:
-                - partition:
-                    partition_nr: 1
-                    size: "1GiB"
-                - partition:
-                    partition_nr: 2
-                    size: "126GiB"
-            root_partition:
-              device: "/dev/sda"
-              partition_nr: 2
-              size: "20G"
-            volume_group_images:
-              device: "/dev/sda"
-              partition_nr: 2
-              size: "50G"
-            volume_group_instances:
-              device: "/dev/sda"
-              partition_nr: 2
-              size: "100%"
+          disk_config_name: "msz_single_disk_server"
           network:
             main_interface:
               name: intbr0
@@ -51,29 +69,7 @@ all:
               method: dhcp
         10.10.0.30:
           hostname: mszpvetest2
-          diskdata:
-            wipe_disk_if_not_root: false
-            expected_partition_setup:
-              device: "/dev/sda"
-              partitions:
-                - partition:
-                    partition_nr: 1
-                    size: "1GiB"
-                - partition:
-                    partition_nr: 2
-                    size: "100GiB"
-            root_partition:
-              device: "/dev/sda"
-              partition_nr: 2
-              size: "20G"
-            volume_group_images:
-              device: "/dev/sda"
-              partition_nr: 2
-              size: "100%"
-            volume_group_instances:
-              device: "/dev/sdb"
-              partition_nr: 1
-              size: "100%"
+          disk_config_name: "msz_dual_disk_server"
           network:
             main_interface:
               name: intbr0

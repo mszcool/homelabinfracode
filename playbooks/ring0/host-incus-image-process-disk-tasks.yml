@@ -1,0 +1,62 @@
+---
+# Tasks for processing each disk configuration to create a custom ISO
+
+- name: Processing per disk config -- Create custom preseed for disk config.
+  ansible.builtin.template:
+    src: "host-templates/preseed.cfg.j2"
+    dest: "{{ param_iso_working_path }}/preseed-{{ disk_config.name }}.cfg"
+    mode: '0644'
+  vars:
+    param_diskdata: "{{ disk_config }}"
+    param_packages: "{{ param_minimum_packages }}"
+    param_hostname: "{{ hostname | default('ubuntu') }}"
+    param_localdomain: "{{ localdomain }}"
+    param_root_user: "{{ root_user }}"
+    param_root_user_fullname: "{{ root_user_fullname }}"
+    param_root_user_password: "{{ root_user_password }}"
+    param_root_user_publickey: "{{ root_user_publickey }}"
+
+- name: Processing per disk config -- Copy preseed to ISO directory.
+  ansible.builtin.copy:
+    src: "{{ param_iso_working_path }}/preseed-{{ disk_config.name }}.cfg"
+    dest: "{{ param_iso_extracted_path }}/preseed/ubuntu-server-autoinstall.seed"
+    mode: '0644'
+    remote_src: true
+
+- name: Processing per disk config -- Modify boot config to use preseed.
+  ansible.builtin.lineinfile:
+    path: "{{ param_iso_extracted_path }}/isolinux/txt.cfg"
+    regexp: '^default install'
+    line: 'default autoinstall'
+    state: present
+
+- name: Processing per disk config -- Add autoinstall option to isolinux config.
+  ansible.builtin.blockinfile:
+    path: "{{ param_iso_extracted_path }}/isolinux/txt.cfg"
+    block: |
+      label autoinstall
+        menu label ^Autoinstall {{ disk_config.name }} Configuration
+        kernel /install/vmlinuz
+        append file=/cdrom/preseed/ubuntu-server-autoinstall.seed vga=788 initrd=/install/initrd.gz quiet ---
+    state: present
+    marker: "# {mark} ANSIBLE MANAGED BLOCK FOR {{ disk_config.name }}"
+
+- name: Processing per disk config -- Create custom ISO.
+  ansible.builtin.command:
+    cmd: >
+      xorriso -as mkisofs -r -J -b isolinux/isolinux.bin -c isolinux/boot.cat
+      -no-emul-boot -boot-load-size 4 -boot-info-table
+      -o {{ param_iso_destination_path }}/ubuntu-custom-{{ disk_config.name }}.iso
+      {{ param_iso_extracted_path }}
+  args:
+    creates: "{{ param_iso_destination_path }}/ubuntu-custom-{{ disk_config.name }}.iso"
+
+- name: Processing per disk config -- Verify ISO was created.
+  ansible.builtin.stat:
+    path: "{{ param_iso_destination_path }}/ubuntu-custom-{{ disk_config.name }}.iso"
+  register: iso_stat
+
+- name: Processing per disk config -- Display ISO creation result.
+  ansible.builtin.debug:
+    msg: "Custom ISO for {{ disk_config.name }} created successfully at {{ param_iso_destination_path }}/ubuntu-custom-{{ disk_config.name }}.iso"
+  when: iso_stat.stat.exists
