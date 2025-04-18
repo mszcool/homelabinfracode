@@ -18,12 +18,24 @@
     param_minimum_packages: "{{ minimum_packages }}"
 
   tasks:
-    - name: Install required packages for password encryption
+    - name: Pre-requisites -- Install required packages
       ansible.builtin.apt:
         name:
           - whois  # Contains mkpasswd utility
+          - xorriso
+          - isolinux
+          - p7zip-full
+          - genisoimage
         state: present
         update_cache: true
+
+    - name: Pre-requisites -- Download Ubuntu ISO if not already present
+      ansible.builtin.get_url:
+        url: "{{ param_iso_source_url }}"
+        dest: "{{ param_iso_source_path }}"
+        mode: '0644'
+      register: download_result
+      changed_when: download_result.changed
 
     - name: Generate random salt for password.
       ansible.builtin.shell: |
@@ -46,24 +58,6 @@
       ansible.builtin.set_fact:
         param_root_user_password: "{{ encrypted_password.stdout }}"
       no_log: true
-
-    - name: Pre-requisites -- Install required packages
-      ansible.builtin.apt:
-        name:
-          - xorriso
-          - isolinux
-          - p7zip-full
-          - genisoimage
-        state: present
-        update_cache: true
-
-    - name: Pre-requisites -- Download Ubuntu ISO if not already present
-      ansible.builtin.get_url:
-        url: "{{ param_iso_source_url }}"
-        dest: "{{ param_iso_source_path }}"
-        mode: '0644'
-      register: download_result
-      changed_when: download_result.changed
 
     - name: Create working directory
       ansible.builtin.file:
