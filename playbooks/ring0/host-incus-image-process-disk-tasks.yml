@@ -13,7 +13,7 @@
     param_localdomain: "{{ localdomain }}"
     param_root_user: "{{ root_user }}"
     param_root_user_fullname: "{{ root_user_fullname }}"
-    param_root_user_password: "{{ root_user_password }}"
+    param_root_user_password: "{{ param_root_user_password }}"  # This is now the encrypted password
     param_root_user_publickey: "{{ root_user_publickey }}"
 
 - name: Processing per disk config -- Copy preseed to ISO directory.
