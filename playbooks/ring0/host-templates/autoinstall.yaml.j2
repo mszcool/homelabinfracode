@@ -1,0 +1,136 @@
+#cloud-config
+autoinstall:
+  version: 1
+  
+  identity:
+    hostname: {{ tp_hostname }}
+    username: {{ tp_root_user }}
+    password: {{ tp_root_user_password }}
+    realname: {{ tp_root_user_fullname }}
+  
+  ssh:
+    install-server: true
+    allow-pw: false
+    authorized-keys:
+      - {{ tp_root_user_publickey }}
+  
+  storage:
+    config:
+      # Define all disk devices from devices_in_scope
+      {% for device in tp_diskdata.devices_in_scope %}
+      - type: disk
+        id: disk-{{ device.device }}
+        path: /dev/{{ device.device }}
+        ptable: gpt
+      {% endfor %}
+      
+      # Create partitions on the root partition device
+      {% set root_device = tp_diskdata.root_partition.device %}
+      
+      # Fixed EFI partition (512MB)
+      - type: partition
+        id: efi-part
+        device: disk-{{ root_device }}
+        size: 512M
+        flag: boot
+        grub_device: true
+      
+      # Format EFI partition 
+      - type: format
+        id: efi-format
+        volume: efi-part
+        fstype: fat32
+        
+      # Mount EFI partition
+      - type: mount
+        id: efi-mount
+        device: efi-format
+        path: /boot/efi
+      
+      # Fixed boot partition (1024MB)
+      - type: partition
+        id: boot-part
+        device: disk-{{ root_device }}
+        size: 1024M
+        
+      # Format boot partition
+      - type: format
+        id: boot-format
+        volume: boot-part
+        fstype: ext4
+        
+      # Mount boot partition
+      - type: mount
+        id: boot-mount
+        device: boot-format
+        path: /boot
+      
+      # Root OS partition with configured size
+      - type: partition
+        id: root-part
+        device: disk-{{ root_device }}
+        size: {{ tp_diskdata.root_partition.size_MB }}M
+        
+      # Format root partition
+      - type: format
+        id: root-format
+        volume: root-part
+        fstype: ext4
+        
+      # Mount root partition
+      - type: mount
+        id: root-mount
+        device: root-format
+        path: /
+      
+      # Create LVM partitions on all devices
+      {% for device in tp_diskdata.devices_in_scope %}
+      - type: partition
+        id: lvm-{{ device.device }}-part
+        device: disk-{{ device.device }}
+        size: -1  # Use remaining space
+      {% endfor %}
+      
+      # Create volume group with all LVM partitions
+      - type: lvm_volgroup
+        id: {{ tp_volgroupname }}
+        name: {{ tp_volgroupname }}
+        devices:
+          {% for device in tp_diskdata.devices_in_scope %}
+          - lvm-{{ device.device }}-part
+          {% endfor %}
+      
+      {% for vol_name, vol_config in tp_diskdata.volume_group_volumes.items() %}
+      # Create LVM volume for {{ vol_name }}
+      - type: lvm_partition
+        id: lvm-{{ vol_name }}
+        volgroup: {{ volume_group_name }}
+        name: {{ vol_name }}
+        {% if vol_config.all_remaining_space is defined and vol_config.all_remaining_space %}
+        size: -1  # Use remaining space
+        {% else %}
+        size: {{ vol_config.size_MB }}M
+        {% endif %}
+        
+      # Format the LVM volume
+      - type: format
+        id: lvm-{{ vol_name }}-format
+        volume: lvm-{{ vol_name }}
+        fstype: ext4
+        
+      # Mount the LVM volume
+      - type: mount
+        id: lvm-{{ vol_name }}-mount
+        device: lvm-{{ vol_name }}-format
+        path: /var/lib/{{ vol_name }}
+      {% endfor %}
+  
+  packages:
+    - {{ tp_packages|join('\n    - ') }}
+  
+  late-commands:
+    - echo 'APT::Periodic::Update-Package-Lists "1";' > /target/etc/apt/apt.conf.d/20auto-upgrades
+    - echo 'APT::Periodic::Unattended-Upgrade "1";' >> /target/etc/apt/apt.conf.d/20auto-upgrades
+    - echo 'APT::Periodic::AutocleanInterval "7";' >> /target/etc/apt/apt.conf.d/20auto-upgrades
+    - curtin in-target --target=/target -- sed -i 's/#PasswordAuthentication yes/PasswordAuthentication no/' /etc/ssh/sshd_config
+    - curtin in-target --target=/target -- sed -i 's/#PermitRootLogin prohibit-password/PermitRootLogin no/' /etc/ssh/sshd_config

@@ -13,23 +13,23 @@ all:
     volume_group_name: "vg0"
     volume_disk_configs:
       - name: "msz_single_disk_server"
+        devices_in_scope:
+          - device: "sda"
         root_partition:
-          device: "/dev/sda"
+          device: "sda"
           size_MB: "20480"
-        volume_group_partitions:
-          - device: "/dev/sda"
         volume_group_volumes:
           images:
             size_MB: "51200"
           instances:
             all_remaining_space: true
       - name: "msz_dual_disk_server"
+        devices_in_scope:
+          - device: "sda"
+          - device: "sdb"
         root_partition:
-          device: "/dev/sda"
+          device: "sda"
           size_MB: "20480"
-        volume_group_partitions:
-          - device: "/dev/sda"
-          - device: "/dev/sdb"
         volume_group_volumes:
           images:
             size_MB: "51200"

@@ -1,51 +1,53 @@
 ---
 # Tasks for processing each disk configuration to create a custom ISO
 
-- name: Processing per disk config -- Create custom preseed for disk config.
+- name: Processing per disk config -- Generate autoinstall configuration
   ansible.builtin.template:
-    src: "host-templates/preseed.cfg.j2"
-    dest: "{{ param_iso_working_path }}/preseed-{{ disk_config.name }}.cfg"
+    src: "host-templates/autoinstall.yaml.j2"
+    dest: "{{ param_iso_extracted_path }}/autoinstall/user-data"
     mode: '0644'
   vars:
-    param_diskdata: "{{ disk_config }}"
-    param_packages: "{{ param_minimum_packages }}"
-    param_hostname: "{{ hostname | default('ubuntu') }}"
-    param_localdomain: "{{ localdomain }}"
-    param_root_user: "{{ root_user }}"
-    param_root_user_fullname: "{{ root_user_fullname }}"
-    param_root_user_password: "{{ param_root_user_password }}"  # This is now the encrypted password
-    param_root_user_publickey: "{{ root_user_publickey }}"
+    tp_hostname: "{{ param_random_hostname }}"
+    tp_volgroupname: "{{ param_volume_group_name }}"
+    tp_diskdata: "{{ disk_config }}"
+    tp_packages: "{{ param_minimum_packages }}"
+    tp_localdomain: "{{ localdomain }}"
+    tp_root_user: "{{ root_user }}"
+    tp_root_user_fullname: "{{ root_user_fullname }}"
+    tp_root_user_password: "{{ param_root_user_password }}"  # This is now the encrypted password
+    tp_root_user_publickey: "{{ root_user_publickey }}"
 
-- name: Processing per disk config -- Copy preseed to ISO directory.
-  ansible.builtin.copy:
-    src: "{{ param_iso_working_path }}/preseed-{{ disk_config.name }}.cfg"
-    dest: "{{ param_iso_extracted_path }}/preseed/ubuntu-server-autoinstall.seed"
+- name: Processing per disk config -- Create empty meta-data file (required by cloud-init)
+  ansible.builtin.file:
+    path: "{{ param_iso_extracted_path }}/autoinstall/meta-data"
+    state: touch
     mode: '0644'
-    remote_src: true
 
-- name: Processing per disk config -- Modify boot config to use preseed.
+- name: Processing per disk config -- Modify GRUB config to use autoinstall
   ansible.builtin.lineinfile:
-    path: "{{ param_iso_extracted_path }}/isolinux/txt.cfg"
-    regexp: '^default install'
-    line: 'default autoinstall'
+    path: "{{ param_iso_extracted_path }}/boot/grub/grub.cfg"
+    regexp: '^menuentry ".*Install Ubuntu Server.*"'
+    line: 'menuentry "Autoinstall {{ disk_config.name }}" {'
     state: present
 
-- name: Processing per disk config -- Add autoinstall option to isolinux config.
-  ansible.builtin.blockinfile:
-    path: "{{ param_iso_extracted_path }}/isolinux/txt.cfg"
-    block: |
-      label autoinstall
-        menu label ^Autoinstall {{ disk_config.name }} Configuration
-        kernel /install/vmlinuz
-        append file=/cdrom/preseed/ubuntu-server-autoinstall.seed vga=788 initrd=/install/initrd.gz quiet ---
-    state: present
-    marker: "# {mark} ANSIBLE MANAGED BLOCK FOR {{ disk_config.name }}"
+- name: Processing per disk config -- Update GRUB kernel parameters for autoinstall
+  ansible.builtin.replace:
+    path: "{{ param_iso_extracted_path }}/boot/grub/grub.cfg"
+    regexp: '(---.*)\s*$'
+    replace: '\1 autoinstall ds=nocloud;s=/cdrom/autoinstall/'
 
 - name: Processing per disk config -- Create custom ISO.
   ansible.builtin.command:
     cmd: >
-      xorriso -as mkisofs -r -J -b isolinux/isolinux.bin -c isolinux/boot.cat
-      -no-emul-boot -boot-load-size 4 -boot-info-table
+      xorriso -as mkisofs
+      -r -J
+      -no-emul-boot
+      -boot-load-size 4
+      -boot-info-table
+      -eltorito-alt-boot
+      -e bootpart/eltorito_img1_bios.img
+      -no-emul-boot
+      -isohybrid-gpt-basdat
       -o {{ param_iso_destination_path }}/ubuntu-custom-{{ disk_config.name }}.iso
       {{ param_iso_extracted_path }}
   args:

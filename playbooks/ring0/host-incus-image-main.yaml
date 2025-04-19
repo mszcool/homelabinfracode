@@ -1,8 +1,8 @@
 ---
 - name: Host setup for bare-metal servers running Incus.
   hosts: localhost
-  become: false
-  gather_facts: true
+  become: true
+  gather_facts: false
 
   vars:
     param_root_user_name: "{{ root_user }}"
@@ -13,6 +13,7 @@
     param_iso_source_path: "{{ iso_source_path }}"
     param_iso_destination_path: "{{ iso_destination_path }}"
     param_iso_working_path: "{{ iso_working_path }}"
+    param_volume_group_name: "{{ volume_group_name }}"
     param_volume_disk_configs: "{{ volume_disk_configs }}"
     param_iso_extracted_path: "{{ iso_working_path }}/iso_extracted"
     param_minimum_packages: "{{ minimum_packages }}"
@@ -29,15 +30,36 @@
         state: present
         update_cache: true
 
+    - name: Pre-requisites -- Ensure the ~/iso directory exists
+      ansible.builtin.file:
+        path: "{{ param_iso_destination_path | expanduser }}"
+        state: directory
+        mode: '0755'
+
     - name: Pre-requisites -- Download Ubuntu ISO if not already present
       ansible.builtin.get_url:
         url: "{{ param_iso_source_url }}"
         dest: "{{ param_iso_source_path }}"
         mode: '0644'
+        timeout: 3600
       register: download_result
       changed_when: download_result.changed
 
-    - name: Generate random salt for password.
+    - name: Pre-Processing -- Generate random hostname
+      ansible.builtin.shell: |
+        set -o pipefail &&
+        tr -dc 'a-z0-9' < /dev/urandom | head -c 8
+      args:
+        executable: /bin/bash
+      register: random_hostname
+      changed_when: false
+      failed_when: random_hostname.rc != 0 and random_hostname.rc != 141  # 141 is the exit code for head when it reaches EOF
+
+    - name: Pre-Processing -- Set hostname fact
+      ansible.builtin.set_fact:
+        param_random_hostname: "host-{{ random_hostname.stdout }}"
+
+    - name: Pre-Processing -- Generate random salt for password.
       ansible.builtin.shell: |
         set -o pipefail &&
         tr -dc 'a-zA-Z0-9' < /dev/urandom | head -c 16 || true
@@ -46,51 +68,55 @@
       register: random_salt
       no_log: true
       changed_when: false
+      failed_when: random_salt.rc != 0 and random_salt.rc != 141  # 141 is the exit code for head when it reaches EOF
 
-    - name: Generate encrypted password for preseed with custom salt and rounds
+    - name: Pre-Processing -- Generate encrypted password for cloud-init with custom salt and rounds
       ansible.builtin.shell: |
         mkpasswd -m sha-512 -R 65536 -S {{ random_salt.stdout }} '{{ param_root_user_password_clear }}'
       register: encrypted_password
       no_log: true
       changed_when: false
 
-    - name: Set password fact
+    - name: Pre-Processing -- Set password fact
       ansible.builtin.set_fact:
         param_root_user_password: "{{ encrypted_password.stdout }}"
       no_log: true
 
-    - name: Create working directory
+    - name: Pre-Processing -- Create working directory
       ansible.builtin.file:
         path: "{{ param_iso_working_path }}"
         state: directory
         mode: '0755'
 
-    - name: Create ISO extraction directory
+    - name: Pre-Processing -- Create ISO extraction directory
       ansible.builtin.file:
         path: "{{ param_iso_extracted_path }}"
         state: directory
         mode: '0755'
 
-    - name: Extract ISO once
+    - name: Processing -- Extract ISO using xorriso including the boot partition
       ansible.builtin.command:
-        cmd: "7z x {{ param_iso_source_path }} -o{{ param_iso_extracted_path }}"
-        creates: "{{ param_iso_extracted_path }}/[BOOT]"
+        cmd: >
+          xorriso -osirrox on -indev {{ param_iso_source_path }}
+          -extract_boot_images "{{ param_iso_extracted_path }}/bootpart" -extract / {{ param_iso_extracted_path }}
+      args:
+        creates: "{{ param_iso_extracted_path }}/bootpart"
       register: extract_result
 
-    - name: Create preseed directory if not exists
+    - name: Processing -- Create autoinstall directory in ISO
       ansible.builtin.file:
-        path: "{{ param_iso_extracted_path }}/preseed"
+        path: "{{ param_iso_extracted_path }}/autoinstall"
         state: directory
         mode: '0755'
 
-    - name: Process each disk configuration
+    - name: Processing -- Process each disk configuration
       ansible.builtin.include_tasks: host-incus-image-process-disk-tasks.yml
       loop: "{{ param_volume_disk_configs }}"
       loop_control:
         loop_var: disk_config
         label: "{{ disk_config.name }}"
 
-    - name: Clean up extraction directory
+    - name: Post-Processing -- Clean up extraction directory
       ansible.builtin.file:
         path: "{{ param_iso_extracted_path }}"
         state: absent
