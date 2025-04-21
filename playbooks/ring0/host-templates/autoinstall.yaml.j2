@@ -17,12 +17,13 @@ autoinstall:
   storage:
     config:
       # Define all disk devices from devices_in_scope
-      {% for device in tp_diskdata.devices_in_scope %}
+      {%- for device in tp_diskdata.devices_in_scope %}
+ 
       - type: disk
         id: disk-{{ device.device }}
         path: /dev/{{ device.device }}
         ptable: gpt
-      {% endfor %}
+      {%- endfor %}
       
       # Create partitions on the root partition device
       {% set root_device = tp_diskdata.root_partition.device %}
@@ -84,33 +85,38 @@ autoinstall:
         path: /
       
       # Create LVM partitions on all devices
-      {% for device in tp_diskdata.devices_in_scope %}
+      {%- for device in tp_diskdata.devices_in_scope %}
+
       - type: partition
         id: lvm-{{ device.device }}-part
         device: disk-{{ device.device }}
         size: -1  # Use remaining space
-      {% endfor %}
+      {%- endfor %}
       
       # Create volume group with all LVM partitions
       - type: lvm_volgroup
         id: {{ tp_volgroupname }}
         name: {{ tp_volgroupname }}
         devices:
-          {% for device in tp_diskdata.devices_in_scope %}
+          {%- for device in tp_diskdata.devices_in_scope %}
+
           - lvm-{{ device.device }}-part
-          {% endfor %}
+          {%- endfor %}
       
-      {% for vol_name, vol_config in tp_diskdata.volume_group_volumes.items() %}
+      {%- for vol_name, vol_config in tp_diskdata.volume_group_volumes.items() %}
+
       # Create LVM volume for {{ vol_name }}
       - type: lvm_partition
         id: lvm-{{ vol_name }}
-        volgroup: {{ volume_group_name }}
+        volgroup: {{ tp_volgroupname }}
         name: {{ vol_name }}
-        {% if vol_config.all_remaining_space is defined and vol_config.all_remaining_space %}
+        {%- if vol_config.all_remaining_space is defined and vol_config.all_remaining_space %}
+
         size: -1  # Use remaining space
-        {% else %}
+        {%- else %}
+        
         size: {{ vol_config.size_MB }}M
-        {% endif %}
+        {%- endif %}
         
       # Format the LVM volume
       - type: format
@@ -123,7 +129,7 @@ autoinstall:
         id: lvm-{{ vol_name }}-mount
         device: lvm-{{ vol_name }}-format
         path: /var/lib/{{ vol_name }}
-      {% endfor %}
+      {%- endfor %}
   
   packages:
     - {{ tp_packages|join('\n    - ') }}

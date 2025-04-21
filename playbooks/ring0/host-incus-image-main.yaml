@@ -15,7 +15,6 @@
     param_iso_working_path: "{{ iso_working_path }}"
     param_volume_group_name: "{{ volume_group_name }}"
     param_volume_disk_configs: "{{ volume_disk_configs }}"
-    param_iso_extracted_path: "{{ iso_working_path }}/iso_extracted"
     param_minimum_packages: "{{ minimum_packages }}"
 
   tasks:
@@ -88,24 +87,18 @@
         state: directory
         mode: '0755'
 
-    - name: Pre-Processing -- Create ISO extraction directory
-      ansible.builtin.file:
-        path: "{{ param_iso_extracted_path }}"
-        state: directory
-        mode: '0755'
-
     - name: Processing -- Extract ISO using xorriso including the boot partition
       ansible.builtin.command:
         cmd: >
           xorriso -osirrox on -indev {{ param_iso_source_path }}
-          -extract_boot_images "{{ param_iso_extracted_path }}/bootpart" -extract / {{ param_iso_extracted_path }}
+          -extract_boot_images "{{ param_iso_working_path }}/bootpart" -extract / {{ param_iso_working_path }}
       args:
-        creates: "{{ param_iso_extracted_path }}/bootpart"
+        creates: "{{ param_iso_working_path }}/bootpart"
       register: extract_result
 
     - name: Processing -- Create autoinstall directory in ISO
       ansible.builtin.file:
-        path: "{{ param_iso_extracted_path }}/autoinstall"
+        path: "{{ param_iso_working_path }}/autoinstall"
         state: directory
         mode: '0755'
 
@@ -115,8 +108,3 @@
       loop_control:
         loop_var: disk_config
         label: "{{ disk_config.name }}"
-
-    - name: Post-Processing -- Clean up extraction directory
-      ansible.builtin.file:
-        path: "{{ param_iso_extracted_path }}"
-        state: absent
