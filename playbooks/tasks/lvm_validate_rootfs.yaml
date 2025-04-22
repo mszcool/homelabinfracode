@@ -5,22 +5,6 @@
       - hardware
   register: system_facts
 
-- name: Check if root partition exists on correct device
-  ansible.builtin.shell: >
-    set -o pipefail &&
-    lsblk -o NAME,MAJ:MIN,RM,SIZE,RO,TYPE,MOUNTPOINT |
-    grep -E '{{ diskdata.root_partition.device.split("/")[-1] }}{{ diskdata.root_partition.partition_nr }}'
-  args:
-    executable: /bin/bash
-  register: root_partition_check
-  failed_when: false
-  changed_when: false
-
-- name: Fail if root partition does not exist
-  ansible.builtin.fail:
-    msg: "Root partition {{ diskdata.root_partition.device }}{{ diskdata.root_partition.partition_nr }} does not exist or is not configured properly."
-  when: root_partition_check.rc != 0
-
 - name: Check volume group existence
   community.general.lvg:
     vg: "{{ param_volume_group_name }}"
@@ -35,77 +19,29 @@
     msg: "Volume group {{ param_volume_group_name }} does not exist."
   when: vg_check is failed
 
-- name: Check if root logical volume exists and has correct size
+- name: Get the disk configuration for the current host.
+  ansible.builtin.set_fact:
+    selected_disk_config: "{{ param_volume_disk_configs | selectattr('name', 'equalto', param_host_disk_config_name) | list | first | default({}) }}"
+  failed_when: selected_disk_config is not defined or selected_disk_config is empty
+
+- name: Now validate if all LVM volumes defined in the disk config are present on the target machine.
   community.general.lvol:
     vg: "{{ param_volume_group_name }}"
-    lv: "{{ param_volume_group_volume_root }}"
-    size: "{{ diskdata.root_partition.size }}"
+    lv: "{{ item.name }}"
     state: present
   check_mode: true
-  register: lv_root_check
-  failed_when: false
-  changed_when: false
+  register: lv_check
+  loop: "{{ selected_disk_config.volume_group_volumes | dict2items }}"
 
-- name: Fail if root logical volume does not exist or has wrong size
-  ansible.builtin.fail:
-    msg: >
-      Root logical volume {{ param_volume_group_name }}/{{ param_volume_group_volume_root }}
-      does not exist or doesn't have the expected size of {{ diskdata.root_partition.size }}.
-  when: lv_root_check is changed or lv_root_check is failed
-
-- name: Get current partition information using parted
-  community.general.parted:
-    device: "{{ diskdata.expected_partition_setup.device }}"
-    state: info
-    unit: "GiB"
-  register: current_partition_info
-  changed_when: false
-
-- name: Gathered partition setup
-  ansible.builtin.debug:
-    msg: "{{ current_partition_info }}"
-
-- name: Set fact for expected partitions
+- name: Check if any logical volumes would require changes
   ansible.builtin.set_fact:
-    expected_partitions: "{{ diskdata.expected_partition_setup.partitions | map(attribute='partition') | list }}"
+    lvm_changes_required: "{{ lv_check.results | selectattr('changed', 'equalto', true) | list | length > 0 }}"
 
-- name: Validate partition count
-  ansible.builtin.assert:
-    that:
-      - "current_partition_info.partitions | length == expected_partitions | length"
-    fail_msg: "Partition count mismatch - expected {{ expected_partitions | length }} partitions but found {{ current_partition_info.partitions | length }} partitions"
-    success_msg: "Partition count matches expected configuration"
-
-- name: Validate each partition
-  ansible.builtin.assert:
-    that:
-      - "current_part.num == expected_part.partition_nr"
-    fail_msg: "Partition {{ current_part.num }} does not match expected configuration"
-    success_msg: "Partition {{ current_part.num }} matches expected configuration"
-  vars:
-    expected_part: "{{ expected_partitions | selectattr('partition_nr', 'equalto', current_part.num) | first }}"
-  when: expected_partitions | selectattr('partition_nr', 'equalto', current_part.num) | list | length > 0
-  loop: "{{ current_partition_info.partitions }}"
-  loop_control:
-    loop_var: current_part
-
-- name: Validate partition sizes (approximate match)
+- name: Display LVM validation results
   ansible.builtin.debug:
-    msg: "Validating partition {{ current_part.num }} size: {{ current_part.size }} against expected: {{ expected_part.size }}"
-  vars:
-    expected_part: "{{ expected_partitions | selectattr('partition_nr', 'equalto', current_part.num) | first }}"
-    normalized_current_size: "{{ current_part.size | float }}"
-    normalized_expected_size: >-
-      {% if 'GiB' in expected_part.size %}
-      {{ expected_part.size | replace('GiB', '') | float }}
-      {% elif 'G' in expected_part.size %}
-      {{ expected_part.size | replace('G', '') | float }}
-      {% else %}
-      {{ expected_part.size | float }}
-      {% endif %}
-    size_threshold: 0.1  # Allow 10% tolerance for size difference
-  when:
-    - expected_partitions | selectattr('partition_nr', 'equalto', current_part.num) | list | length > 0
-  loop: "{{ current_partition_info.partitions }}"
-  loop_control:
-    loop_var: current_part
+    msg: "{{ 'LVM configuration does not match!' if lvm_changes_required else 'LVM as expected!' }}"
+
+- name: Fail if LVM changes are required
+  ansible.builtin.fail:
+    msg: "Invalid LVM configuration on target host"
+  when: lvm_changes_required | bool

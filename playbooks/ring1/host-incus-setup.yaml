@@ -7,20 +7,22 @@
 
   vars:
     incus_root_user: "{{ root_user }}"
-    incus_root_publickey: "{{ publickey_root }}"
-    param_incus_port: "{{ incus_port | default(8443) }}"
+    incus_root_password_env: "{{ root_user_password_env }}"
+    incus_root_publickey: "{{ root_user_publickey }}"
+    param_incus_config: "{{ incus_config }}"
     param_volume_group_name: "{{ volume_group_name | default('vg0') }}"
     param_volume_group_volume_root: "{{ volume_group_volume_root | default('root') }}"
     param_volume_group_volume_images: "{{ volume_group_volume_images | default('images') }}"
     param_volume_group_volume_instances: "{{ volume_group_volume_instances | default('instances') }}"
-    param_hostname: "{{ hostvars[inventory_hostname]['hostname'] }}"
-    param_host_disk_data: "{{ hostvars[inventory_hostname]['diskdata'] }}"
-    param_host_network: "{{ hostvars[inventory_hostname]['network'] }}"
+    param_volume_disk_configs: "{{ volume_disk_configs | default([]) }}"
 
   tasks:
     - name: Set the SSH user name in case it is not the default.
       ansible.builtin.set_fact:
         ansible_user: "{{ incus_root_user }}"
+        param_hostname: "{{ hostvars[inventory_hostname]['hostname'] }}"
+        param_host_disk_data: "{{ hostvars[inventory_hostname]['diskdata'] }}"
+        param_host_network: "{{ hostvars[inventory_hostname]['network'] }}"
 
     - name: Run baseline installation tasks
       ansible.builtin.include_tasks: ../tasks/bootstrap_tasks.yaml
@@ -28,7 +30,19 @@
     - name: Before doing anything, validate if the LVM setup for root is according to parameters using LVM ansible modules.
       ansible.builtin.include_tasks: ../tasks/lvm_validate_rootfs.yaml
 
-    - name: Set the Incus SSH Key.
+    - name: If the environment variable for the password set, set input variable for the password generation tasks.
+      ansible.builtin.set_fact:
+        generate_password_input: "{{ lookup('env', incus_root_password_env) | default('') }}"
+      when: lookup('env', incus_root_password_env) is defined
+      no_log: true
+
+    - name: If the environment variable in incus_root_password_env is set, update the password.
+      ansible.builtin.user:
+        name: "{{ incus_root_user }}"
+        password: "{{ generated_lx_password }}"
+      when: lookup('env', incus_root_password_env) is defined
+
+    - name: Set the Incus server admin SSH Key.
       ansible.posix.authorized_key:
         user: "{{ incus_root_user }}"
         state: present
@@ -37,23 +51,5 @@
     - name: Allow Incus remote access through HTTPS
       community.general.ufw:
         rule: allow
-        port: "{{ param_incus_port }}"
+        port: "{{ param_incus_config.port }}"
         proto: tcp
-
-    - name: Set variables for LVM Volumes for images
-      ansible.builtin.set_fact:
-        param_tasks_vgname: "{{ param_volume_group_name }}"
-        param_tasks_lvname: "{{ param_volume_group_volume_images }}"
-        param_tasks_partdata: "{{ param_host_disk_data.volume_group_images }}"
-
-    - name: Create the LVM Volumes for images
-      ansible.builtin.include_tasks: ../tasks/lvm_operations.yml
-
-    - name: Set variables for LVM Volumes for images
-      ansible.builtin.set_fact:
-        param_tasks_vgname: "{{ param_volume_group_name }}"
-        param_tasks_lvname: "{{ param_volume_group_volume_instances }}"
-        param_tasks_partdata: "{{ param_host_disk_data.volume_group_instances }}"
-
-    - name: Create the LVM Volumes for images
-      ansible.builtin.include_tasks: ../tasks/lvm_operations.yml
