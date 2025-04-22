@@ -28,6 +28,8 @@ autoinstall:
         id: disk-{{ device.device }}
         path: /dev/{{ device.device }}
         ptable: gpt
+        grub_device: {{ loop.first }}
+        wipe: superblock-recursive
       {%- endfor %}
       
       # Create partitions on the root partition device
