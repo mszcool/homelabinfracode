@@ -25,7 +25,7 @@
     block: |
       set default=0
       set timeout=5
-      
+
       menuentry "Autoinstall by mszcool" {
           linux /casper/vmlinuz --- autoinstall ds=nocloud;s=/cdrom/autoinstall/
           initrd /casper/initrd

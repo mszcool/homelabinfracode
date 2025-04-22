@@ -58,27 +58,18 @@
       ansible.builtin.set_fact:
         param_random_hostname: "host-{{ random_hostname.stdout }}"
 
-    - name: Pre-Processing -- Generate random salt for password.
-      ansible.builtin.shell: |
-        set -o pipefail &&
-        tr -dc 'a-zA-Z0-9' < /dev/urandom | head -c 16 || true
-      args:
-        executable: /bin/bash
-      register: random_salt
+    - name: Pre-Processing -- Set variable for password generation task.
+      ansible.builtin.set_fact:
+        generate_password_input: "{{ param_root_user_password_clear | default('') }}"
       no_log: true
-      changed_when: false
-      failed_when: random_salt.rc != 0 and random_salt.rc != 141  # 141 is the exit code for head when it reaches EOF
 
-    - name: Pre-Processing -- Generate encrypted password for cloud-init with custom salt and rounds
-      ansible.builtin.shell: |
-        mkpasswd -m sha-512 -R 65536 -S {{ random_salt.stdout }} '{{ param_root_user_password_clear }}'
-      register: encrypted_password
-      no_log: true
-      changed_when: false
+    - name: Pre-Processing -- Generate Linux password with input
+      ansible.builtin.include_tasks:
+        file: ../tasks/generate_lx_passwd.yaml
 
     - name: Pre-Processing -- Set password fact
       ansible.builtin.set_fact:
-        param_root_user_password: "{{ encrypted_password.stdout }}"
+        param_root_user_password: "{{ generated_lx_password }}"
       no_log: true
 
     - name: Pre-Processing -- Create working directory

@@ -9,7 +9,14 @@ all:
     iso_source_path: "~/iso/ubuntu-24.04.2-live-server-amd64.iso"
     iso_destination_path: "~/iso"
     iso_working_path: "~/iso/temp"
-    incus_port: 8443
+    incus_config:
+      port: 8443
+      storage_images:
+        volume_group: "vg0"
+        volume: "images"
+      storage_instances:
+        volume_group: "vg0"
+        volume: "instances"
     volume_group_name: "vg0"
     volume_disk_configs:
       - name: "msz_single_disk_server"
@@ -54,32 +61,12 @@ all:
         10.10.0.20:
           hostname: mszpvetest1
           disk_config_name: "msz_single_disk_server"
-          network:
-            main_interface:
-              name: intbr0
-              method: static
-              address: "10.10.0.2/24"
-              netmask: 255.255.255.0
-              #gateway: 
-              bridge_ports: eth0
-              bridge_vlan_aware: yes
-            ext_interface:
-              name: extbr0
-              bridge_ports: eth1
-              method: dhcp
+          incus_network:
+            physical_network_parent: "eth1"
+            bridged_network_parents: "eth2"
         10.10.0.30:
           hostname: mszpvetest2
           disk_config_name: "msz_dual_disk_server"
-          network:
-            main_interface:
-              name: intbr0
-              method: static
-              address: "10.10.0.3/24"
-              #netmask: 255.255.255.0
-              #gateway: 
-              bridge_ports: eth0
-              bridge_vlan_aware: yes
-            ext_interface:
-              name: extbr0
-              bridge_ports: eth1
-              method: dhcp
+          incus_network:
+            physical_network_parent: "eth1"
+            bridged_network_parents: "eth2"
