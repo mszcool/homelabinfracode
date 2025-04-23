@@ -3,7 +3,7 @@
 
 - name: Processing per disk config -- Generate autoinstall configuration
   ansible.builtin.template:
-    src: "host-templates/autoinstall.yaml.j2"
+    src: "templates/autoinstall.yaml.j2"
     dest: "{{ param_iso_working_path }}/autoinstall.yaml"
     mode: '0644'
   vars:

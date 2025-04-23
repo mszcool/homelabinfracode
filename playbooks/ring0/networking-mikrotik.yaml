@@ -46,9 +46,9 @@
       ansible.builtin.set_fact:
         param_root_user_password: "{{ lookup('env', param_root_user_password_env) }}"
         param_automation_user_password: "{{ lookup('env', param_automation_user_password_env) }}"
-        
+
     - name: Create Mikrotik bootstrap script file. Copy this on your RouterOS target and execute there without any changes!
       ansible.builtin.template:
-        src: networking-templates/mikrotik-main-default.rsc.j2
+        src: templates/mikrotik-main-default.rsc.j2
         dest: "/home/{{ current_user }}/{{ param_script_file_name }}"
         mode: "0644"
