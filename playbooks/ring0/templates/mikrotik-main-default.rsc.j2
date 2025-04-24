@@ -24,6 +24,12 @@
 :local startMarkerText "{{ param_start_marker_text }}"
 :local endMarkerText "{{ param_end_marker_text }}"
 
+# Certificate file variables - these must be uploaded, as well.
+:local routerRootCertName "mszcool_ssl_selfroot"
+:local routerRootCertFileName ($routerRootCertName . ".crt")
+:local routerCertFileName ($routerHostName . ".crt")
+:local routerKeyFileName ($routerHostName . ".key")
+
 #
 # First, set the hostname and time zone.
 #
@@ -195,17 +201,50 @@ add chain=forward action=drop
 add chain=input action=drop
 
 #
-# Disable insecure services.
-#
-:put "Disabling insecure services, setting up SSL will follow in ring1 with GitOps"
-/ip service disable telnet,ftp
-
-#
 # Limit Winbox to the LAN interface, only.
 #
 /tool mac-server set allowed-interface-list=$lanInterfaceList
 /tool mac-server mac-winbox set allowed-interface-list=$lanInterfaceList
 
+#
+# Install SSL certificates and enable SSL for secure services
+#
+:put "Installing SSL certificates and enabling SSL"
+
+# Import the root CA certificate
+/certificate import file-name="$routerRootCertFileName" passphrase=""
+:delay 1s
+
+# Import the server certificate and private key
+/certificate import file-name="$routerCertFileName" passphrase=""
+:delay 1s
+/certificate import file-name="$routerKeyFileName" passphrase=""
+:delay 1s
+
+# Find and trust the imported certificates
+:local rootCaCert [/certificate find where name~"$routerRootCertName"]
+:local serverCert [/certificate find where name~"$routerHostName"]
+
+# Trust the root CA certificate
+/certificate set trusted=yes $rootCaCert
+:delay 1s
+
+# Enable HTTPS service with the server certificate
+:if ([:len $serverCert] > 0) do={
+    /ip service set www-ssl certificate=$serverCert disabled=no port=443
+    :log info "SSL certificate installed and HTTPS service enabled"
+} else={
+    :log error "Failed to find the server certificate for SSL configuration"
+}
+
+# Enable SSH service on standard port (22)
+/ip service set ssh disabled=no port=22
+
+#
+# Disable insecure services.
+#
+:put "Disabling insecure services, setting up SSL will follow in ring1 with GitOps"
+/ip service disable telnet,ftp,www,api
 
 #
 # Self-delete the script file

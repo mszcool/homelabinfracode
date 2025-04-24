@@ -1,6 +1,7 @@
 all:
   vars:
     localdomain: mszlocal
+    routername: mszrouter
     timezone: "Etc/UTC"
     language: "en_US"
     start_marker_text: "START"

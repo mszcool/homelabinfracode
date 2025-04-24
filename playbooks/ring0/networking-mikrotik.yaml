@@ -47,6 +47,85 @@
         param_root_user_password: "{{ lookup('env', param_root_user_password_env) }}"
         param_automation_user_password: "{{ lookup('env', param_automation_user_password_env) }}"
 
+    - name: Create SSL certificates directory if it doesn't exist
+      ansible.builtin.file:
+        path: "/home/{{ current_user }}/mszcool_ssl"
+        state: directory
+        mode: "0755"
+
+    - name: Set SSL certificate variables
+      ansible.builtin.set_fact:
+        ssl_dir: "/home/{{ current_user }}/mszcool_ssl"
+        ca_key: "/home/{{ current_user }}/mszcool_ssl/mszcool_ssl_selfroot.key"
+        ca_cert: "/home/{{ current_user }}/mszcool_ssl/mszcool_ssl_selfroot.crt"
+        server_key: "/home/{{ current_user }}/mszcool_ssl/{{ param_router_name }}.key"
+        server_csr: "/home/{{ current_user }}/mszcool_ssl/{{ param_router_name }}.csr"
+        server_cert: "/home/{{ current_user }}/mszcool_ssl/{{ param_router_name }}.crt"
+        router_fqdn: "{{ routername }}.{{ localdomain }}"
+        router_ip: "{{ hostsConfig['10.10.0.1'].lan_interface.ipaddr }}"
+
+    - name: Check if root CA certificate exists
+      ansible.builtin.stat:
+        path: "{{ ca_cert }}"
+      register: ca_cert_stat
+
+    - name: Generate root CA private key
+      ansible.builtin.command:
+        cmd: openssl genrsa -out {{ ca_key }} 4096
+      args:
+        creates: "{{ ca_key }}"
+      when: not ca_cert_stat.stat.exists
+
+    - name: Generate root CA certificate
+      ansible.builtin.command:
+        cmd: >
+          openssl req -x509 -new -nodes -key {{ ca_key }}
+          -sha256 -days 36500
+          -out {{ ca_cert }}
+          -subj "/C=EU/ST=State/L=City/O=MszCool Organization/OU=IT Department/CN=MszCool Root CA"
+      args:
+        creates: "{{ ca_cert }}"
+      when: not ca_cert_stat.stat.exists
+
+    - name: Generate server private key
+      ansible.builtin.command:
+        cmd: openssl genrsa -out {{ server_key }} 2048
+      args:
+        creates: "{{ server_key }}"
+
+    - name: Create OpenSSL config file for SAN support
+      ansible.builtin.template:
+        src: templates/ssl_config.cnf.j2
+        dest: "{{ ssl_dir }}/ssl_config.cnf"
+        mode: "0644"
+      vars:
+        alt_names:
+          - "{{ routername }}"
+          - "{{ router_fqdn }}"
+          - "{{ router_ip }}"
+
+    - name: Generate server CSR
+      ansible.builtin.command:
+        cmd: >
+          openssl req -new -key {{ server_key }}
+          -out {{ server_csr }}
+          -config {{ ssl_dir }}/ssl_config.cnf
+          -subj "/C=EU/ST=State/L=City/O=MszCool Organization/OU=IT Department/CN={{ router_fqdn }}"
+      args:
+        creates: "{{ server_csr }}"
+
+    - name: Generate server certificate
+      ansible.builtin.command:
+        cmd: >
+          openssl x509 -req -in {{ server_csr }}
+          -CA {{ ca_cert }} -CAkey {{ ca_key }}
+          -CAcreateserial -out {{ server_cert }}
+          -days 365 -sha256
+          -extensions v3_req
+          -extfile {{ ssl_dir }}/ssl_config.cnf
+      args:
+        creates: "{{ server_cert }}"
+
     - name: Create Mikrotik bootstrap script file. Copy this on your RouterOS target and execute there without any changes!
       ansible.builtin.template:
         src: templates/mikrotik-main-default.rsc.j2
