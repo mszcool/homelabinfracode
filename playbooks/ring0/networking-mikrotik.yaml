@@ -29,9 +29,13 @@
       ansible.builtin.set_fact:
         current_user: "{{ lookup('env', 'USER') }}"
 
-    - name: Set the script file name
+    - name: Set the script file name for phase 1
       ansible.builtin.set_fact:
-        param_script_file_name: "{{ param_router_name }}-bootstrap-script.rsc"
+        param_script_file_phase1_name: "{{ param_router_name }}-phase1-bootstrap.rsc"
+
+    - name: Set the script file name for phase 2
+      ansible.builtin.set_fact:
+        param_script_file_phase2_name: "{{ param_router_name }}-phase2-bootstrap.rsc"
 
     - name: Check if the environment variable with the value from root_password is set
       ansible.builtin.assert:
@@ -126,8 +130,30 @@
       args:
         creates: "{{ server_cert }}"
 
-    - name: Create Mikrotik bootstrap script file. Copy this on your RouterOS target and execute there without any changes!
+    - name: Create a folder to have all files for upload in a single location
+      ansible.builtin.file:
+        path: "/home/{{ current_user }}/{{ param_router_name }}"
+        state: directory
+        mode: "0755"
+
+    - name: Copy the generated SSL files to the upload folder
+      ansible.builtin.copy:
+        src: "{{ item }}"
+        dest: "/home/{{ current_user }}/{{ param_router_name }}/"
+        mode: "0644"
+      loop:
+        - "{{ ca_cert }}"
+        - "{{ server_key }}"
+        - "{{ server_cert }}"
+
+    - name: Create Mikrotik bootstrap PHASE-1 script file. Upload to RouterOS and execute WITHIN WINBOX64.EXE using /import scriptfilename.rsc
       ansible.builtin.template:
-        src: templates/mikrotik-main-default.rsc.j2
-        dest: "/home/{{ current_user }}/{{ param_script_file_name }}"
+        src: templates/mikrotik-main-default-phase1.rsc.j2
+        dest: "/home/{{ current_user }}/{{ param_router_name }}/{{ param_script_file_phase1_name }}"
+        mode: "0644"
+
+    - name: Create Mikrotik bootstrap PHASE-2 script file. Upload this to RouterOS and execute THROUGH SSH SHELL using /import scriptfilename.rsc
+      ansible.builtin.template:
+        src: templates/mikrotik-main-default-phase2.rsc.j2
+        dest: "/home/{{ current_user }}/{{ param_router_name }}/{{ param_script_file_phase2_name }}"
         mode: "0644"

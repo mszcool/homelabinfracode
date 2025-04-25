@@ -1,8 +1,10 @@
 #
-# Default configuration for a new Mikrotik router.
-# This part of the configuration needs to be done before automation with Ansible can start
-# from remote configuration hosts. Use Winbox with MAC-based access to configure the router
-# and copy & paste these contents to the router Terminal, or upload it as script to the router.
+# PHASE 1 - BASIC CONFIGURATION
+# IMPORTANT: Execute this script through Winbox with MAC-based access to the router
+# by copying & pasting these contents to the router Terminal, or uploading it as a script.
+# DO NOT attempt to run the SSL configuration or complex firewall rules in this phase - it will cause Winbox to crash.
+#
+# This script configures basic networking, users, and SSH access to prepare for Phase 2.
 #
 
 :local routerHostName "{{ param_router_name }}"
@@ -20,15 +22,9 @@
 :local rootUserName "{{ param_root_user_name }}"
 :local rootUserPassword "{{ param_root_user_password }}"
 :local rootUserSshPubKey "{{ param_root_user_ssh_pub_key }}"
-:local scriptFileName "{{ param_script_file_name }}"
+:local scriptFileName "{{ param_router_name }}-bootstrap-phase1.rsc"
 :local startMarkerText "{{ param_start_marker_text }}"
 :local endMarkerText "{{ param_end_marker_text }}"
-
-# Certificate file variables - these must be uploaded, as well.
-:local routerRootCertName "mszcool_ssl_selfroot"
-:local routerRootCertFileName ($routerRootCertName . ".crt")
-:local routerCertFileName ($routerHostName . ".crt")
-:local routerKeyFileName ($routerHostName . ".key")
 
 #
 # First, set the hostname and time zone.
@@ -155,42 +151,25 @@ add name=$lanInterfaceName comment="default / local bridge interface"
 /ip neighbor discovery-settings set discover-interface-list=$lanInterfaceList
 
 #
-# Set the default firewall rules which allow outbound traffic for LAN and block all inbound traffic from WAN.
+# Set only minimal required firewall rules to allow SSH access
+# Full firewall configuration will be done in Phase 2
 #
-:put "Configuring default firewall rules"
-
-/ip firewall connection tracking set udp-timeout=10s
+:put "Adding minimal firewall rules for Phase 1 (full setup in Phase 2)"
 
 /ip firewall filter
-{%- for paramRuleGroup in param_firewall_rule_groups %}
-{% if paramRuleGroup.required_for_blank_setup == true %}
-
-remove [find where comment~"{{ paramRuleGroup.comment }}_{{ param_start_marker_text }}"]
-add chain=input action=passthrough comment="{{ paramRuleGroup.comment }}_{{ param_start_marker_text }} -- {{ paramRuleGroup.name }}" disabled=yes
-{% for paramRule in paramRuleGroup.filter_rules %}
-
-remove [find where comment~"{{ paramRule.comment }}"]
-add chain={{ paramRule.direction }} action={{ paramRule.action }} comment="{{ paramRule.comment }} -- {{ paramRule.name }}"
-{%- if paramRule.srcAddress is defined and '*' not in paramRule.srcAddress %} src-address={{ paramRule.srcAddress }}{%- endif -%}
-{%- if paramRule.destAddress is defined and '*' not in paramRule.destAddress %} dst-address={{ paramRule.destAddress }}{%- endif -%}
-{%- if paramRule.srcPort is defined and '*' not in paramRule.srcPort %} src-port={{ paramRule.srcPort }}{%- endif -%}
-{%- if paramRule.destPort is defined and '*' not in paramRule.destPort %} dst-port={{ paramRule.destPort }}{%- endif -%}
-{%- if paramRule.protocol is defined and '*' not in paramRule.protocol %} protocol={{ paramRule.protocol }}{%- endif -%}
-{%- if paramRule.connectionState is defined and '*' not in paramRule.connectionState %} connection-state={{ paramRule.connectionState }}{%- endif -%}
-{%- if paramRule.connectionNatState is defined and '*' not in paramRule.connectionNatState %} connection-nat-state={{ paramRule.connectionNatState }}{%- endif -%}
-{%- if paramRule.inInterface is defined and '*' not in paramRule.inInterface %} in-interface={{ paramRule.inInterface }}{%- endif -%}
-{%- if paramRule.outInterface is defined and '*' not in paramRule.outInterface %} out-interface={{ paramRule.outInterface }}{%- endif -%}
-{%- if paramRule.inInterfaceList is defined and '*' not in paramRule.inInterfaceList %} in-interface-list={{ paramRule.inInterfaceList }}{%- endif -%}
-{%- if paramRule.outInterfaceList is defined and '*' not in paramRule.outInterfaceList %} out-interface-list={{ paramRule.outInterfaceList }}{%- endif -%}
-{%- if paramRule.srcAddressList is defined and '*' not in paramRule.srcAddressList %} src-address-list={{ paramRule.srcAddressList }}{%- endif -%}
-{%- if paramRule.destAddressList is defined and '*' not in paramRule.destAddressList %} dst-address-list={{ paramRule.destAddressList }}{%- endif -%}
-{% endfor %}
-
-remove [find where comment~"{{ paramRuleGroup.comment }}_{{ param_end_marker_text }} -- {{ paramRuleGroup.name }}"]
-add chain=input action=passthrough comment="{{ paramRuleGroup.comment }}_{{ param_end_marker_text }} -- {{ paramRuleGroup.name }}" disabled=yes
-{% endif %}
-
-{% endfor %}
+# Allow established connections
+add chain=input action=accept comment="phase1_temp - allow established connections" connection-state=established,related
+# Allow SSH from LAN
+add chain=input action=accept comment="phase1_temp - allow SSH from LAN" protocol=tcp dst-port=22 in-interface-list=lan
+# Allow access from LAN 
+add chain=input action=accept comment="phase1_temp - allow all from LAN" in-interface-list=lan
+# Allow ICMP
+add chain=input action=accept comment="phase1_temp - allow ICMP" protocol=icmp
+# Drop everything else
+add chain=input action=drop comment="phase1_temp - drop all other input"
+# Allow outgoing connections in the forward chain
+add chain=forward action=accept comment="phase1_temp - allow established in forwarding" connection-state=established,related
+add chain=forward action=accept comment="phase1_temp - allow outbound traffic to WAN" out-interface-list=wan
 
 #
 # Currently no support for IPv6, hence drop all packets
@@ -201,55 +180,34 @@ add chain=forward action=drop
 add chain=input action=drop
 
 #
+# Enable SSH service on standard port (22)
+# This is required for Phase 2
+#
+:put "Enabling SSH service for Phase 2 configuration"
+/ip service set ssh disabled=no port=22
+
+#
 # Limit Winbox to the LAN interface, only.
 #
 /tool mac-server set allowed-interface-list=$lanInterfaceList
 /tool mac-server mac-winbox set allowed-interface-list=$lanInterfaceList
 
 #
-# Install SSL certificates and enable SSL for secure services
+# IMPORTANT: Next steps after this script completes:
+# 1. Upload the certificate files to the router:
+#    - $routerRootCertFileName
+#    - $routerCertFileName
+#    - $routerKeyFileName
+# 2. Connect to the router via SSH (at $lanBridgeAddress)
+# 3. Run the Phase 2 script to complete SSL configuration
 #
-:put "Installing SSL certificates and enabling SSL"
 
-# Import the root CA certificate
-/certificate import file-name="$routerRootCertFileName" passphrase=""
-:delay 1s
-
-# Import the server certificate and private key
-/certificate import file-name="$routerCertFileName" passphrase=""
-:delay 1s
-/certificate import file-name="$routerKeyFileName" passphrase=""
-:delay 1s
-
-# Find and trust the imported certificates
-:local rootCaCert [/certificate find where name~"$routerRootCertName"]
-:local serverCert [/certificate find where name~"$routerHostName"]
-
-# Trust the root CA certificate
-/certificate set trusted=yes $rootCaCert
-:delay 1s
-
-# Enable HTTPS service with the server certificate
-:if ([:len $serverCert] > 0) do={
-    /ip service set www-ssl certificate=$serverCert disabled=no port=443
-    :log info "SSL certificate installed and HTTPS service enabled"
-} else={
-    :log error "Failed to find the server certificate for SSL configuration"
-}
-
-# Enable SSH service on standard port (22)
-/ip service set ssh disabled=no port=22
-
-#
-# Disable insecure services.
-#
-:put "Disabling insecure services, setting up SSL will follow in ring1 with GitOps"
-/ip service disable telnet,ftp,www,api
-
-#
-# Self-delete the script file
-#
-:put "Deleting script file"
-:do {
-/file remove [find where name="$scriptFileName" || name="flash/$scriptFileName"]
-} on-error={:log error "Unable to delete Config Script File..."};
+:put ""
+:put "===================================================================================="
+:put "PHASE 1 COMPLETED SUCCESSFULLY"
+:put "Now upload certificate files and run Phase 2 script via SSH to complete configuration"
+:put ""
+:put "***** IMPORTANT INFO *****"
+:put "Execution finished, please make sure you delete '$scriptFileName' from the router!!"
+:put "*****"
+:put "===================================================================================="
