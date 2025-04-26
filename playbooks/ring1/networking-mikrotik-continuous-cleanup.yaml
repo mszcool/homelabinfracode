@@ -273,7 +273,7 @@
       loop: "{{ vlans }}"
       loop_control:
         label: "{{ item.name }}"
-    
+
     - name: Clean-Up -- VLAN Interfaces -- Remove orphaned VLAN interfaces
       community.routeros.command:
         commands:
