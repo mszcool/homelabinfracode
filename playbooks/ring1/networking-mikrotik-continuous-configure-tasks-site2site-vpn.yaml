@@ -2,7 +2,11 @@
 - name: Site-2-Site VPN - Check if environment variable for pre shared key is set.
   ansible.builtin.set_fact:
     site_vpn_security_pre_shared_key: "{{ lookup('env', site_vpn_config.security.pre_shared_key) }}"
-  failed_when: site_vpn_config is not defined or site_vpn_config == "" or site_vpn_config.security.pre_shared_key is not defined or site_vpn_config.security.pre_shared_key == ""
+  failed_when: >
+    site_vpn_config is not defined or
+    site_vpn_config == "" or
+    site_vpn_config.security.pre_shared_key is not defined or
+    site_vpn_config.security.pre_shared_key == ""
 
 - name: Site-2-Site VPN - Check if environment variable for pre shared key is set.
   ansible.builtin.assert:

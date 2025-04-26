@@ -41,13 +41,23 @@ all:
           to: "10.10.90.200"
           interface: "vlan-test"
     devices_mapped:
-      - alias: "ProxmoxTest1"
-        dns_name: "mszpvetest1"
+      - alias: "{{ routername }}"
+        dns_names:
+          - "{{ routername }}"
+          - "{{ routername }}.{{ localdomain }}"
+        static_dhcp:
+          ip: "10.10.0.1"
+      - alias: "IncusSrv1"
+        dns_names:
+          - "mszincus1"
+          - "mszincus1.{{ localdomain}}"
         static_dhcp:
           mac: "00:15:5D:63:A6:06"
           ip: "10.10.0.2"
-      - alias: "ProxmoxTest2"
-        dns_name: "mszpvetest2"
+      - alias: "IncusSrv2"
+        dns_names:
+          - "mszincus2"
+          - "mszincus2.{{ localdomain}}"
         static_dhcp:
           mac: "00:15:5D:63:A6:07"
           ip: "10.10.0.3"
@@ -287,11 +297,11 @@ all:
             log: false
     site_vpn_config:
       - name: "local-to-local"
-        enabled: true
+        enabled: false
         mode: ike2
         security:
           auth_method: "pre-shared-key"
-          pre_shared_key_env: "IPSEC_KEY"
+          pre_shared_key_env: "IPSEC_KEY_LOCAL"
         peer:
           name: "remote-site"
           ip: "10.200.0.1/32"
@@ -313,8 +323,11 @@ all:
           nat_traversal: true
           lifetime: 28800
       - name: "azure-vpn"
-        enabled: true
+        enabled: false
         mode: ike2
+        security:
+          auth_method: "pre-shared-key"
+          pre_shared_key_env: "IPSEC_KEY_AZURE"
         peer:
           name: "Azure"
           ip: "20.126.58.44/32"

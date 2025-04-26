@@ -79,36 +79,18 @@
       loop_control:
         label: "{{ item.name }}"
 
-    - name: Devices -- Create or update static DHCP leases for mapped devices.
-      community.routeros.command:
-        commands:
-          - >
-            :if ([:len [/ip dhcp-server lease find where mac-address={{ item.static_dhcp.mac }}]] > 0) do={
-              /ip dhcp-server lease set [find where mac-address={{ item.static_dhcp.mac }}] address={{ item.static_dhcp.ip }} comment="{{ item.alias }}"
-            } else={
-              /ip dhcp-server lease add mac-address={{ item.static_dhcp.mac }} address={{ item.static_dhcp.ip }} comment="{{ item.alias }}"
-            }
-      loop: "{{ devices_mapped }}"
-      loop_control:
-        label: "{{ item.alias }}"
-
-    - name: Devices -- Enable DNS queries
+    - name: DNS-Server -- Enable DNS queries
       community.routeros.command:
         commands:
           - >
             /ip dns set allow-remote-requests=yes
-      when: param_site_vpn_config.enable_dns is defined and param_site_vpn_config.enable_dns
 
-    - name: Devices -- Create or update static DNS entries for mapped devices.
-      community.routeros.command:
-        commands:
-          - >
-            :if ([:len [/ip dns static find where name={{ item.dns_name }}]] > 0) do={
-              /ip dns static set [find where name={{ item.dns_name }}] address={{ item.static_dhcp.ip }} ttl=1d comment="{{ item.alias }}"
-            } else={
-              /ip dns static add name={{ item.dns_name }} address={{ item.static_dhcp.ip }} ttl=1d comment="{{ item.alias }}"
-            }
-      loop: "{{ devices_mapped }}"
+    - name: Devices -- Create or update static DHCP leases and DNS entries for all devices.
+      ansible.builtin.include_tasks:
+        file: networking-mikrotik-continuous-configure-tasks-devices.yaml
+      vars:
+        device_mapped: "{{ item }}"
+      loop: "{{ param_devices_mapped }}"
       loop_control:
         label: "{{ item.alias }}"
 
@@ -149,12 +131,12 @@
       loop_control:
         label: "Processing {{ item.name }}"
 
-    - name: Site2Site VPN Configurations -- Run through all configurations and make necessary changes.
-      ansible.builtin.include_tasks:
-        file: networking-mikrotik-continuous-configure-tasks-site2site-vpn.yaml
-      vars:
-        site_vpn_config: "{{ item }}"
-      loop: "{{ param_site_vpn_config }}"
-      loop_control:
-        label: "Processing S2S VPN configuration {{ item.name }}"
-      when: param_site_vpn_config is defined and param_site_vpn_config.site2site_vpn_configurations is defined
+    # - name: Site2Site VPN Configurations -- Run through all configurations and make necessary changes.
+    #   ansible.builtin.include_tasks:
+    #     file: networking-mikrotik-continuous-configure-tasks-site2site-vpn.yaml
+    #   vars:
+    #     site_vpn_config: "{{ item }}"
+    #   loop: "{{ param_site_vpn_config }}"
+    #   loop_control:
+    #     label: "Processing S2S VPN configuration {{ item.name }}"
+    #   when: param_site_vpn_config is defined

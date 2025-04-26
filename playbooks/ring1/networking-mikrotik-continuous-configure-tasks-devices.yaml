@@ -1,0 +1,26 @@
+---
+- name: Devices -- Create or update static DHCP leases for mapped devices.
+  community.routeros.command:
+    commands:
+      - >
+        :if ([:len [/ip dhcp-server lease find where mac-address={{ device_mapped.static_dhcp.mac }}]] > 0) do={
+          /ip dhcp-server lease set [find where mac-address={{ device_mapped.static_dhcp.mac }}] address={{ device_mapped.static_dhcp.ip }} comment="{{ device_mapped.alias }}"
+        } else={
+          /ip dhcp-server lease add mac-address={{ device_mapped.static_dhcp.mac }} address={{ device_mapped.static_dhcp.ip }} comment="{{ device_mapped.alias }}"
+        }
+  when: device_mapped.static_dhcp is defined and device_mapped.static_dhcp.mac is defined
+
+- name: Devices -- Create or update static DNS entries for mapped devices.
+  community.routeros.command:
+    commands:
+      - >
+        :if ([:len [/ip dns static find where name={{ dns_entry }}]] > 0) do={
+          /ip dns static set [find where name={{ dns_entry }}] address={{ device_mapped.static_dhcp.ip }} ttl=1d comment="{{ device_mapped.alias }} -- {{ dns_entry }}"
+        } else={
+          /ip dns static add name={{ dns_entry }} address={{ device_mapped.static_dhcp.ip }} ttl=1d comment="{{ device_mapped.alias }} -- {{ dns_entry }}"
+        }
+  loop: "{{ device_mapped.dns_names }}"
+  loop_control:
+    loop_var: dns_entry
+    label: "{{ dns_entry }}"
+  when: device_mapped.static_dhcp is defined and device_mapped.static_dhcp.ip is defined

@@ -29,7 +29,7 @@
     - name: Clean-Up -- Firewall Rules -- Populate the array for the filter rules with the configured ones
       ansible.builtin.set_fact:
         configured_filter_rules: "{{ configured_filter_rules + [item.1.comment + ' -- ' + item.1.name] }}"
-      loop: "{{ firewall_rules | subelements('filter_rules') }}"
+      loop: "{{ firewall_rules | subelements('filter_rules', skip_missing=true) }}"
       when: item is defined and item.0 is defined and item.1 is defined
       loop_control:
         label: "{{ item.0.comment }} -- {{ item.1.name }}"
@@ -37,7 +37,7 @@
     - name: Clean-Up -- Firewall Rules -- Populate the array for the NAT rules with the configured ones
       ansible.builtin.set_fact:
         configured_nat_rules: "{{ configured_nat_rules + [item.1.comment + ' -- ' + item.1.name] }}"
-      loop: "{{ firewall_rules | subelements('inbound_nat_rules') }}"
+      loop: "{{ firewall_rules | subelements('inbound_nat_rules', skip_missing=true) }}"
       when: item is defined and item.0 is defined and item.1 is defined
       loop_control:
         label: "{{ item.0.comment }} -- {{ item.1.name }}"
@@ -46,14 +46,13 @@
       community.routeros.command:
         commands:
           - >
-            :local configuredRules {{ configured_filter_rules | to_json }};
+            :local configuredRules [:toarray "{{ configured_filter_rules | join(',') }}"];
             :foreach rule in=[/ip firewall filter find] do={
               :local comment [/ip firewall filter get $rule comment];
               :local isManaged false;
               :foreach configRule in=$configuredRules do={
                 :if ($comment = $configRule) do={
                   :set isManaged true;
-                  :break;
                 }
               }
               :if (!$isManaged) do={
@@ -66,14 +65,13 @@
       community.routeros.command:
         commands:
           - >
-            :local configuredRules {{ configured_nat_rules | to_json }};
+            :local configuredRules [:toarray "{{ configured_nat_rules | join(',') }}"];
             :foreach rule in=[/ip firewall nat find] do={
               :local comment [/ip firewall nat get $rule comment];
               :local isManaged false;
               :foreach configRule in=$configuredRules do={
                 :if ($comment = $configRule) do={
                   :set isManaged true;
-                  :break;
                 }
               }
               :if (!$isManaged) do={
@@ -89,30 +87,61 @@
 
     - name: Clean-Up -- Static DNS Entries -- Populate the array with the configured static DNS entries
       ansible.builtin.set_fact:
-        configured_static_dns_entries: "{{ configured_static_dns_entries + [item.alias] }}"
-      loop: "{{ devices_mapped }}"
+        configured_static_dns_entries: "{{ configured_static_dns_entries + [item.1] }}"
+      loop: "{{ devices_mapped | subelements('dns_names', skip_missing=true) }}"
+      when: item is defined and item.0 is defined and item.1 is defined
       loop_control:
-        label: "{{ item.alias }}"
+        label: "{{ item.0.alias }} - {{ item.1 }}"
 
-    - name: Clean-Up -- Static DNS Entries -- Remove orphaned static DNS entries
-      community.routeros.command:
-        commands:
+    - name: Clean-Up -- Static DNS Entries -- Remove orphaned static DNS entries -- Create the string
+      ansible.builtin.set_fact:
+        configured_static_dns_entries_string: "{{ configured_static_dns_entries | join(',') }}"
+      when: devices_mapped is defined
+
+    - name: Clean-Up -- Static DNS Entries -- Print the commands to be executed
+      ansible.builtin.debug:
+        msg:
           - >
-            :local configuredEntries {{ configured_static_dns_entries | to_json }};
+            :local configuredEntries [:toarray "{{ configured_static_dns_entries_string }}"];
             :foreach entry in=[/ip dns static find] do={
               :local name [/ip dns static get $entry name];
               :local isManaged false;
               :foreach configEntry in=$configuredEntries do={
                 :if ($name = $configEntry) do={
                   :set isManaged true;
-                  :break;
-                }
-              }
+                };
+              };
               :if (!$isManaged) do={
                 :put ("Removing orphaned static DNS entry: " . $name);
                 /ip dns static remove $entry;
-              }
-            }
+              };
+            };
+      when: routeros_next_commands is defined and routeros_next_commands | length > 0
+
+    - name: Clean-Up -- Static DNS Entries -- Remove orphaned static DNS entries
+      community.routeros.command:
+        commands:
+          - >
+            :local configuredEntries [:toarray "{{ configured_static_dns_entries_string }}"];
+            :foreach entry in=[/ip dns static find] do={
+              :local name [/ip dns static get $entry name];
+              :local isManaged false;
+              :foreach configEntry in=$configuredEntries do={
+                :if ($name = $configEntry) do={
+                  :set isManaged true;
+                };
+              };
+              :if (!$isManaged) do={
+                :put ("Removing orphaned static DNS entry: " . $name);
+                /ip dns static remove $entry;
+              };
+            };
+      register: cleanup_static_dns_entries_results
+
+    - name: Clean-Up -- Static DNS Entries -- Print the results of the cleanup
+      ansible.builtin.debug:
+        msg: "{{ cleanup_static_dns_entries_results }}"
+      when: cleanup_static_dns_entries_results is defined and cleanup_static_dns_entries_results.stdout_lines is defined
 
     - name: Clean-Up -- DHCP Leases -- Create array for DHCP Lease identification
       ansible.builtin.set_fact:
@@ -130,14 +159,13 @@
       community.routeros.command:
         commands:
           - >
-            :local configuredEntries {{ configured_dhcp_leases | to_json }};
+            :local configuredEntries [:toarray "{{ configured_dhcp_leases | join(',') }}"];
             :foreach entry in=[/ip dhcp-server lease find] do={
               :local name [/ip dhcp-server lease get $entry comment];
               :local isManaged false;
               :foreach configEntry in=$configuredEntries do={
                 :if ($name = $configEntry) do={
                   :set isManaged true;
-                  :break;
                 }
               }
               :if (!$isManaged) do={
@@ -162,14 +190,13 @@
       community.routeros.command:
         commands:
           - >
-            :local configuredEntries {{ configured_dhcp_servers | to_json }};
+            :local configuredEntries [:toarray "{{ configured_dhcp_servers | join(',') }}"];
             :foreach entry in=[/ip dhcp-server find] do={
               :local name [/ip dhcp-server get $entry name];
               :local isManaged false;
               :foreach configEntry in=$configuredEntries do={
                 :if ($name = $configEntry) do={
                   :set isManaged true;
-                  :break;
                 }
               }
               :if (!$isManaged) do={
@@ -182,14 +209,13 @@
       community.routeros.command:
         commands:
           - >
-            :local configuredEntries {{ configured_dhcp_servers | to_json }};
+            :local configuredEntries [:toarray "{{ configured_dhcp_servers | join(',') }}"];
             :foreach entry in=[/ip pool find] do={
               :local name [/ip pool get $entry name];
               :local isManaged false;
               :foreach configEntry in=$configuredEntries do={
                 :if ($name = $configEntry) do={
                   :set isManaged true;
-                  :break;
                 }
               }
               :if (!$isManaged) do={
@@ -214,14 +240,13 @@
       community.routeros.command:
         commands:
           - >
-            :local configuredEntries {{ configured_vlans | to_json }};
+            :local configuredEntries [:toarray "{{ configured_vlans | join(',') }}"];
             :foreach entry in=[/interface vlan find] do={
               :local name [/interface vlan get $entry name];
               :local isManaged false;
               :foreach configEntry in=$configuredEntries do={
                 :if ($name = $configEntry) do={
                   :set isManaged true;
-                  :break;
                 }
               }
               :if (!$isManaged) do={
@@ -246,14 +271,13 @@
       community.routeros.command:
         commands:
           - >
-            :local configuredEntries {{ configured_ip_addresses | to_json }};
+            :local configuredEntries [:toarray "{{ configured_ip_addresses | join(',') }}"];
             :foreach entry in=[/ip address find] do={
               :local name [/ip address get $entry address];
               :local isManaged false;
               :foreach configEntry in=$configuredEntries do={
                 :if ($name = $configEntry) do={
                   :set isManaged true;
-                  :break;
                 }
               }
               :if (!$isManaged) do={
@@ -278,14 +302,13 @@
       community.routeros.command:
         commands:
           - >
-            :local configuredEntries {{ configured_vlan_interfaces | to_json }};
+            :local configuredEntries [:toarray "{{ configured_vlan_interfaces | join(',') }}"];
             :foreach entry in=[/interface find] do={
               :local name [/interface get $entry name];
               :local isManaged false;
               :foreach configEntry in=$configuredEntries do={
                 :if ($name = $configEntry) do={
                   :set isManaged true;
-                  :break;
                 }
               }
               :if (!$isManaged) do={
