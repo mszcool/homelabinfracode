@@ -13,6 +13,7 @@
     param_dhcp_server_config: "{{ dhcp_server_config }}"
     param_site_vpn_config: "{{ site_vpn_config }}"
     param_end_marker_text: "{{ end_marker_text }}"
+    param_start_marker_text: "{{ start_marker_text }}"
 
   tasks:
     - name: Prepare localhost -- install python3-paramiko on host.
@@ -34,6 +35,43 @@
       loop_control:
         label: "{{ item.0.comment }} -- {{ item.1.name }}"
 
+    - name: Clean-Up -- Firewall Rules -- Add the START-Marker placeholder rules for the filters to avoid cleaning them up
+      ansible.builtin.set_fact:
+        configured_filter_rules: "{{ configured_filter_rules + [item.comment + '_' + param_start_marker_text + ' -- ' + item.name] }}"
+      loop: "{{ firewall_rules }}"
+      loop_control:
+        label: "{{ item.comment }} -- {{ item.name }}"
+
+    - name: Clean-Up -- Firewall Rules -- Add the END-Marker placeholder rules for the filters to avoid cleaning them up
+      ansible.builtin.set_fact:
+        configured_filter_rules: "{{ configured_filter_rules + [item.comment + '_' + param_end_marker_text + ' -- ' + item.name] }}"
+      loop: "{{ firewall_rules }}"
+      loop_control:
+        label: "{{ item.comment }} -- {{ item.name }}"
+
+    - name: Clean-up -- Firewall Rules -- Remove orphaned filter rules -- Create the string
+      ansible.builtin.set_fact:
+        configured_filter_rules_string: "{{ configured_filter_rules | join(',') }}"
+
+    - name: Clean-Up -- Firewall Rules -- Remove orphaned filter rules
+      community.routeros.command:
+        commands:
+          - >
+            :local configuredRules [:toarray "{{ configured_filter_rules_string }}"];
+            :foreach rule in=[/ip firewall filter find] do={
+              :local comment [/ip firewall filter get $rule comment];
+              :local isManaged false;
+              :foreach configRule in=$configuredRules do={
+                :if ($comment = $configRule) do={
+                  :set isManaged true;
+                };
+              };
+              :if (!$isManaged) do={
+                :put ("Removing orphaned filter rule: " . $comment);
+                /ip firewall filter remove $rule;
+              };
+            };
+
     - name: Clean-Up -- Firewall Rules -- Populate the array for the NAT rules with the configured ones
       ansible.builtin.set_fact:
         configured_nat_rules: "{{ configured_nat_rules + [item.1.comment + ' -- ' + item.1.name] }}"
@@ -42,43 +80,42 @@
       loop_control:
         label: "{{ item.0.comment }} -- {{ item.1.name }}"
 
-    - name: Clean-Up -- Firewall Rules -- Remove orphaned filter rules
-      community.routeros.command:
-        commands:
-          - >
-            :local configuredRules [:toarray "{{ configured_filter_rules | join(',') }}"];
-            :foreach rule in=[/ip firewall filter find] do={
-              :local comment [/ip firewall filter get $rule comment];
-              :local isManaged false;
-              :foreach configRule in=$configuredRules do={
-                :if ($comment = $configRule) do={
-                  :set isManaged true;
-                }
-              }
-              :if (!$isManaged) do={
-                :put ("Removing orphaned filter rule: " . $comment);
-                /ip firewall filter remove $rule;
-              }
-            }
+    - name: Clean-Up -- Firewall Rules -- Add the START-Marker placeholder rules for the NAT rules to avoid cleaning them up
+      ansible.builtin.set_fact:
+        configured_nat_rules: "{{ configured_nat_rules + [item.comment + '_' + param_start_marker_text + ' -- ' + item.name] }}"
+      loop: "{{ firewall_rules }}"
+      loop_control:
+        label: "{{ item.comment }} -- {{ item.name }}"
+
+    - name: Clean-Up -- Firewall Rules -- Add the END-Marker placeholder rules for the NAT rules to avoid cleaning them up
+      ansible.builtin.set_fact:
+        configured_nat_rules: "{{ configured_nat_rules + [item.comment + '_' + param_end_marker_text + ' -- ' + item.name] }}"
+      loop: "{{ firewall_rules }}"
+      loop_control:
+        label: "{{ item.comment }} -- {{ item.name }}"
+
+    - name: Clean-Up -- Firewall Rules -- Remove orphaned NAT rules -- Create the string
+      ansible.builtin.set_fact:
+        configured_nat_rules_string: "{{ configured_nat_rules | join(',') }}"
 
     - name: Clean-Up -- Firewall Rules - Remove orphaned NAT rules
       community.routeros.command:
         commands:
           - >
-            :local configuredRules [:toarray "{{ configured_nat_rules | join(',') }}"];
+            :local configuredRules [:toarray "{{ configured_nat_rules_string }}"];
             :foreach rule in=[/ip firewall nat find] do={
               :local comment [/ip firewall nat get $rule comment];
               :local isManaged false;
               :foreach configRule in=$configuredRules do={
                 :if ($comment = $configRule) do={
                   :set isManaged true;
-                }
-              }
+                };
+              };
               :if (!$isManaged) do={
                 :put ("Removing orphaned NAT rule: " . $comment);
                 /ip firewall nat remove $rule;
-              }
-            }
+              };
+            };
 
     - name: Clean-Up -- Static DNS Entries -- Create array for DNS Entry identification
       ansible.builtin.set_fact:
@@ -97,26 +134,6 @@
       ansible.builtin.set_fact:
         configured_static_dns_entries_string: "{{ configured_static_dns_entries | join(',') }}"
       when: devices_mapped is defined
-
-    - name: Clean-Up -- Static DNS Entries -- Print the commands to be executed
-      ansible.builtin.debug:
-        msg:
-          - >
-            :local configuredEntries [:toarray "{{ configured_static_dns_entries_string }}"];
-            :foreach entry in=[/ip dns static find] do={
-              :local name [/ip dns static get $entry name];
-              :local isManaged false;
-              :foreach configEntry in=$configuredEntries do={
-                :if ($name = $configEntry) do={
-                  :set isManaged true;
-                };
-              };
-              :if (!$isManaged) do={
-                :put ("Removing orphaned static DNS entry: " . $name);
-                /ip dns static remove $entry;
-              };
-            };
-      when: routeros_next_commands is defined and routeros_next_commands | length > 0
 
     - name: Clean-Up -- Static DNS Entries -- Remove orphaned static DNS entries
       community.routeros.command:
@@ -137,11 +154,6 @@
               };
             };
       register: cleanup_static_dns_entries_results
-
-    - name: Clean-Up -- Static DNS Entries -- Print the results of the cleanup
-      ansible.builtin.debug:
-        msg: "{{ cleanup_static_dns_entries_results }}"
-      when: cleanup_static_dns_entries_results is defined and cleanup_static_dns_entries_results.stdout_lines is defined
 
     - name: Clean-Up -- DHCP Leases -- Create array for DHCP Lease identification
       ansible.builtin.set_fact:
@@ -166,13 +178,13 @@
               :foreach configEntry in=$configuredEntries do={
                 :if ($name = $configEntry) do={
                   :set isManaged true;
-                }
-              }
+                };
+              };
               :if (!$isManaged) do={
                 :put ("Removing orphaned static DHCP lease: " . $name);
                 /ip dhcp-server lease remove $entry;
-              }
-            }
+              };
+            };
 
     - name: Clean-Up -- DHCP Server -- Prepare array for configured DHCP servers
       ansible.builtin.set_fact:
@@ -197,13 +209,13 @@
               :foreach configEntry in=$configuredEntries do={
                 :if ($name = $configEntry) do={
                   :set isManaged true;
-                }
-              }
+                };
+              };
               :if (!$isManaged) do={
                 :put ("Removing orphaned DHCP server: " . $name);
                 /ip dhcp-server remove $entry;
-              }
-            }
+              };
+            };
 
     - name: Clean-Up -- DHCP Server -- Remove orphaned address pools
       community.routeros.command:
@@ -216,13 +228,13 @@
               :foreach configEntry in=$configuredEntries do={
                 :if ($name = $configEntry) do={
                   :set isManaged true;
-                }
-              }
+                };
+              };
               :if (!$isManaged) do={
                 :put ("Removing orphaned address pool: " . $name);
                 /ip pool remove $entry;
-              }
-            }
+              };
+            };
 
     - name: Clean-Up -- VLANs -- Collect configured VLAN names.
       ansible.builtin.set_fact:
@@ -247,72 +259,72 @@
               :foreach configEntry in=$configuredEntries do={
                 :if ($name = $configEntry) do={
                   :set isManaged true;
-                }
-              }
+                };
+              };
               :if (!$isManaged) do={
                 :put ("Removing orphaned VLAN: " . $name);
                 /interface vlan remove $entry;
-              }
-            }
+              };
+            };
 
-    - name: Clean-Up -- IP Addresses -- Collect configured IP addresses.
-      ansible.builtin.set_fact:
-        configured_ip_addresses: []
-      when: vlans is defined
+    # - name: Clean-Up -- IP Addresses -- Collect configured IP addresses.
+    #   ansible.builtin.set_fact:
+    #     configured_ip_addresses: []
+    #   when: vlans is defined
 
-    - name: Clean-Up -- IP Addresses -- Populate the array with the configured IP addresses.
-      ansible.builtin.set_fact:
-        configured_ip_addresses: "{{ configured_ip_addresses + [item.subnet] }}"
-      loop: "{{ vlans }}"
-      loop_control:
-        label: "{{ item.name }}"
+    # - name: Clean-Up -- IP Addresses -- Populate the array with the configured IP addresses.
+    #   ansible.builtin.set_fact:
+    #     configured_ip_addresses: "{{ configured_ip_addresses + [item.subnet] }}"
+    #   loop: "{{ vlans }}"
+    #   loop_control:
+    #     label: "{{ item.name }}"
 
-    - name: Clean-Up -- IP Addresses -- Remove orphaned IP addresses.
-      community.routeros.command:
-        commands:
-          - >
-            :local configuredEntries [:toarray "{{ configured_ip_addresses | join(',') }}"];
-            :foreach entry in=[/ip address find] do={
-              :local name [/ip address get $entry address];
-              :local isManaged false;
-              :foreach configEntry in=$configuredEntries do={
-                :if ($name = $configEntry) do={
-                  :set isManaged true;
-                }
-              }
-              :if (!$isManaged) do={
-                :put ("Removing orphaned IP address: " . $name);
-                /ip address remove $entry;
-              }
-            }
+    # - name: Clean-Up -- IP Addresses -- Remove orphaned IP addresses.
+    #   community.routeros.command:
+    #     commands:
+    #       - >
+    #         :local configuredEntries [:toarray "{{ configured_ip_addresses | join(',') }}"];
+    #         :foreach entry in=[/ip address find] do={
+    #           :local name [/ip address get $entry address];
+    #           :local isManaged false;
+    #           :foreach configEntry in=$configuredEntries do={
+    #             :if ($name = $configEntry) do={
+    #               :set isManaged true;
+    #             };
+    #           };
+    #           :if (!$isManaged) do={
+    #             :put ("Removing orphaned IP address: " . $name);
+    #             /ip address remove $entry;
+    #           };
+    #         };
 
-    - name: Clean-Up -- VLAN Interfaces -- Create array for collecting VLAN interfaces
-      ansible.builtin.set_fact:
-        configured_vlan_interfaces: []
-      when: vlans is defined
+    # - name: Clean-Up -- VLAN Interfaces -- Create array for collecting VLAN interfaces
+    #   ansible.builtin.set_fact:
+    #     configured_vlan_interfaces: []
+    #   when: vlans is defined
 
-    - name: Clean-Up -- VLAN Interfaces -- Populate the array with the configured VLAN interfaces
-      ansible.builtin.set_fact:
-        configured_vlan_interfaces: "{{ configured_vlan_interfaces + [item.name] }}"
-      loop: "{{ vlans }}"
-      loop_control:
-        label: "{{ item.name }}"
+    # - name: Clean-Up -- VLAN Interfaces -- Populate the array with the configured VLAN interfaces
+    #   ansible.builtin.set_fact:
+    #     configured_vlan_interfaces: "{{ configured_vlan_interfaces + [item.name] }}"
+    #   loop: "{{ vlans }}"
+    #   loop_control:
+    #     label: "{{ item.name }}"
 
-    - name: Clean-Up -- VLAN Interfaces -- Remove orphaned VLAN interfaces
-      community.routeros.command:
-        commands:
-          - >
-            :local configuredEntries [:toarray "{{ configured_vlan_interfaces | join(',') }}"];
-            :foreach entry in=[/interface find] do={
-              :local name [/interface get $entry name];
-              :local isManaged false;
-              :foreach configEntry in=$configuredEntries do={
-                :if ($name = $configEntry) do={
-                  :set isManaged true;
-                }
-              }
-              :if (!$isManaged) do={
-                :put ("Removing orphaned VLAN interface: " . $name);
-                /interface remove $entry;
-              }
-            }
+    # - name: Clean-Up -- VLAN Interfaces -- Remove orphaned VLAN interfaces
+    #   community.routeros.command:
+    #     commands:
+    #       - >
+    #         :local configuredEntries [:toarray "{{ configured_vlan_interfaces | join(',') }}"];
+    #         :foreach entry in=[/interface find] do={
+    #           :local name [/interface get $entry name];
+    #           :local isManaged false;
+    #           :foreach configEntry in=$configuredEntries do={
+    #             :if ($name = $configEntry) do={
+    #               :set isManaged true;
+    #             };
+    #           };
+    #           :if (!$isManaged) do={
+    #             :put ("Removing orphaned VLAN interface: " . $name);
+    #             /interface remove $entry;
+    #           };
+    #         };
