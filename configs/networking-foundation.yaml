@@ -39,7 +39,7 @@ all:
         - name: "vlan-test"
           from: "10.10.90.100"
           to: "10.10.90.200"
-          interface: "vlan-test"
+          interface: "vlan-test-1"
     devices_mapped:
       - alias: "{{ routername }}"
         dns_names:

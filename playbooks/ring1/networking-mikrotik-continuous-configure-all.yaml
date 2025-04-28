@@ -66,12 +66,12 @@
       community.routeros.command:
         commands:
           - >
-            :if ([:len [/ip dhcp-server find where name="dhcp-server-{{ item.name }}"]] > 0) do={
-              /ip dhcp-server set [find where name="dhcp-sever-{{ item.name }}"] \
+            :if ([:len [/ip dhcp-server find where name="{{ item.name }}"]] > 0) do={
+              /ip dhcp-server set [find where name="{{ item.name }}"] \
               lease-time={{ param_dhcp_server_config.default_lease_in_seconds }}s \
               interface={{ item.interface }} address-pool={{ item.name }}
             } else={
-              /ip dhcp-server add name="dhcp-server-{{ item.name }}" \
+              /ip dhcp-server add name="{{ item.name }}" \
               lease-time={{ param_dhcp_server_config.default_lease_in_seconds }}s \
               interface={{ item.interface }} address-pool={{ item.name }}
             }

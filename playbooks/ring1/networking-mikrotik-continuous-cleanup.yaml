@@ -14,6 +14,7 @@
     param_site_vpn_config: "{{ site_vpn_config }}"
     param_end_marker_text: "{{ end_marker_text }}"
     param_start_marker_text: "{{ start_marker_text }}"
+    param_router_host_config: "{{ hostsConfig[inventory_hostname] }}"
 
   tasks:
     - name: Prepare localhost -- install python3-paramiko on host.
@@ -267,64 +268,20 @@
               };
             };
 
-    # - name: Clean-Up -- IP Addresses -- Collect configured IP addresses.
-    #   ansible.builtin.set_fact:
-    #     configured_ip_addresses: []
-    #   when: vlans is defined
+    - name: Clean-Up -- IP Addresses -- Collect configured IP addresses.
+      ansible.builtin.set_fact:
+        configured_ip_addresses: []
+      when: vlans is defined
 
-    # - name: Clean-Up -- IP Addresses -- Populate the array with the configured IP addresses.
-    #   ansible.builtin.set_fact:
-    #     configured_ip_addresses: "{{ configured_ip_addresses + [item.subnet] }}"
-    #   loop: "{{ vlans }}"
-    #   loop_control:
-    #     label: "{{ item.name }}"
-
-    # - name: Clean-Up -- IP Addresses -- Remove orphaned IP addresses.
-    #   community.routeros.command:
-    #     commands:
-    #       - >
-    #         :local configuredEntries [:toarray "{{ configured_ip_addresses | join(',') }}"];
-    #         :foreach entry in=[/ip address find] do={
-    #           :local name [/ip address get $entry address];
-    #           :local isManaged false;
-    #           :foreach configEntry in=$configuredEntries do={
-    #             :if ($name = $configEntry) do={
-    #               :set isManaged true;
-    #             };
-    #           };
-    #           :if (!$isManaged) do={
-    #             :put ("Removing orphaned IP address: " . $name);
-    #             /ip address remove $entry;
-    #           };
-    #         };
-
-    # - name: Clean-Up -- VLAN Interfaces -- Create array for collecting VLAN interfaces
-    #   ansible.builtin.set_fact:
-    #     configured_vlan_interfaces: []
-    #   when: vlans is defined
-
-    # - name: Clean-Up -- VLAN Interfaces -- Populate the array with the configured VLAN interfaces
-    #   ansible.builtin.set_fact:
-    #     configured_vlan_interfaces: "{{ configured_vlan_interfaces + [item.name] }}"
-    #   loop: "{{ vlans }}"
-    #   loop_control:
-    #     label: "{{ item.name }}"
-
-    # - name: Clean-Up -- VLAN Interfaces -- Remove orphaned VLAN interfaces
-    #   community.routeros.command:
-    #     commands:
-    #       - >
-    #         :local configuredEntries [:toarray "{{ configured_vlan_interfaces | join(',') }}"];
-    #         :foreach entry in=[/interface find] do={
-    #           :local name [/interface get $entry name];
-    #           :local isManaged false;
-    #           :foreach configEntry in=$configuredEntries do={
-    #             :if ($name = $configEntry) do={
-    #               :set isManaged true;
-    #             };
-    #           };
-    #           :if (!$isManaged) do={
-    #             :put ("Removing orphaned VLAN interface: " . $name);
-    #             /interface remove $entry;
-    #           };
-    #         };
+    - name: Clean-Up -- IP Addresses -- Remove orphaned IP addresses, ONLY those not used on an interface, anymore.
+      community.routeros.command:
+        commands:
+          - >
+            :foreach entry in=[/ip address find] do={
+              :local name [/ip address get $entry address];
+              :local interfaceName [/ip address get $entry interface];
+              :if ([:len [/interface find where name=$interfaceName] ] = 0) do={
+                :put ("Removing orphaned IP address: " . $name);
+                /ip address remove $entry;
+              };
+            };
