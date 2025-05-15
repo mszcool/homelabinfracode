@@ -18,6 +18,7 @@
     tp_root_user_publickey: "{{ root_user_publickey }}"
 
 - name: Processing per disk config -- Update GRUB config for autoinstall
+  become: true
   ansible.builtin.blockinfile:
     path: "{{ param_iso_working_path }}/boot/grub/grub.cfg"
     marker: "# {mark} AUTOINSTALL CONFIG"

@@ -1,7 +1,7 @@
 ---
 - name: Host setup for bare-metal servers running Incus.
   hosts: localhost
-  become: true
+  become: false
   gather_facts: false
 
   vars:
@@ -10,15 +10,16 @@
     param_root_user_password_clear: "{{ lookup('env', root_user_password_env) }}"
     param_root_user_publickey: "{{ root_user_publickey }}"
     param_iso_source_url: "{{ iso_source_url }}"
-    param_iso_source_path: "{{ iso_source_path }}"
-    param_iso_destination_path: "{{ iso_destination_path }}"
-    param_iso_working_path: "{{ iso_working_path }}"
+    param_iso_source_path: "{{ lookup('env', 'HOME') }}{{ iso_source_path }}"
+    param_iso_destination_path: "{{ lookup('env', 'HOME') }}{{ iso_destination_path }}"
+    param_iso_working_path: "{{ lookup('env', 'HOME') }}{{ iso_working_path }}"
     param_volume_group_name: "{{ volume_group_name }}"
     param_volume_disk_configs: "{{ volume_disk_configs }}"
     param_minimum_packages: "{{ minimum_packages }}"
 
   tasks:
     - name: Pre-requisites -- Install required packages
+      become: true
       ansible.builtin.apt:
         name:
           - whois  # Contains mkpasswd utility
