@@ -66,8 +66,8 @@
       community.routeros.command:
         commands:
           - >
-            :if ([:len [/ip dhcp-server network find where address={{ item.subnet }}]] > 0) do={
-              /ip dhcp-server network set [find where address={{ item.subnet }}] \
+            :if ([:len [/ip dhcp-server network find where comment={{ item.name }}]] > 0) do={
+              /ip dhcp-server network set [find where comment={{ item.name }}] \
               address={{ item.subnet }} \
               gateway={{ param_dhcp_server_config.default_gateway }} \
               dns-server="{{ param_dhcp_server_config.dns_servers | join(',') }}" \
