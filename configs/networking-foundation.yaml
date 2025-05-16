@@ -20,23 +20,28 @@ all:
         id: 90
         description: "Test VLAN"
         subnet: "10.20.0.0/24"
+        parent: "lanBridge"
       - name: "vlan-test-2"
         id: 91
         description: "Test VLAN"
         subnet: "10.30.0.0/24"
+        parent: "lanBridge"
     dhcp_server_config:
       default_lease_in_seconds: 300
       max_lease_in_seconds: 7200
+      default_gateway: "10.10.0.1"
       dns_servers:
         - "10.10.0.1"
         - "10.10.0.10"
         - "10.10.0.11"
       address_pools:
         - name: "lan"
+          subnet: "10.10.0.0/24"
           from: "10.10.0.100"
-          to: "10.10.0.255"
+          to: "10.10.0.254"
           interface: "lanBridge"
         - name: "vlan-test"
+          subnet: "10.20.0.0/24"
           from: "10.10.90.100"
           to: "10.10.90.200"
           interface: "vlan-test-1"

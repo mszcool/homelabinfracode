@@ -217,6 +217,25 @@
                 /ip dhcp-server remove $entry;
               };
             };
+    
+    - name: Clean-Up -- DHCP Server -- Remove orphaned networks
+      community.routeros.command:
+        commands:
+          - >
+            :local configuredEntries [:toarray "{{ configured_dhcp_servers | join(',') }}"];
+            :foreach entry in=[/ip dhcp-server network find] do={
+              :local name [/ip dhcp-server network get $entry comment];
+              :local isManaged false;
+              :foreach configEntry in=$configuredEntries do={
+                :if ($name = $configEntry) do={
+                  :set isManaged true;
+                };
+              };
+              :if (!$isManaged) do={
+                :put ("Removing orphaned DHCP server network: " . $name);
+                /ip dhcp-server network remove $entry;
+              };
+            };
 
     - name: Clean-Up -- DHCP Server -- Remove orphaned address pools
       community.routeros.command:

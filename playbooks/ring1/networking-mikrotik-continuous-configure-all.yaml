@@ -28,9 +28,9 @@
         commands:
           - >
             :if ([:len [/interface vlan find where name={{ item.name }}]] > 0) do={
-              /interface vlan set [find where name={{ item.name }}] vlan-id={{ item.id }} comment="{{ item.description }}"
+              /interface vlan set [find where name={{ item.name }}] vlan-id={{ item.id }} interface={{ item.parent }} comment="{{ item.description }}"
             } else={
-              /interface vlan add name={{ item.name }} vlan-id={{ item.id }} comment="{{ item.description }}" interface=ether1
+              /interface vlan add name={{ item.name }} vlan-id={{ item.id }} interface={{ item.parent }} comment="{{ item.description }}"
             }
       loop: "{{ vlans }}"
       loop_control:
@@ -57,6 +57,27 @@
               /ip pool set [find where name={{ item.name }}] ranges="{{ item.from }}-{{ item.to }}"
             } else={
               /ip pool add name={{ item.name }} ranges="{{ item.from }}-{{ item.to }}"
+            }
+      loop: "{{ param_dhcp_server_config.address_pools }}"
+      loop_control:
+        label: "{{ item.name }}"
+
+    - name: DHCP-Server -- Create or update DHCP-Server network on the RouterOS target.
+      community.routeros.command:
+        commands:
+          - >
+            :if ([:len [/ip dhcp-server network find where address={{ item.subnet }}]] > 0) do={
+              /ip dhcp-server network set [find where address={{ item.subnet }}] \
+              address={{ item.subnet }} \
+              gateway={{ param_dhcp_server_config.default_gateway }} \
+              dns-server="{{ param_dhcp_server_config.dns_servers | join(',') }}" \
+              comment="{{ item.name }}"
+            } else={
+              /ip dhcp-server network add \
+              address={{ item.subnet }} \
+              gateway={{ param_dhcp_server_config.default_gateway }} \
+              dns-server="{{ param_dhcp_server_config.dns_servers | join(',') }}" \
+              comment="{{ item.name }}"
             }
       loop: "{{ param_dhcp_server_config.address_pools }}"
       loop_control:
