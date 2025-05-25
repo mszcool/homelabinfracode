@@ -10,7 +10,7 @@
     ansible_network_os: community.network.routeros
     param_firewall_rule_groups: "{{ firewall_rules }}"
     param_devices_mapped: "{{ devices_mapped }}"
-    param_dhcp_server_config: "{{ dhcp_server_config }}"
+    param_networks: "{{ networks }}"
     param_site_vpn_config: "{{ site_vpn_config }}"
     param_start_marker_text: "{{ start_marker_text }}"
     param_end_marker_text: "{{ end_marker_text }}"
@@ -23,29 +23,29 @@
         state: present
       delegate_to: localhost
 
-    - name: VLAN -- Create or update VLAN interfaces on the RouterOS target.
+    - name: Network -- Create or update VLAN interfaces on the RouterOS target.
       community.routeros.command:
         commands:
           - >
-            :if ([:len [/interface vlan find where name={{ item.name }}]] > 0) do={
-              /interface vlan set [find where name={{ item.name }}] vlan-id={{ item.id }} interface={{ item.parent }} comment="{{ item.description }}"
+            :if ([:len [/interface vlan find where name={{ item.interface }}]] > 0) do={
+              /interface vlan set [find where name={{ item.interface }}] vlan-id={{ item.vlan_id }} interface={{ item.parent_interface }} comment="{{ item.description }}"
             } else={
-              /interface vlan add name={{ item.name }} vlan-id={{ item.id }} interface={{ item.parent }} comment="{{ item.description }}"
+              /interface vlan add name={{ item.interface }} vlan-id={{ item.vlan_id }} interface={{ item.parent_interface }} comment="{{ item.description }}"
             }
-      loop: "{{ vlans }}"
+      loop: "{{ param_networks | selectattr('interface_type', 'equalto', 'vlan') | list }}"
       loop_control:
         label: "{{ item.name }}"
 
-    - name: VLAN-IP -- Create or update IP addresses on the VLAN interfaces.
+    - name: Network -- Create or update IP addresses on the interfaces.
       community.routeros.command:
         commands:
           - >
-            :if ([:len [/ip address find where interface={{ item.name }}]] > 0) do={
-              /ip address set [find where interface={{ item.name }}] address={{ item.subnet }} comment="{{ item.description }}"
+            :if ([:len [/ip address find where interface={{ item.interface }}]] > 0) do={
+              /ip address set [find where interface={{ item.interface }}] address={{ item.gateway }}/{{ item.subnet | regex_replace('^.*/', '') }} comment="{{ item.description }}"
             } else={
-              /ip address add address={{ item.subnet }} interface={{ item.name }} comment="{{ item.description }}"
+              /ip address add address={{ item.gateway }}/{{ item.subnet | regex_replace('^.*/', '') }} interface={{ item.interface }} comment="{{ item.description }}"
             }
-      loop: "{{ vlans }}"
+      loop: "{{ param_networks }}"
       loop_control:
         label: "{{ item.name }}"
 
@@ -54,11 +54,11 @@
         commands:
           - >
             :if ([:len [/ip pool find where name={{ item.name }}]] > 0) do={
-              /ip pool set [find where name={{ item.name }}] ranges="{{ item.from }}-{{ item.to }}"
+              /ip pool set [find where name={{ item.name }}] ranges="{{ item.dhcp_settings.address_pool.from }}-{{ item.dhcp_settings.address_pool.to }}"
             } else={
-              /ip pool add name={{ item.name }} ranges="{{ item.from }}-{{ item.to }}"
+              /ip pool add name={{ item.name }} ranges="{{ item.dhcp_settings.address_pool.from }}-{{ item.dhcp_settings.address_pool.to }}"
             }
-      loop: "{{ param_dhcp_server_config.address_pools }}"
+      loop: "{{ param_networks | selectattr('dhcp_settings.enabled', 'equalto', true) | list }}"
       loop_control:
         label: "{{ item.name }}"
 
@@ -69,17 +69,17 @@
             :if ([:len [/ip dhcp-server network find where comment={{ item.name }}]] > 0) do={
               /ip dhcp-server network set [find where comment={{ item.name }}] \
               address={{ item.subnet }} \
-              gateway={{ param_dhcp_server_config.default_gateway }} \
-              dns-server="{{ param_dhcp_server_config.dns_servers | join(',') }}" \
+              gateway={{ item.gateway }} \
+              dns-server="{{ item.dhcp_settings.dns_servers | join(',') }}" \
               comment="{{ item.name }}"
             } else={
               /ip dhcp-server network add \
               address={{ item.subnet }} \
-              gateway={{ param_dhcp_server_config.default_gateway }} \
-              dns-server="{{ param_dhcp_server_config.dns_servers | join(',') }}" \
+              gateway={{ item.gateway }} \
+              dns-server="{{ item.dhcp_settings.dns_servers | join(',') }}" \
               comment="{{ item.name }}"
             }
-      loop: "{{ param_dhcp_server_config.address_pools }}"
+      loop: "{{ param_networks | selectattr('dhcp_settings.enabled', 'equalto', true) | list }}"
       loop_control:
         label: "{{ item.name }}"
 
@@ -89,14 +89,14 @@
           - >
             :if ([:len [/ip dhcp-server find where name="{{ item.name }}"]] > 0) do={
               /ip dhcp-server set [find where name="{{ item.name }}"] \
-              lease-time={{ param_dhcp_server_config.default_lease_in_seconds }}s \
+              lease-time={{ item.dhcp_settings.lease_time.default }}s \
               interface={{ item.interface }} address-pool={{ item.name }}
             } else={
               /ip dhcp-server add name="{{ item.name }}" \
-              lease-time={{ param_dhcp_server_config.default_lease_in_seconds }}s \
+              lease-time={{ item.dhcp_settings.lease_time.default }}s \
               interface={{ item.interface }} address-pool={{ item.name }}
             }
-      loop: "{{ param_dhcp_server_config.address_pools }}"
+      loop: "{{ param_networks | selectattr('dhcp_settings.enabled', 'equalto', true) | list }}"
       loop_control:
         label: "{{ item.name }}"
 

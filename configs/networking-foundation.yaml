@@ -15,36 +15,55 @@ all:
         name: "automation"
         password_env: "AUTOM_PWD"
         ssh_key: "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQCg0Y6vbXyN0q70R2Wkl6HhrH3GoE8163Uv19xFSmMrLJ2bFtzpGttlJ8tpHFWIh4eIKss0oq5TydCUC0p2c5v48Oj318y4CO9EBTtPafgzHyz6PkvBqL6uFv8NN8TvLZdwMaKdEpdVDLB+WD8dXqf+fPe8atY2YbIkd5XDIE1wjvjrA8Br6iSjNcaIW4jpsUNWKufEM+zkiYyVrTEIn/AMCA2E2eCJCasSq3sj/8R5ujJqTFxjo46XGhbjbsx4QRDzkApJVyKeA5+zv6DoRyBEFOmZ6MQjMqtPPtdtZwflRZ8GMKyRTMqgmnG0N6CFsd5aIHZ2plZljHF82U3LaX1D"
-    vlans:
+    networks:
+      - name: "lan"
+        description: "Main LAN Network"
+        subnet: "10.10.0.0/24"
+        interface_type: "bridge"
+        interface: "lanBridge"
+        gateway: "10.10.0.1"
+        dhcp_settings:
+          enabled: true
+          dns_servers:
+            - "10.10.0.1"
+            - "10.10.0.10"
+            - "10.10.0.11"
+          lease_time:
+            default: 300
+            max: 7200
+          address_pool:
+            from: "10.10.0.100"
+            to: "10.10.0.254"
       - name: "vlan-test-1"
-        id: 90
         description: "Test VLAN"
         subnet: "10.10.90.0/24"
-        parent: "lanBridge"
+        interface_type: "vlan"
+        interface: "vlan-test-1"
+        parent_interface: "lanBridge"
+        vlan_id: 90
+        gateway: "10.10.90.1"
+        dhcp_settings:
+          enabled: true
+          dns_servers:
+            - "10.10.0.1"
+            - "10.10.0.10"
+            - "10.10.0.11"
+          lease_time:
+            default: 300
+            max: 7200
+          address_pool:
+            from: "10.10.90.100"
+            to: "10.10.90.200"
       - name: "vlan-test-2"
-        id: 91
         description: "Test VLAN"
         subnet: "10.30.0.0/24"
-        parent: "lanBridge"
-    dhcp_server_config:
-      default_lease_in_seconds: 300
-      max_lease_in_seconds: 7200
-      default_gateway: "10.10.0.1"
-      dns_servers:
-        - "10.10.0.1"
-        - "10.10.0.10"
-        - "10.10.0.11"
-      address_pools:
-        - name: "lan"
-          subnet: "10.10.0.0/24"
-          from: "10.10.0.100"
-          to: "10.10.0.254"
-          interface: "lanBridge"
-        - name: "vlan-test"
-          subnet: "10.10.90.0/24"
-          from: "10.10.90.100"
-          to: "10.10.90.200"
-          interface: "vlan-test-1"
+        interface_type: "vlan"
+        interface: "vlan-test-2"
+        parent_interface: "lanBridge"
+        vlan_id: 91
+        gateway: "10.30.0.1"
+        dhcp_settings:
+          enabled: false
     devices_mapped:
       - alias: "{{ routername }}"
         dns_names:
@@ -365,7 +384,7 @@ all:
           ipaddrv6: "dhcp6"
         lan_interface: 
           bridge: lanBridge
-          interface: ether2
+          interfaces: "ether2"
           ipaddr: "10.10.0.1"
           subnet: "24"
   children:

@@ -10,7 +10,7 @@
     ansible_network_os: community.network.routeros
     param_firewall_rule_groups: "{{ firewall_rules }}"
     param_devices_mapped: "{{ devices_mapped }}"
-    param_dhcp_server_config: "{{ dhcp_server_config }}"
+    param_networks: "{{ networks }}"
     param_site_vpn_config: "{{ site_vpn_config }}"
     param_end_marker_text: "{{ end_marker_text }}"
     param_start_marker_text: "{{ start_marker_text }}"
@@ -22,6 +22,26 @@
         name: python3-paramiko
         state: present
       delegate_to: localhost
+
+    # Create a list of protected interfaces that should never be removed
+    - name: Safety -- Create list of protected interfaces
+      ansible.builtin.set_fact:
+        protected_interfaces: []
+
+    - name: Safety -- Add WAN interface to protected list
+      ansible.builtin.set_fact:
+        protected_interfaces: "{{ protected_interfaces + [param_router_host_config.wan_interface.interface] }}"
+      when: param_router_host_config.wan_interface is defined and param_router_host_config.wan_interface.interface is defined
+
+    - name: Safety -- Add LAN interfaces to protected list
+      ansible.builtin.set_fact:
+        protected_interfaces: "{{ protected_interfaces + (param_router_host_config.lan_interface.interfaces | split(',') | map('trim') | list) }}"
+      when: param_router_host_config.lan_interface is defined and param_router_host_config.lan_interface.interfaces is defined
+
+    - name: Safety -- Add LAN bridge to protected list
+      ansible.builtin.set_fact:
+        protected_interfaces: "{{ protected_interfaces + [param_router_host_config.lan_interface.bridge] }}"
+      when: param_router_host_config.lan_interface is defined and param_router_host_config.lan_interface.bridge is defined
 
     - name: Clean-Up -- Firewall Rules -- Create arrays of all filter and NAT rules to identify orphaned rules
       ansible.builtin.set_fact:
@@ -190,12 +210,12 @@
     - name: Clean-Up -- DHCP Server -- Prepare array for configured DHCP servers
       ansible.builtin.set_fact:
         configured_dhcp_servers: []
-      when: param_dhcp_server_config.address_pools is defined
+      when: param_networks is defined
 
     - name: Clean-Up -- DHCP Server -- Populate the array with the configured DHCP servers
       ansible.builtin.set_fact:
         configured_dhcp_servers: "{{ configured_dhcp_servers + [item.name] }}"
-      loop: "{{ param_dhcp_server_config.address_pools }}"
+      loop: "{{ param_networks | selectattr('dhcp_settings.enabled', 'equalto', true) | list }}"
       loop_control:
         label: "{{ item.name }}"
 
@@ -256,51 +276,79 @@
               };
             };
 
-    - name: Clean-Up -- VLANs -- Collect configured VLAN names.
+    - name: Clean-Up -- Networks -- Collect configured VLAN interface names
       ansible.builtin.set_fact:
         configured_vlans: []
-      when: vlans is defined
+      when: param_networks is defined
 
-    - name: Clean-Up -- VLANs -- Populate the array with the configured VLAN names.
+    - name: Clean-Up -- Networks -- Populate the array with the configured VLAN interface names
       ansible.builtin.set_fact:
-        configured_vlans: "{{ configured_vlans + [item.name] }}"
-      loop: "{{ vlans }}"
+        configured_vlans: "{{ configured_vlans + [item.interface] }}"
+      loop: "{{ param_networks | selectattr('interface_type', 'equalto', 'vlan') | list }}"
       loop_control:
         label: "{{ item.name }}"
 
-    - name: Clean-Up -- VLANs -- Remove orphaned VLANs.
+    - name: Clean-Up -- Networks -- Remove orphaned VLANs (excluding protected interfaces)
       community.routeros.command:
         commands:
           - >
             :local configuredEntries [:toarray "{{ configured_vlans | join(',') }}"];
+            :local protectedEntries [:toarray "{{ protected_interfaces | join(',') }}"];
             :foreach entry in=[/interface vlan find] do={
               :local name [/interface vlan get $entry name];
               :local isManaged false;
+              :local isProtected false;
               :foreach configEntry in=$configuredEntries do={
                 :if ($name = $configEntry) do={
                   :set isManaged true;
                 };
               };
-              :if (!$isManaged) do={
+              :foreach protectedEntry in=$protectedEntries do={
+                :if ($name = $protectedEntry) do={
+                  :set isProtected true;
+                };
+              };
+              :if (!$isManaged && !$isProtected) do={
                 :put ("Removing orphaned VLAN: " . $name);
                 /interface vlan remove $entry;
               };
             };
 
-    - name: Clean-Up -- IP Addresses -- Collect configured IP addresses.
+    - name: Clean-Up -- Networks -- Collect configured interface names
       ansible.builtin.set_fact:
-        configured_ip_addresses: []
-      when: vlans is defined
+        configured_interfaces: []
+      when: param_networks is defined
 
-    - name: Clean-Up -- IP Addresses -- Remove orphaned IP addresses, ONLY those not used on an interface, anymore.
+    - name: Clean-Up -- Networks -- Populate the array with all configured interface names
+      ansible.builtin.set_fact:
+        configured_interfaces: "{{ configured_interfaces + [item.interface] }}"
+      loop: "{{ param_networks }}"
+      loop_control:
+        label: "{{ item.name }}"
+
+    - name: Clean-Up -- Networks -- Remove orphaned IP addresses (excluding protected interfaces)
       community.routeros.command:
         commands:
           - >
+            :local configuredEntries [:toarray "{{ configured_interfaces | join(',') }}"];
+            :local protectedEntries [:toarray "{{ protected_interfaces | join(',') }}"];
             :foreach entry in=[/ip address find] do={
-              :local name [/ip address get $entry address];
               :local interfaceName [/ip address get $entry interface];
-              :if ([:len [/interface find where name=$interfaceName] ] = 0) do={
-                :put ("Removing orphaned IP address: " . $name);
+              :local isManaged false;
+              :local isProtected false;
+              :foreach configEntry in=$configuredEntries do={
+                :if ($interfaceName = $configEntry) do={
+                  :set isManaged true;
+                };
+              };
+              :foreach protectedEntry in=$protectedEntries do={
+                :if ($interfaceName = $protectedEntry) do={
+                  :set isProtected true;
+                };
+              };
+              :if (!$isManaged && !$isProtected) do={
+                :local address [/ip address get $entry address];
+                :put ("Removing orphaned IP address: " . $address . " on interface " . $interfaceName);
                 /ip address remove $entry;
               };
             };

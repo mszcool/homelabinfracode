@@ -19,7 +19,7 @@
     param_loopback_interface_name: "{{ hostsConfig['10.10.0.1'].loopback_interface_name }}"
     param_wan_interface_name: "{{ hostsConfig['10.10.0.1'].wan_interface.interface }}"
     param_lan_interface_bridge_name: "{{ hostsConfig['10.10.0.1'].lan_interface.bridge }}"
-    param_lan_interface_members: "{{ hostsConfig['10.10.0.1'].lan_interface.interface }}"
+    param_lan_interface_members: "{{ hostsConfig['10.10.0.1'].lan_interface.interfaces }}"
     param_lan_interface_bridge_ip_address: "{{ hostsConfig['10.10.0.1'].lan_interface.ipaddr }}"
     param_start_marker_text: "{{ start_marker_text }}"
     param_end_marker_text: "{{ end_marker_text }}"
@@ -66,7 +66,7 @@
         server_csr: "/home/{{ current_user }}/mszcool_ssl/{{ param_router_name }}.csr"
         server_cert: "/home/{{ current_user }}/mszcool_ssl/{{ param_router_name }}.crt"
         router_fqdn: "{{ routername }}.{{ localdomain }}"
-        router_ip: "{{ hostsConfig['10.10.0.1'].lan_interface.ipaddr }}"
+        router_ip: "{{ param_lan_interface_bridge_ip_address }}"
 
     - name: Check if root CA certificate exists
       ansible.builtin.stat:
