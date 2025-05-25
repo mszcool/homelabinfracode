@@ -106,14 +106,26 @@
           - >
             /ip dns set allow-remote-requests=yes
 
-    - name: Devices -- Create or update static DHCP leases and DNS entries for all devices.
+    - name: Device Groups -- Validate IP ranges and create address lists
+      ansible.builtin.include_tasks:
+        file: networking-mikrotik-continuous-configure-tasks-device-group-setup.yaml
+      vars:
+        device_group: "{{ item }}"
+      loop: "{{ param_devices_mapped }}"
+      loop_control:
+        label: "Processing group {{ item.group }}"
+
+    - name: Devices -- Create or update static DHCP leases and DNS entries for all devices in groups.
       ansible.builtin.include_tasks:
         file: networking-mikrotik-continuous-configure-tasks-devices.yaml
       vars:
-        device_mapped: "{{ item }}"
-      loop: "{{ param_devices_mapped }}"
+        device_mapped: "{{ item.1 }}"
+        device_group: "{{ item.0 }}"
+      with_subelements:
+        - "{{ param_devices_mapped }}"
+        - members
       loop_control:
-        label: "{{ item.alias }}"
+        label: "{{ item.0.group }} - {{ item.1.alias }}"
 
     - name: Firewall Rules -- Create or update baseline firewall rules (those who are also required for blank setup).
       ansible.builtin.include_tasks:

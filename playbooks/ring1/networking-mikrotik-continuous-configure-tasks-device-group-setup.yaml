@@ -1,0 +1,21 @@
+---
+- name: Validate IP addresses in group are within range
+  ansible.builtin.assert:
+    that:
+      - "{{ device.static_dhcp.ip | ipaddr('address') | ipaddr('int') >= device_group.start_ip | ipaddr('address') | ipaddr('int') }}"
+      - "{{ device.static_dhcp.ip | ipaddr('address') | ipaddr('int') <= device_group.end_ip | ipaddr('address') | ipaddr('int') }}"
+    fail_msg: "Device {{ device.alias }} IP {{ device.static_dhcp.ip }} is outside of group {{ device_group.group }} range ({{ device_group.start_ip }} - {{ device_group.end_ip }})"
+  loop: "{{ device_group.members }}"
+  loop_control:
+    loop_var: device
+    label: "Validating {{ device.alias }}"
+
+- name: Create or update firewall address list for device group
+  community.routeros.command:
+    commands:
+      - >
+        :if ([:len [/ip firewall address-list find where list="{{ device_group.group }}"]] > 0) do={
+          /ip firewall address-list set [find where list="{{ device_group.group }}"] address="{{ device_group.start_ip }}-{{ device_group.end_ip }}" comment="{{ device_group.group }}"
+        } else={
+          /ip firewall address-list add list="{{ device_group.group }}" address="{{ device_group.start_ip }}-{{ device_group.end_ip }}" comment="{{ device_group.group }}"
+        } 

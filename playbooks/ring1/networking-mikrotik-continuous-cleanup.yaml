@@ -145,11 +145,11 @@
 
     - name: Clean-Up -- Static DNS Entries -- Populate the array with the configured static DNS entries
       ansible.builtin.set_fact:
-        configured_static_dns_entries: "{{ configured_static_dns_entries + [item.1] }}"
-      loop: "{{ devices_mapped | subelements('dns_names', skip_missing=true) }}"
-      when: item is defined and item.0 is defined and item.1 is defined
+        configured_static_dns_entries: "{{ configured_static_dns_entries + item.1.dns_names }}"
+      loop: "{{ devices_mapped | subelements('members') }}"
+      when: item.1.dns_names is defined
       loop_control:
-        label: "{{ item.0.alias }} - {{ item.1 }}"
+        label: "{{ item.0.group }} - {{ item.1.alias }}"
 
     - name: Clean-Up -- Static DNS Entries -- Remove orphaned static DNS entries -- Create the string
       ansible.builtin.set_fact:
@@ -183,10 +183,18 @@
 
     - name: Clean-Up -- DHCP Leases -- Populate the array with the configured static DHCP leases
       ansible.builtin.set_fact:
-        configured_dhcp_leases: "{{ configured_dhcp_leases + [item.alias] }}"
+        configured_dhcp_leases: "{{ configured_dhcp_leases + [device_group.group + ' - ' + device.alias] }}"
       loop: "{{ devices_mapped }}"
       loop_control:
-        label: "{{ item.alias }}"
+        label: "{{ item.group }}"
+      vars:
+        device_group: "{{ item }}"
+      loop: "{{ devices_mapped | subelements('members') }}"
+      loop_control:
+        label: "{{ item.0.group }} - {{ item.1.alias }}"
+      vars:
+        device_group: "{{ item.0 }}"
+        device: "{{ item.1 }}"
 
     - name: Clean-Up -- DHCP Leases -- Remove orphaned static DHCP leases
       community.routeros.command:
@@ -204,6 +212,37 @@
               :if (!$isManaged) do={
                 :put ("Removing orphaned static DHCP lease: " . $name);
                 /ip dhcp-server lease remove $entry;
+              };
+            };
+
+    - name: Clean-Up -- Firewall Address Lists -- Create array for Address List identification
+      ansible.builtin.set_fact:
+        configured_address_lists: []
+      when: devices_mapped is defined
+
+    - name: Clean-Up -- Firewall Address Lists -- Populate the array with the configured address lists
+      ansible.builtin.set_fact:
+        configured_address_lists: "{{ configured_address_lists + [item.group] }}"
+      loop: "{{ devices_mapped }}"
+      loop_control:
+        label: "{{ item.group }}"
+
+    - name: Clean-Up -- Firewall Address Lists -- Remove orphaned address lists
+      community.routeros.command:
+        commands:
+          - >
+            :local configuredEntries [:toarray "{{ configured_address_lists | join(',') }}"];
+            :foreach entry in=[/ip firewall address-list find] do={
+              :local listName [/ip firewall address-list get $entry list];
+              :local isManaged false;
+              :foreach configEntry in=$configuredEntries do={
+                :if ($listName = $configEntry) do={
+                  :set isManaged true;
+                };
+              };
+              :if (!$isManaged) do={
+                :put ("Removing orphaned address list: " . $listName);
+                /ip firewall address-list remove $entry;
               };
             };
 

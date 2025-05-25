@@ -35,7 +35,7 @@ all:
             from: "10.10.0.100"
             to: "10.10.0.254"
       - name: "vlan-test-1"
-        description: "Test VLAN"
+        description: "Test VLAN 1"
         subnet: "10.10.90.0/24"
         interface_type: "vlan"
         interface: "vlan-test-1"
@@ -55,7 +55,7 @@ all:
             from: "10.10.90.100"
             to: "10.10.90.200"
       - name: "vlan-test-2"
-        description: "Test VLAN"
+        description: "Test VLAN 2"
         subnet: "10.30.0.0/24"
         interface_type: "vlan"
         interface: "vlan-test-2"
@@ -65,26 +65,34 @@ all:
         dhcp_settings:
           enabled: false
     devices_mapped:
-      - alias: "{{ routername }}"
-        dns_names:
-          - "{{ routername }}"
-          - "{{ routername }}.{{ localdomain }}"
-        static_dhcp:
-          ip: "10.10.0.1"
-      - alias: "IncusSrv1"
-        dns_names:
-          - "mszincus1"
-          - "mszincus1.{{ localdomain}}"
-        static_dhcp:
-          mac: "00:15:5D:63:A6:06"
-          ip: "10.10.0.2"
-      - alias: "IncusSrv2"
-        dns_names:
-          - "mszincus2"
-          - "mszincus2.{{ localdomain}}"
-        static_dhcp:
-          mac: "00:15:5D:63:A6:07"
-          ip: "10.10.0.3"
+      - group: "core-infrastructure"
+        start_ip: "10.10.0.1"
+        end_ip: "10.10.0.1"
+        members:
+          - alias: "{{ routername }}"
+            dns_names:
+              - "{{ routername }}"
+              - "{{ routername }}.{{ localdomain }}"
+            static_dhcp:
+              ip: "10.10.0.1"
+      - group: "incus-servers"
+        start_ip: "10.10.0.2"
+        end_ip: "10.10.0.3"
+        members:
+          - alias: "IncusSrv1"
+            dns_names:
+              - "mszincus1"
+              - "mszincus1.{{ localdomain}}"
+            static_dhcp:
+              mac: "00:15:5D:63:A6:06"
+              ip: "10.10.0.2"
+          - alias: "IncusSrv2"
+            dns_names:
+              - "mszincus2"
+              - "mszincus2.{{ localdomain}}"
+            static_dhcp:
+              mac: "00:15:5D:63:A6:07"
+              ip: "10.10.0.3"
     firewall_rules:
       - name: "Custom rules for the home network"
         comment: "custom_100"
