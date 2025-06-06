@@ -93,11 +93,22 @@ all:
             static_dhcp:
               mac: "00:15:5D:63:A6:07"
               ip: "10.10.0.3"
+      - group: "restricted-devices"
+        start_ip: "10.10.0.20"
+        end_ip: "10.10.0.30"
+        members:
+          - alias: "test-dev-1"
+            dns_names:
+              - "test-device-1"
+              - "test-device-1.{{ localdomain}}"
+            static_dhcp:
+              mac: "00:15:5D:63:A6:08"
+              ip: "10.10.0.20"
     firewall_rules:
       - name: "Custom rules for the home network"
         comment: "custom_100"
         required_for_blank_setup: false
-        place_before: "default_900"
+        place_before: "default_500"
         filter_rules:
           - name: "Allow SSH In"
             direction: "input"
@@ -115,6 +126,24 @@ all:
             inInterfaceList: "wan"
             outInterfaceList: "*"
             srcAddressList: "*"
+            destAddressList: "*"
+            log: false
+          - name: "Disable internet access for restricted devices"
+            direction: "forward"
+            action: "drop"
+            comment: "custom_110"
+            srcAddress: "*"
+            destAddress: "*"
+            srcPort: "*"
+            destPort: "*"
+            protocol: "*"
+            connectionState: "*"
+            connectionNatState: "*"
+            inInterface: "*"
+            outInterface: "*"
+            inInterfaceList: "*"
+            outInterfaceList: "*"
+            srcAddressList: "restricted-devices"
             destAddressList: "*"
             log: false
         inbound_nat_rules:
