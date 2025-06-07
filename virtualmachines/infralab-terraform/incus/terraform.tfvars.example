@@ -1,0 +1,23 @@
+# Incus Configuration Example
+# Copy this file to terraform.tfvars and customize as needed
+
+# incus_remote = "local"
+# default_storage_pool = "default"
+# default_image = "ubuntu:22.04"
+# routeros_image = "images:mikrotik/routeros"  # Use when RouterOS image is available
+# lab_lan_subnet = "192.168.100.1/24"
+# lab_lan_domain = "lab.local"
+
+# You can override VM configurations here if needed
+# vm_configurations = {
+#   "routeros" = {
+#     name          = "RouterOS"
+#     cpu_cores     = 4
+#     memory_mb     = 1024
+#     disks = [{
+#       name     = "main"
+#       size_gb  = 64
+#     }]
+#     network_adapters = ["lab-wan", "lab-lan"]
+#   }
+# }

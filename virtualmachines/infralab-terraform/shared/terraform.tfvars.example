@@ -1,0 +1,73 @@
+# Example VM Configuration Override
+# Copy this file to terraform.tfvars in either incus/ or hyperv/ directory
+# and customize the VM specifications as needed.
+
+# To change VM specifications, modify the shared configuration
+# Create a terraform.tfvars file in the shared/ directory with:
+
+vm_configurations = {
+  "routeros" = {
+    name          = "RouterOS"
+    cpu_cores     = 4         # Increased from 2 to 4 cores
+    memory_mb     = 1024      # Increased from 512MB to 1GB
+    disks = [{
+      name     = "main"
+      size_gb  = 128          # Increased from 64GB to 128GB
+    }]
+    network_adapters = ["lab-wan", "lab-lan"]
+  }
+  
+  "incus_single_disk" = {
+    name          = "Incus-SingleDisk"
+    cpu_cores     = 4         # Increased from 2 to 4 cores
+    memory_mb     = 4096      # Increased from 2GB to 4GB
+    disks = [{
+      name     = "main"
+      size_gb  = 256          # Increased from 128GB to 256GB
+    }]
+    network_adapters = ["lab-lan"]
+  }
+  
+  "incus_dual_disk" = {
+    name          = "Incus-DualDisk"
+    cpu_cores     = 4         # Increased from 2 to 4 cores
+    memory_mb     = 4096      # Increased from 2GB to 4GB
+    disks = [
+      {
+        name     = "main"
+        size_gb  = 256        # Increased from 128GB to 256GB
+      },
+      {
+        name     = "data"
+        size_gb  = 512        # Increased from 128GB to 512GB
+      }
+    ]
+    network_adapters = ["lab-lan"]
+  }
+  
+  "test_client" = {
+    name          = "Test-Client"
+    cpu_cores     = 2         # Keep at 2 cores
+    memory_mb     = 3072      # Increased from 2GB to 3GB
+    disks = [{
+      name     = "main"
+      size_gb  = 200          # Increased from 128GB to 200GB
+    }]
+    network_adapters = ["lab-lan"]
+  }
+}
+
+# Network configurations can also be customized if needed
+network_configurations = {
+  "lab_wan" = {
+    name        = "lab-wan"
+    description = "External network with internet connection"
+    type        = "external"
+  }
+  
+  "lab_lan" = {
+    name        = "lab-lan"
+    description = "Internal VM network - Production Lab"
+    type        = "internal"
+  }
+}
