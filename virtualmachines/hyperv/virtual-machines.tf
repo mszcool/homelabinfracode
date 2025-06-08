@@ -10,7 +10,6 @@ resource "hyperv_machine_instance" "routeros" {
   automatic_start_delay = 0
   automatic_stop_action  = var.automatic_stop_action
   checkpoint_type        = var.checkpoint_type
-  dynamic_memory         = false
   guest_controlled_cache_types = false
   high_memory_mapped_io_space = 536870912
   lock_on_disconnect     = "Off"
@@ -64,10 +63,7 @@ resource "hyperv_vhd" "routeros_disk" {
   block_size           = 0
   logical_sector_size  = 0
   physical_sector_size = 0
-  parent_path          = ""
-  source_disk          = ""
-  source_vm            = ""
-  type                 = var.vhd_type
+  vhd_type             = var.vhd_type
 }
 
 # Incus Single Disk VM
@@ -80,7 +76,6 @@ resource "hyperv_machine_instance" "incus_single_disk" {
   automatic_start_delay = 0
   automatic_stop_action  = "ShutDown"
   checkpoint_type        = "Production"
-  dynamic_memory         = false
   guest_controlled_cache_types = false
   high_memory_mapped_io_space = 536870912
   lock_on_disconnect     = "Off"
@@ -126,10 +121,7 @@ resource "hyperv_vhd" "incus_single_disk_main" {
   block_size           = 0
   logical_sector_size  = 0
   physical_sector_size = 0
-  parent_path          = ""
-  source_disk          = ""
-  source_vm            = ""
-  type                 = "Dynamic"
+  vhd_type             = "Dynamic"
 }
 
 # Incus Dual Disk VM
@@ -142,7 +134,6 @@ resource "hyperv_machine_instance" "incus_dual_disk" {
   automatic_start_delay = 0
   automatic_stop_action  = "ShutDown"
   checkpoint_type        = "Production"
-  dynamic_memory         = false
   guest_controlled_cache_types = false
   high_memory_mapped_io_space = 536870912
   lock_on_disconnect     = "Off"
@@ -203,10 +194,7 @@ resource "hyperv_vhd" "incus_dual_disk_main" {
   block_size           = 0
   logical_sector_size  = 0
   physical_sector_size = 0
-  parent_path          = ""
-  source_disk          = ""
-  source_vm            = ""
-  type                 = "Dynamic"
+  vhd_type             = "Dynamic"
 }
 
 resource "hyperv_vhd" "incus_dual_disk_data" {
@@ -215,10 +203,7 @@ resource "hyperv_vhd" "incus_dual_disk_data" {
   block_size           = 0
   logical_sector_size  = 0
   physical_sector_size = 0
-  parent_path          = ""
-  source_disk          = ""
-  source_vm            = ""
-  type                 = "Dynamic"
+  vhd_type             = "Dynamic"
 }
 
 # Test Client VM
@@ -231,7 +216,6 @@ resource "hyperv_machine_instance" "test_client" {
   automatic_start_delay = 0
   automatic_stop_action  = "ShutDown"
   checkpoint_type        = "Production"
-  dynamic_memory         = false
   guest_controlled_cache_types = false
   high_memory_mapped_io_space = 536870912
   lock_on_disconnect     = "Off"
@@ -277,8 +261,5 @@ resource "hyperv_vhd" "test_client_disk" {
   block_size           = 0
   logical_sector_size  = 0
   physical_sector_size = 0
-  parent_path          = ""
-  source_disk          = ""
-  source_vm            = ""
-  type                 = "Dynamic"
+  vhd_type             = "Dynamic"
 }

@@ -10,7 +10,14 @@ terraform {
 
 # Configure the Hyper-V provider
 provider "hyperv" {
-  # Provider will use default connection to local Hyper-V
+  user     = "terraform-hyperv"
+  password = "TerraformHyperV2025!@#"
+  host     = "127.0.0.1"
+  port     = 5986
+  https    = true
+  insecure = true  # Accept self-signed certificates
+  use_ntlm = true
+  timeout  = "30s"
 }
 
 # Import shared configuration module
