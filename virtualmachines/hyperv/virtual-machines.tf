@@ -2,6 +2,9 @@
 
 # RouterOS VM
 resource "hyperv_machine_instance" "routeros" {
+  
+  depends_on = [hyperv_vhd.routeros_disk]
+
   name                   = local.vm_configurations["routeros"].name
   generation             = 1  # Generation 1 for RouterOS compatibility
   automatic_critical_error_action = "Pause"
@@ -29,7 +32,7 @@ resource "hyperv_machine_instance" "routeros" {
     controller_number   = 0
     controller_location = 0
     path               = "${var.vm_base_path}\\${local.vm_configurations["routeros"].name}\\${local.vm_configurations["routeros"].name}.vhdx"
-    disk_number        = 0
+    ##disk_number        = 0
     resource_pool_name = ""
     support_persistent_reservations = false
     override_cache_attributes = "Default"
@@ -65,6 +68,9 @@ resource "hyperv_vhd" "routeros_disk" {
 
 # Incus Single Disk VM
 resource "hyperv_machine_instance" "incus_single_disk" {
+
+  depends_on = [hyperv_vhd.incus_single_disk_main]
+
   name                   = local.vm_configurations["incus_single_disk"].name
   generation             = 2
   automatic_critical_error_action = "Pause"
@@ -85,16 +91,21 @@ resource "hyperv_machine_instance" "incus_single_disk" {
   smart_paging_file_path = "C:\\ProgramData\\Microsoft\\Windows\\Hyper-V"
   snapshot_file_location = "C:\\ProgramData\\Microsoft\\Windows\\Hyper-V"
   static_memory          = true
+
   # Main disk
   hard_disk_drives {
     controller_type     = "Scsi"
     controller_number   = 0
     controller_location = 0
     path               = "C:\\VMs\\${local.vm_configurations["incus_single_disk"].name}\\${local.vm_configurations["incus_single_disk"].name}.vhdx"
-    disk_number        = 0
+    ##disk_number        = 0
     resource_pool_name = ""
     support_persistent_reservations = false
     override_cache_attributes = "Default"
+    # Add these QoS parameters explicitly
+    maximum_iops       = 0
+    minimum_iops       = 0
+    qos_policy_id      = ""
   }
 
   # Network adapter
@@ -119,6 +130,9 @@ resource "hyperv_vhd" "incus_single_disk_main" {
 
 # Incus Dual Disk VM
 resource "hyperv_machine_instance" "incus_dual_disk" {
+
+  depends_on = [hyperv_vhd.incus_dual_disk_main, hyperv_vhd.incus_dual_disk_data]
+
   name                   = local.vm_configurations["incus_dual_disk"].name
   generation             = 2
   automatic_critical_error_action = "Pause"
@@ -139,13 +153,14 @@ resource "hyperv_machine_instance" "incus_dual_disk" {
   smart_paging_file_path = "C:\\ProgramData\\Microsoft\\Windows\\Hyper-V"
   snapshot_file_location = "C:\\ProgramData\\Microsoft\\Windows\\Hyper-V"
   static_memory          = true
+
   # Main disk
   hard_disk_drives {
     controller_type     = "Scsi"
     controller_number   = 0
     controller_location = 0
     path               = "C:\\VMs\\${local.vm_configurations["incus_dual_disk"].name}\\${local.vm_configurations["incus_dual_disk"].name}.vhdx"
-    disk_number        = 0
+    ##disk_number        = 0
     resource_pool_name = ""
     support_persistent_reservations = false
     override_cache_attributes = "Default"
@@ -157,10 +172,14 @@ resource "hyperv_machine_instance" "incus_dual_disk" {
     controller_number   = 0
     controller_location = 1
     path               = "C:\\VMs\\${local.vm_configurations["incus_dual_disk"].name}\\${local.vm_configurations["incus_dual_disk"].name}-data.vhdx"
-    disk_number        = 1
+    ##disk_number        = 1
     resource_pool_name = ""
     support_persistent_reservations = false
     override_cache_attributes = "Default"
+    # Add these QoS parameters explicitly
+    maximum_iops       = 0
+    minimum_iops       = 0
+    qos_policy_id      = ""
   }
 
   # Network adapter
@@ -194,6 +213,9 @@ resource "hyperv_vhd" "incus_dual_disk_data" {
 
 # Test Client VM
 resource "hyperv_machine_instance" "test_client" {
+
+  depends_on = [hyperv_vhd.test_client_disk]
+
   name                   = local.vm_configurations["test_client"].name
   generation             = 2
   automatic_critical_error_action = "Pause"
@@ -220,10 +242,14 @@ resource "hyperv_machine_instance" "test_client" {
     controller_number   = 0
     controller_location = 0
     path               = "C:\\VMs\\${local.vm_configurations["test_client"].name}\\${local.vm_configurations["test_client"].name}.vhdx"
-    disk_number        = 0
+    ##disk_number        = 0
     resource_pool_name = ""
     support_persistent_reservations = false
     override_cache_attributes = "Default"
+    # Add these QoS parameters explicitly
+    maximum_iops       = 0
+    minimum_iops       = 0
+    qos_policy_id      = ""
   }
 
   # Network adapter
