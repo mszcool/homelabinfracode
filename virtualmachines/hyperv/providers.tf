@@ -37,6 +37,11 @@ variable "switch_type" {
   default     = "Internal"
 }
 
+variable "hyperv_username" {
+  description = "Username for Hyper-V authentication"
+  type        = string
+}
+
 variable "hyperv_password" {
   description = "Password for Hyper-V authentication"
   type        = string

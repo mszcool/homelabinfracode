@@ -22,7 +22,7 @@ resource "hyperv_machine_instance" "routeros" {
   smart_paging_file_path = "${var.vm_base_path}\\PagingFiles"
   snapshot_file_location = "${var.vm_base_path}\\Snapshots"
   static_memory          = true
-
+  
   # Main disk
   hard_disk_drives {
     controller_type     = "Scsi"
@@ -32,9 +32,6 @@ resource "hyperv_machine_instance" "routeros" {
     disk_number        = 0
     resource_pool_name = ""
     support_persistent_reservations = false
-    maximum_iops       = 0
-    minimum_iops       = 0
-    qos_policy_id      = ""
     override_cache_attributes = "Default"
   }
 
@@ -88,7 +85,6 @@ resource "hyperv_machine_instance" "incus_single_disk" {
   smart_paging_file_path = "C:\\ProgramData\\Microsoft\\Windows\\Hyper-V"
   snapshot_file_location = "C:\\ProgramData\\Microsoft\\Windows\\Hyper-V"
   static_memory          = true
-
   # Main disk
   hard_disk_drives {
     controller_type     = "Scsi"
@@ -98,9 +94,6 @@ resource "hyperv_machine_instance" "incus_single_disk" {
     disk_number        = 0
     resource_pool_name = ""
     support_persistent_reservations = false
-    maximum_iops       = 0
-    minimum_iops       = 0
-    qos_policy_id      = ""
     override_cache_attributes = "Default"
   }
 
@@ -146,7 +139,6 @@ resource "hyperv_machine_instance" "incus_dual_disk" {
   smart_paging_file_path = "C:\\ProgramData\\Microsoft\\Windows\\Hyper-V"
   snapshot_file_location = "C:\\ProgramData\\Microsoft\\Windows\\Hyper-V"
   static_memory          = true
-
   # Main disk
   hard_disk_drives {
     controller_type     = "Scsi"
@@ -156,9 +148,6 @@ resource "hyperv_machine_instance" "incus_dual_disk" {
     disk_number        = 0
     resource_pool_name = ""
     support_persistent_reservations = false
-    maximum_iops       = 0
-    minimum_iops       = 0
-    qos_policy_id      = ""
     override_cache_attributes = "Default"
   }
 
@@ -171,9 +160,6 @@ resource "hyperv_machine_instance" "incus_dual_disk" {
     disk_number        = 1
     resource_pool_name = ""
     support_persistent_reservations = false
-    maximum_iops       = 0
-    minimum_iops       = 0
-    qos_policy_id      = ""
     override_cache_attributes = "Default"
   }
 
@@ -228,7 +214,6 @@ resource "hyperv_machine_instance" "test_client" {
   smart_paging_file_path = "C:\\ProgramData\\Microsoft\\Windows\\Hyper-V"
   snapshot_file_location = "C:\\ProgramData\\Microsoft\\Windows\\Hyper-V"
   static_memory          = true
-
   # Main disk
   hard_disk_drives {
     controller_type     = "Scsi"
@@ -238,9 +223,6 @@ resource "hyperv_machine_instance" "test_client" {
     disk_number        = 0
     resource_pool_name = ""
     support_persistent_reservations = false
-    maximum_iops       = 0
-    minimum_iops       = 0
-    qos_policy_id      = ""
     override_cache_attributes = "Default"
   }
 

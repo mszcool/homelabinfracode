@@ -36,3 +36,9 @@ variable "automatic_stop_action" {
   type        = string
   default     = "ShutDown"
 }
+
+variable "external_network_adapter" {
+  description = "Name of the physical network adapter for external switch"
+  type        = string
+  default     = "Ethernet"
+}
