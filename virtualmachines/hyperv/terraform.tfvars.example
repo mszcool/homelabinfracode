@@ -1,6 +1,10 @@
 # Hyper-V Configuration Example
 # Copy this file to terraform.tfvars and customize as needed
 
+# Hyper-V Authentication (use environment variable instead)
+# hyperv_username = "your-user-name"
+# hyperv_password = "your-password-here"
+
 # vm_base_path = "C:\\VMs"
 # hyperv_generation = 2
 # vhd_type = "Dynamic"

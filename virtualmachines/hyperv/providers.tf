@@ -10,8 +10,8 @@ terraform {
 
 # Configure the Hyper-V provider
 provider "hyperv" {
-  user     = "terraform-hyperv"
-  password = "TerraformHyperV2025!@#"
+  user     = var.hyperv_username
+  password = var.hyperv_password
   host     = "127.0.0.1"
   port     = 5986
   https    = true
@@ -35,4 +35,10 @@ variable "switch_type" {
   description = "Default virtual switch type"
   type        = string
   default     = "Internal"
+}
+
+variable "hyperv_password" {
+  description = "Password for Hyper-V authentication"
+  type        = string
+  sensitive   = true
 }
