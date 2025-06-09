@@ -12,9 +12,9 @@ variable "vm_configurations" {
       size_gb  = number
     }))
     network_adapters = list(string)
+    is_routeros = optional(bool, false)  # Special flag for RouterOS VMs
   }))
-  
-  default = {
+    default = {
     "routeros" = {
       name          = "RouterOS"
       cpu_cores     = 2
@@ -24,6 +24,7 @@ variable "vm_configurations" {
         size_gb  = 64
       }]
       network_adapters = ["lab-wan", "lab-lan"]
+      is_routeros = true
     }
     
     "incus_single_disk" = {

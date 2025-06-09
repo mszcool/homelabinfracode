@@ -1,22 +1,33 @@
 # Hyper-V Outputs
+output "vm_instances" {
+  description = "All VM instance details"
+  value = {
+    for vm_key, vm in hyperv_machine_instance.vm : vm_key => {
+      id   = vm.name
+      name = vm.name
+    }
+  }
+}
+
+# Individual VM outputs for backwards compatibility
 output "routeros_id" {
   description = "RouterOS VM instance ID"
-  value       = hyperv_machine_instance.routeros.name
+  value       = hyperv_machine_instance.vm["routeros"].name
 }
 
 output "incus_single_disk_id" {
   description = "Incus Single Disk VM instance ID"
-  value       = hyperv_machine_instance.incus_single_disk.name
+  value       = try(hyperv_machine_instance.vm["incus_single_disk"].name, null)
 }
 
 output "incus_dual_disk_id" {
   description = "Incus Dual Disk VM instance ID"
-  value       = hyperv_machine_instance.incus_dual_disk.name
+  value       = try(hyperv_machine_instance.vm["incus_dual_disk"].name, null)
 }
 
 output "test_client_id" {
   description = "Test Client VM instance ID"
-  value       = hyperv_machine_instance.test_client.name
+  value       = try(hyperv_machine_instance.vm["test_client"].name, null)
 }
 
 output "lab_wan_switch" {
@@ -38,18 +49,9 @@ output "lab_lan_switch" {
 output "vm_disk_paths" {
   description = "Virtual machine disk paths"
   value = {
-    routeros = {
-      main = hyperv_vhd.routeros_disk.path
-    }
-    incus_single_disk = {
-      main = hyperv_vhd.incus_single_disk_main.path
-    }
-    incus_dual_disk = {
-      main = hyperv_vhd.incus_dual_disk_main.path
-      data = hyperv_vhd.incus_dual_disk_data.path
-    }
-    test_client = {
-      main = hyperv_vhd.test_client_disk.path
+    for vm_key, vm in local.vm_configurations : vm_key => {
+      main = hyperv_vhd.main_disks[vm_key].path
+      secondary = length(vm.disks) > 1 ? hyperv_vhd.secondary_disks[vm_key].path : null
     }
   }
 }

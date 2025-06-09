@@ -5,10 +5,9 @@ resource "incus_network" "lab_wan" {
   name = "lab-wan"
   
   config = {
-    "ipv4.address" = "auto"
+    "ipv4.address" = "192.168.1.1/24"
     "ipv4.nat"     = "true"
-    "ipv6.address" = "auto"
-    "ipv6.nat"     = "true"
+    "ipv6.address" = "none"
   }
 }
 
