@@ -3,10 +3,10 @@
 # Dynamic VM creation based on vm_configurations
 resource "incus_instance" "vm" {
   for_each = local.vm_configurations
-  
-  name  = each.value.name
-  image = each.key == "routeros" ? var.routeros_image : var.default_image
-  type  = "virtual-machine"
+  name     = each.value.name
+  image    = each.key == "routeros" ? var.routeros_image : var.default_image
+  type     = "virtual-machine"
+  running  = local.global_vm_power_state == "running" ? true : false
 
   config = {
     "limits.cpu"    = each.value.cpu_cores

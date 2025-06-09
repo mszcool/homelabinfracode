@@ -1,6 +1,10 @@
 # Hyper-V Configuration Example
 # Copy this file to terraform.tfvars and customize as needed
 
+# Global VM Power State Control
+# Set to "running" to start all VMs, "stopped" to stop all VMs
+# global_vm_power_state = "running"
+
 # Hyper-V Authentication (use environment variable instead)
 # hyperv_username = "your-user-name"
 # hyperv_password = "your-password-here"

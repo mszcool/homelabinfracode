@@ -1,6 +1,11 @@
 # Shared Configuration Outputs
 # These outputs make the centralized configurations available to consuming modules
 
+output "global_vm_power_state" {
+  description = "Global power state for all VMs"
+  value       = var.global_vm_power_state
+}
+
 output "vm_configurations" {
   description = "Centralized VM configurations"
   value       = var.vm_configurations

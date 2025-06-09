@@ -150,6 +150,65 @@ cd virtualmachines/terraform
 .\Manage-HyperV.ps1 -Action clean     # Clean Terraform cache
 ```
 
+## 🔌 Global Power State Control
+
+### Overview
+You can now control the power state of **all virtual machines** collectively using a single variable. This makes it easy to start or stop your entire lab environment with a simple `terraform apply`.
+
+### Usage
+
+#### Method 1: Using terraform.tfvars file
+Create or edit `terraform.tfvars` in either `incus/` or `hyperv/` directory:
+
+```hcl
+# Set to "running" to start all VMs
+global_vm_power_state = "running"
+
+# Set to "stopped" to stop all VMs
+global_vm_power_state = "stopped"
+```
+
+#### Method 2: Command line override
+```bash
+# Start all VMs
+terraform apply -var="global_vm_power_state=running"
+
+# Stop all VMs
+terraform apply -var="global_vm_power_state=stopped"
+```
+
+#### Method 3: Using management scripts
+```bash
+# For Incus
+./manage-incus.sh apply -var="global_vm_power_state=running"
+
+# For Hyper-V (PowerShell)
+.\Manage-HyperV.ps1 -Action apply -ExtraArgs "-var=global_vm_power_state=running"
+```
+
+### Power State Values
+- `"running"` - All VMs will be started (default)
+- `"stopped"` - All VMs will be stopped/powered off
+
+### Examples
+
+**Start your lab:**
+```bash
+cd virtualmachines/incus  # or hyperv
+terraform apply -var="global_vm_power_state=running"
+```
+
+**Stop your lab:**
+```bash
+terraform apply -var="global_vm_power_state=stopped"
+```
+
+**Toggle power state permanently:**
+```hcl
+# In terraform.tfvars
+global_vm_power_state = "stopped"  # Change to "running" when needed
+```
+
 ## 🎛️ Customization
 
 ### Modifying VM Specifications

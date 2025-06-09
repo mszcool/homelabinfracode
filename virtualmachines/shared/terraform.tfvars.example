@@ -2,6 +2,10 @@
 # Copy this file to terraform.tfvars in either incus/ or hyperv/ directory
 # and customize the VM specifications as needed.
 
+# Global VM Power State Control
+# Set to "running" to start all VMs, "stopped" to stop all VMs
+global_vm_power_state = "running"
+
 # Enhanced VM configurations with new VMs
 vm_configurations = {
   # RouterOS - Special VM with WAN connectivity (always single disk)
@@ -130,7 +134,6 @@ vm_configurations = {
     ]
     network_adapters = ["lab-lan"]
   }
-}
 }
 
 # Network configurations can also be customized if needed

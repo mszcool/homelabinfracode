@@ -22,7 +22,7 @@ variable "vhd_type" {
 variable "checkpoint_type" {
   description = "Checkpoint type (Production, Standard)"
   type        = string
-  default     = "Production"
+  default     = "Standard"  # Changed from "Production" to "Standard"
 }
 
 variable "automatic_start_action" {
@@ -41,4 +41,21 @@ variable "external_network_adapter" {
   description = "Name of the physical network adapter for external switch"
   type        = string
   default     = "Ethernet"
+}
+
+variable "global_vm_power_state" {
+  description = "Global power state for all VMs (running, stopped)"
+  type        = string
+  default     = "running"
+
+  validation {
+    condition     = contains(["running", "stopped"], var.global_vm_power_state)
+    error_message = "VM power state must be either 'running' or 'stopped'."
+  }
+}
+
+variable "disable_automatic_checkpoints" {
+  description = "Disable automatic checkpoints for all VMs"
+  type        = bool
+  default     = true
 }

@@ -22,8 +22,9 @@ module "shared_config" {
 
 # Local variables to access shared configurations
 locals {
-  vm_configurations     = module.shared_config.vm_configurations
+  vm_configurations      = module.shared_config.vm_configurations
   network_configurations = module.shared_config.network_configurations
+  global_vm_power_state  = module.shared_config.global_vm_power_state
 }
 
 # Incus-specific variables
@@ -48,7 +49,7 @@ variable "default_image" {
 variable "routeros_image" {
   description = "RouterOS image (override for RouterOS VM)"
   type        = string
-  default     = "ubuntu:22.04"  # Change this to actual RouterOS image when available
+  default     = "ubuntu:22.04" # Change this to actual RouterOS image when available
 }
 
 # Network configuration

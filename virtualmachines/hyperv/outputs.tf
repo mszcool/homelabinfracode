@@ -50,7 +50,7 @@ output "vm_disk_paths" {
   description = "Virtual machine disk paths"
   value = {
     for vm_key, vm in local.vm_configurations : vm_key => {
-      main = hyperv_vhd.main_disks[vm_key].path
+      main      = hyperv_vhd.main_disks[vm_key].path
       secondary = length(vm.disks) > 1 ? hyperv_vhd.secondary_disks[vm_key].path : null
     }
   }

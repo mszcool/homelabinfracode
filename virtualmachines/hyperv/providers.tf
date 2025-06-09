@@ -15,7 +15,7 @@ provider "hyperv" {
   host     = "127.0.0.1"
   port     = 5986
   https    = true
-  insecure = true  # Accept self-signed certificates
+  insecure = true # Accept self-signed certificates
   use_ntlm = true
   timeout  = "30s"
 }
@@ -27,8 +27,9 @@ module "shared_config" {
 
 # Local variables to access shared configurations
 locals {
-  vm_configurations     = module.shared_config.vm_configurations
+  vm_configurations      = module.shared_config.vm_configurations
   network_configurations = module.shared_config.network_configurations
+  global_vm_power_state  = module.shared_config.global_vm_power_state
 }
 
 variable "switch_type" {

@@ -3,7 +3,7 @@
 # Dynamic VHD creation for main disks
 resource "hyperv_vhd" "main_disks" {
   for_each = local.vm_configurations
-  
+
   path                 = "${var.vm_base_path}\\${each.value.name}\\${each.value.name}.vhdx"
   size                 = each.value.disks[0].size_gb * 1024 * 1024 * 1024
   block_size           = 0
@@ -18,7 +18,7 @@ resource "hyperv_vhd" "secondary_disks" {
     for vm_key, vm_config in local.vm_configurations : vm_key => vm_config
     if length(vm_config.disks) > 1
   }
-  
+
   path                 = "${var.vm_base_path}\\${each.value.name}\\${each.value.name}-${each.value.disks[1].name}.vhdx"
   size                 = each.value.disks[1].size_gb * 1024 * 1024 * 1024
   block_size           = 0
@@ -29,45 +29,43 @@ resource "hyperv_vhd" "secondary_disks" {
 
 # Dynamic VM creation based on vm_configurations
 resource "hyperv_machine_instance" "vm" {
-  for_each = local.vm_configurations
-  
-  depends_on = [
-    hyperv_vhd.main_disks
-  ]
+  for_each = module.shared_config.vm_configurations
+  name     = each.value.name
+  state    = var.global_vm_power_state == "running" ? "Running" : "Off"
 
-  name                                    = each.value.name
-  generation                              = each.value.is_routeros ? 1 : 2  # Generation 1 for RouterOS compatibility
-  automatic_critical_error_action         = "Pause"
+  # VM Generation and basic settings
+  generation                          = var.hyperv_generation
+  automatic_critical_error_action     = "Pause"
   automatic_critical_error_action_timeout = 30
-  automatic_start_action                  = var.automatic_start_action
-  automatic_start_delay                   = 0
-  automatic_stop_action                   = var.automatic_stop_action
-  checkpoint_type                         = var.checkpoint_type
-  guest_controlled_cache_types            = false
-  high_memory_mapped_io_space             = 536870912
-  lock_on_disconnect                      = "Off"
-  low_memory_mapped_io_space              = 134217728
-  memory_maximum_bytes                    = each.value.memory_mb * 1024 * 1024
-  memory_minimum_bytes                    = each.value.memory_mb * 1024 * 1024
-  memory_startup_bytes                    = each.value.memory_mb * 1024 * 1024
-  notes                                   = "${each.value.name} Virtual Machine"
-  processor_count                         = each.value.cpu_cores
-  smart_paging_file_path                  = each.value.is_routeros ? "${var.vm_base_path}\\PagingFiles" : "C:\\ProgramData\\Microsoft\\Windows\\Hyper-V"
-  snapshot_file_location                  = each.value.is_routeros ? "${var.vm_base_path}\\Snapshots" : "C:\\ProgramData\\Microsoft\\Windows\\Hyper-V"
-  static_memory                           = true
-  
+  automatic_start_action              = var.automatic_start_action
+  automatic_start_delay               = 0
+  automatic_stop_action               = var.automatic_stop_action
+  checkpoint_type                     = var.checkpoint_type
+  guest_controlled_cache_types        = false
+  high_memory_mapped_io_space         = 536870912
+  lock_on_disconnect                  = "Off"
+  low_memory_mapped_io_space          = 134217728
+  memory_maximum_bytes                = each.value.memory_mb * 1024 * 1024
+  memory_minimum_bytes                = each.value.memory_mb * 1024 * 1024
+  memory_startup_bytes                = each.value.memory_mb * 1024 * 1024
+  notes                              = ""
+  processor_count                     = each.value.cpu_cores
+  smart_paging_file_path             = "${var.vm_base_path}\\${each.value.name}"
+  snapshot_file_location             = "${var.vm_base_path}\\${each.value.name}"
+  static_memory                      = true
+
   # Main disk (always present)
   hard_disk_drives {
     controller_type                 = "Scsi"
     controller_number               = 0
     controller_location             = 0
     path                            = hyperv_vhd.main_disks[each.key].path
-    resource_pool_name              = ""
+    resource_pool_name              = "Primordial"
     support_persistent_reservations = false
     override_cache_attributes       = "Default"
     maximum_iops                    = 0
     minimum_iops                    = 0
-    qos_policy_id                   = ""
+    qos_policy_id                   = "00000000-0000-0000-0000-000000000000"
   }
 
   # Optional second disk (only if more than 1 disk is configured)
@@ -78,12 +76,69 @@ resource "hyperv_machine_instance" "vm" {
       controller_number               = 0
       controller_location             = 1
       path                            = hyperv_vhd.secondary_disks[each.key].path
-      resource_pool_name              = ""
+      resource_pool_name              = "Primordial"
       support_persistent_reservations = false
       override_cache_attributes       = "Default"
       maximum_iops                    = 0
       minimum_iops                    = 0
-      qos_policy_id                   = ""
+      qos_policy_id                   = "00000000-0000-0000-0000-000000000000"
+    }
+  }
+
+  # VM Processor configuration
+  vm_processor {
+    compatibility_for_migration_enabled               = false
+    compatibility_for_older_operating_systems_enabled = false
+    enable_host_resource_protection                   = false
+    expose_virtualization_extensions                  = false
+    hw_thread_count_per_core                          = 0
+    maximum                                           = 100
+    maximum_count_per_numa_node                       = 16
+    maximum_count_per_numa_socket                     = 1
+    relative_weight                                   = 100
+    reserve                                           = 0
+  }
+
+  # VM Firmware configuration (only for Generation 2 VMs)
+  dynamic "vm_firmware" {
+    for_each = var.hyperv_generation == 2 ? [1] : []
+    content {
+      console_mode                    = "Default"
+      enable_secure_boot              = "On"
+      pause_after_boot_failure        = "Off"
+      preferred_network_boot_protocol = "IPv4"
+      secure_boot_template            = "MicrosoftWindows"
+      
+      # Boot from hard disk first, then network
+      boot_order {
+        boot_type           = "HardDiskDrive"
+        controller_number   = 0
+        controller_location = 0
+        path                = hyperv_vhd.main_disks[each.key].path
+      }
+      
+      # Add second disk to boot order if it exists
+      dynamic "boot_order" {
+        for_each = length(each.value.disks) > 1 ? [1] : []
+        content {
+          boot_type           = "HardDiskDrive"
+          controller_number   = 0
+          controller_location = 1
+          path                = hyperv_vhd.secondary_disks[each.key].path
+        }
+      }
+      
+      # Network boot for each adapter
+      dynamic "boot_order" {
+        for_each = each.value.network_adapters
+        content {
+          boot_type            = "NetworkAdapter"
+          controller_location  = -1
+          controller_number    = -1
+          network_adapter_name = boot_order.value
+          switch_name          = boot_order.value == "lab-wan" ? hyperv_network_switch.lab_wan.name : hyperv_network_switch.lab_lan.name
+        }
+      }
     }
   }
 
@@ -97,5 +152,22 @@ resource "hyperv_machine_instance" "vm" {
       is_legacy           = false
       dynamic_mac_address = true
     }
+  }
+}
+
+# Disable automatic checkpoints for all VMs
+resource "null_resource" "disable_automatic_checkpoints" {
+  for_each = module.shared_config.vm_configurations
+
+  # This will run after the VM is created
+  depends_on = [hyperv_machine_instance.vm]
+
+  provisioner "local-exec" {
+    command = "powershell.exe -Command \"Set-VM -Name '${each.value.name}' -AutomaticCheckpointsEnabled $false\""
+  }
+
+  # Re-run if the VM is recreated
+  triggers = {
+    vm_id = hyperv_machine_instance.vm[each.key].id
   }
 }
