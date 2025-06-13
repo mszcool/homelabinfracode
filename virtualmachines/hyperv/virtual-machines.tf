@@ -163,7 +163,7 @@ resource "null_resource" "disable_automatic_checkpoints" {
   depends_on = [hyperv_machine_instance.vm]
 
   provisioner "local-exec" {
-    command = "powershell.exe -Command \"Set-VM -Name '${each.value.name}' -AutomaticCheckpointsEnabled 0\""
+    command = "powershell.exe -ExecutionPolicy Bypass -File ${replace(path.module, "/", "\\")}\\disable-checkpoints.ps1 -VMName ${each.value.name}"
   }
 
   # Re-run if the VM is recreated
