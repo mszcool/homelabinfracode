@@ -4,7 +4,7 @@
 variable "global_vm_power_state" {
   description = "Global power state for all VMs (running, stopped)"
   type        = string
-  default     = "running"
+  default     = "stopped"
 
   validation {
     condition     = contains(["running", "stopped"], var.global_vm_power_state)
