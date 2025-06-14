@@ -55,7 +55,7 @@ resource "hyperv_machine_instance" "vm" {
 
   # Main disk (always present)
   hard_disk_drives {
-    controller_type                 = "Scsi"
+    controller_type                 = each.value.is_routeros ? "Ide" : "Scsi"
     controller_number               = 0
     controller_location             = 0
     path                            = hyperv_vhd.main_disks[each.key].path
@@ -71,7 +71,7 @@ resource "hyperv_machine_instance" "vm" {
   dynamic "hard_disk_drives" {
     for_each = length(each.value.disks) > 1 ? [1] : []
     content {
-      controller_type                 = "Scsi"
+      controller_type                 = each.value.is_routeros ? "Ide" : "Scsi"
       controller_number               = 0
       controller_location             = 1
       path                            = hyperv_vhd.secondary_disks[each.key].path
