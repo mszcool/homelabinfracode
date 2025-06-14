@@ -22,9 +22,13 @@ variable "vm_configurations" {
       name    = string
       size_gb = number
     }))
-    network_adapters = list(string)
+    network_adapters = list(object({
+      name = string
+      static_mac_address = optional(string, null)
+    }))
     is_routeros      = optional(bool, false) # Special flag for RouterOS VMs
   }))
+  
   default = {
     "routeros" = {
       name      = "RouterOS"
@@ -34,7 +38,16 @@ variable "vm_configurations" {
         name    = "main"
         size_gb = 64
       }]
-      network_adapters = ["lab-wan", "lab-lan"]
+      network_adapters = [
+        {
+          name = "lab-wan"
+          static_mac_address = null
+        },
+        {
+          name = "lab-lan"
+          static_mac_address = null
+        }
+      ]
       is_routeros      = true
     }
 
@@ -46,8 +59,10 @@ variable "vm_configurations" {
         name    = "main"
         size_gb = 128
       }]
-      network_adapters = ["lab-lan"]
-      network_lan_mac_address = "00:15:5D:63:A6:06"
+      network_adapters = [{
+        name = "lab-lan"
+        static_mac_address = "00:15:5D:63:A6:06"
+      }]
     }
 
     "incus_dual_disk" = {
@@ -64,8 +79,10 @@ variable "vm_configurations" {
           size_gb = 128
         }
       ]
-      network_adapters = ["lab-lan"]
-      network_lan_mac_address = "00:15:5D:63:A6:07"
+      network_adapters = [{
+        name = "lab-lan"
+        static_mac_address = "00:15:5D:63:A6:07"
+      }]
     }
 
     "test_client" = {
@@ -76,8 +93,10 @@ variable "vm_configurations" {
         name    = "main"
         size_gb = 128
       }]
-      network_adapters = ["lab-lan"]
-      network_lan_mac_address = "00:15:5D:63:A6:08"
+      network_adapters = [{
+        name = "lab-lan"
+        static_mac_address = "00:15:5D:63:A6:08"
+      }]
     }
 
     "test_client_2" = {
@@ -88,8 +107,10 @@ variable "vm_configurations" {
         name    = "main"
         size_gb = 128
       }]
-      network_adapters = ["lab-lan"]
-      network_lan_mac_address = "00:15:5D:63:A6:09"
+      network_adapters = [{
+        name = "lab-lan"
+        static_mac_address = "00:15:5D:63:A6:09"
+      }]
     }
 
     "test_client_3" = {
@@ -100,8 +121,10 @@ variable "vm_configurations" {
         name    = "main"
         size_gb = 128
       }]
-      network_adapters = ["lab-lan"]
-      network_lan_mac_address = "00:15:5D:63:A6:0A"
+      network_adapters = [{
+        name = "lab-lan"
+        static_mac_address = "00:15:5D:63:A6:0A"
+      }]
     }
   }
 }

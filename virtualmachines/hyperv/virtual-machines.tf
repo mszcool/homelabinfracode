@@ -125,16 +125,15 @@ resource "hyperv_machine_instance" "vm" {
           path                = hyperv_vhd.secondary_disks[each.key].path
         }
       }
-      
-      # Network boot for each adapter
+        # Network boot for each adapter
       dynamic "boot_order" {
         for_each = each.value.network_adapters
         content {
           boot_type            = "NetworkAdapter"
           controller_location  = -1
           controller_number    = -1
-          network_adapter_name = boot_order.value
-          switch_name          = boot_order.value == "lab-wan" ? hyperv_network_switch.lab_wan.name : hyperv_network_switch.lab_lan.name
+          network_adapter_name = boot_order.value.name
+          switch_name          = boot_order.value.name == "lab-wan" ? hyperv_network_switch.lab_wan.name : hyperv_network_switch.lab_lan.name
         }
       }
     }
@@ -142,12 +141,12 @@ resource "hyperv_machine_instance" "vm" {
   dynamic "network_adaptors" {
     for_each = each.value.network_adapters
     content {
-      name                = network_adaptors.value
-      switch_name         = network_adaptors.value == "lab-wan" ? hyperv_network_switch.lab_wan.name : hyperv_network_switch.lab_lan.name
+      name                = network_adaptors.value.name
+      switch_name         = network_adaptors.value.name == "lab-wan" ? hyperv_network_switch.lab_wan.name : hyperv_network_switch.lab_lan.name
       management_os       = false
-      dynamic_mac_address = true
+      dynamic_mac_address = network_adaptors.value.static_mac_address != null ? false : true
       wait_for_ips        = false
-      mac_address         = each.value.network_lan_mac_address != null && network_adaptors.value == hyperv_network_switch.lab_lan.name ? each.value.network_lan_mac_address : null
+      static_mac_address  = network_adaptors.value.static_mac_address
     }
   }
 }
