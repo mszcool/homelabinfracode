@@ -69,7 +69,29 @@ variable "vm_configurations" {
     "test_client" = {
       name      = "Test-Client"
       cpu_cores = 2
-      memory_mb = 2048
+      memory_mb = 1024
+      disks = [{
+        name    = "main"
+        size_gb = 128
+      }]
+      network_adapters = ["lab-lan"]
+    }
+
+    "test_client_2" = {
+      name      = "Test-Client-2"
+      cpu_cores = 2
+      memory_mb = 1024
+      disks = [{
+        name    = "main"
+        size_gb = 128
+      }]
+      network_adapters = ["lab-lan"]
+    }
+
+    "test_client_3" = {
+      name      = "Test-Client-3"
+      cpu_cores = 2
+      memory_mb = 1024
       disks = [{
         name    = "main"
         size_gb = 128
