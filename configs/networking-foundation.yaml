@@ -115,12 +115,12 @@ all:
         start_ip: "10.10.20.0"
         end_ip: "10.10.20.100"
         members:
-          - alias: "dedicated-device-1"
+          - alias: "test-dev-3"
             dns_names:
-              - "dedicated-device-1"
-              - "dedicated-device-1.{{ localdomain}}"
+              - "test-dev-3"
+              - "test-dev-3.{{ localdomain}}"
             static_dhcp:
-              mac: "00:15:5D:63:A6:10"
+              mac: "00:15:5D:63:A6:0A"
               ip: "10.10.20.10"
     firewall_rules:
       - name: "Custom rules for the home network"
