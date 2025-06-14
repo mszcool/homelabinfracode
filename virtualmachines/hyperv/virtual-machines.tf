@@ -147,6 +147,7 @@ resource "hyperv_machine_instance" "vm" {
       management_os       = false
       dynamic_mac_address = true
       wait_for_ips        = false
+      mac_address         = each.value.network_lan_mac_address != null && network_adaptors.value == hyperv_network_switch.lab_lan.name ? each.value.network_lan_mac_address : null
     }
   }
 }

@@ -47,6 +47,7 @@ variable "vm_configurations" {
         size_gb = 128
       }]
       network_adapters = ["lab-lan"]
+      network_lan_mac_address = "00:15:5D:63:A6:06"
     }
 
     "incus_dual_disk" = {
@@ -64,6 +65,7 @@ variable "vm_configurations" {
         }
       ]
       network_adapters = ["lab-lan"]
+      network_lan_mac_address = "00:15:5D:63:A6:07"
     }
 
     "test_client" = {
@@ -75,6 +77,7 @@ variable "vm_configurations" {
         size_gb = 128
       }]
       network_adapters = ["lab-lan"]
+      network_lan_mac_address = "00:15:5D:63:A6:08"
     }
 
     "test_client_2" = {
@@ -86,6 +89,7 @@ variable "vm_configurations" {
         size_gb = 128
       }]
       network_adapters = ["lab-lan"]
+      network_lan_mac_address = "00:15:5D:63:A6:09"
     }
 
     "test_client_3" = {
@@ -97,6 +101,7 @@ variable "vm_configurations" {
         size_gb = 128
       }]
       network_adapters = ["lab-lan"]
+      network_lan_mac_address = "00:15:5D:63:A6:0A"
     }
   }
 }

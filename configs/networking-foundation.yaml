@@ -56,12 +56,12 @@ all:
             to: "10.10.90.200"
       - name: "vlan-test-2"
         description: "Test VLAN 2"
-        subnet: "10.30.0.0/24"
+        subnet: "10.10.100.0/24"
         interface_type: "vlan"
         interface: "vlan-test-2"
         parent_interface: "lanBridge"
         vlan_id: 91
-        gateway: "10.30.0.1"
+        gateway: "10.10.100.1"
         dhcp_settings:
           enabled: false
     devices_mapped:
@@ -104,6 +104,24 @@ all:
             static_dhcp:
               mac: "00:15:5D:63:A6:08"
               ip: "10.10.0.20"
+          - alias: "test-dev-2"
+            dns_names:
+              - "test-device-2"
+              - "test-device-2.{{ localdomain}}"
+            static_dhcp:
+              mac: "00:15:5D:63:A6:09"
+              ip: "10.10.0.21"
+      - group: "dedicated-subnet-devices"
+        start_ip: "10.10.20.0"
+        end_ip: "10.10.20.100"
+        members:
+          - alias: "dedicated-device-1"
+            dns_names:
+              - "dedicated-device-1"
+              - "dedicated-device-1.{{ localdomain}}"
+            static_dhcp:
+              mac: "00:15:5D:63:A6:10"
+              ip: "10.10.20.10"
     firewall_rules:
       - name: "Custom rules for the home network"
         comment: "custom_100"
