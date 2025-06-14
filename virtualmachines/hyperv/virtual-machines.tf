@@ -32,9 +32,8 @@ resource "hyperv_machine_instance" "vm" {
   for_each = module.shared_config.vm_configurations
   name     = each.value.name
   state    = var.global_vm_power_state == "running" ? "Running" : "Off"
-
   # VM Generation and basic settings
-  generation                          = var.hyperv_generation
+  generation                          = each.value.is_routeros ? 1 : var.hyperv_generation
   automatic_critical_error_action     = "Pause"
   automatic_critical_error_action_timeout = 30
   automatic_start_action              = var.automatic_start_action
@@ -98,16 +97,15 @@ resource "hyperv_machine_instance" "vm" {
     relative_weight                                   = 100
     reserve                                           = 0
   }
-
   # VM Firmware configuration (only for Generation 2 VMs)
   dynamic "vm_firmware" {
-    for_each = var.hyperv_generation == 2 ? [1] : []
+    for_each = (each.value.is_routeros ? 1 : var.hyperv_generation) == 2 ? [1] : []
     content {
       console_mode                    = "Default"
-      enable_secure_boot              = "On"
+      enable_secure_boot              = each.value.is_routeros ? "Off" : "On"
       pause_after_boot_failure        = "Off"
       preferred_network_boot_protocol = "IPv4"
-      secure_boot_template            = "MicrosoftWindows"
+      secure_boot_template            = each.value.is_routeros ? "OpenSourceShieldedVM" : "MicrosoftWindows"
       
       # Boot from hard disk first, then network
       boot_order {
@@ -140,17 +138,15 @@ resource "hyperv_machine_instance" "vm" {
         }
       }
     }
-  }
-
-  # Network adapters - dynamically create based on configuration
+  }  # Network adapters - dynamically create based on configuration
   dynamic "network_adaptors" {
     for_each = each.value.network_adapters
     content {
       name                = network_adaptors.value
       switch_name         = network_adaptors.value == "lab-wan" ? hyperv_network_switch.lab_wan.name : hyperv_network_switch.lab_lan.name
       management_os       = false
-      is_legacy           = false
       dynamic_mac_address = true
+      wait_for_ips        = false
     }
   }
 }
