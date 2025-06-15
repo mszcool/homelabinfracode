@@ -102,10 +102,10 @@ resource "hyperv_machine_instance" "vm" {
     for_each = (each.value.is_routeros ? 1 : var.hyperv_generation) == 2 ? [1] : []
     content {
       console_mode                    = "Default"
-      enable_secure_boot              = each.value.is_routeros ? "Off" : "On"
+      enable_secure_boot              = "Off" # Before had this; need to disable because of my custom ISO images: each.value.is_routeros ? "Off" : "On"
       pause_after_boot_failure        = "Off"
       preferred_network_boot_protocol = "IPv4"
-      secure_boot_template            = each.value.is_routeros ? "OpenSourceShieldedVM" : "MicrosoftWindows"
+      secure_boot_template            = null # Before had this; need to disable because of my custom ISO images: each.value.is_routeros ? "OpenSourceShieldedVM" : "MicrosoftWindows"
       
       # Boot from hard disk first, then network
       boot_order {
@@ -141,12 +141,22 @@ resource "hyperv_machine_instance" "vm" {
   dynamic "network_adaptors" {
     for_each = each.value.network_adapters
     content {
-      name                = network_adaptors.value.name
-      switch_name         = network_adaptors.value.name == "lab-wan" ? hyperv_network_switch.lab_wan.name : hyperv_network_switch.lab_lan.name
-      management_os       = false
-      dynamic_mac_address = network_adaptors.value.static_mac_address != null ? false : true
-      wait_for_ips        = false
-      static_mac_address  = network_adaptors.value.static_mac_address
+      name                                       = network_adaptors.value.name
+      switch_name                                = network_adaptors.value.name == "lab-wan" ? hyperv_network_switch.lab_wan.name : hyperv_network_switch.lab_lan.name
+      management_os                              = false
+      dynamic_mac_address                        = network_adaptors.value.static_mac_address != null ? false : true
+      wait_for_ips                               = false
+      static_mac_address                         = network_adaptors.value.static_mac_address
+      is_legacy                                  = false # Before had this: each.value.is_routeros ? true : false
+      vmmq_enabled                               = true
+      vmmq_queue_pairs                           = 16 # Before had this: each.value.is_routeros ? null : 16
+      vmq_weight                                 = 100  # Before had this: each.value.is_routeros ? null : 100
+      iov_weight                                 = 0
+      iov_interrupt_moderation                   = "Default"  # Before had this: each.value.is_routeros ? "Off" : "Default"
+      ipsec_offload_maximum_security_association = 512  # Before had this: each.value.is_routeros ? 0 : 512
+      allow_teaming                              = "Off"
+      packet_direct_moderation_count             = 64  # Before had this: each.value.is_routeros ? null : 64
+      packet_direct_moderation_interval          = 1000000  # Before had this: each.value.is_routeros ? null : 1000000
     }
   }
 }
