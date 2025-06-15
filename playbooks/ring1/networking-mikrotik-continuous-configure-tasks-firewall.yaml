@@ -8,28 +8,31 @@
   community.routeros.command:
     commands:
       - >
-        :local placebeforeval 0;
-        {% if firewall_group_place_before is defined and firewall_group_place_before and firewall_group_place_before != '0' %}
-          :if ([:len [/ip firewall filter find where comment~"{{ firewall_group_place_before }}_{{ firewall_block_start_marker_text }}"]] > 0) do={
-            :set placebeforeval [/ip firewall filter find where comment~"{{ firewall_group_place_before }}_{{ firewall_block_start_marker_text }}"]
-          };
-        {% endif %}
         /ip firewall filter remove [find where comment="{{ firewall_group_end_text }}"];
-        :if ( $placebeforeval = 0) do={
-          /ip firewall filter add chain=input action=passthrough comment="{{ firewall_group_end_text }}" disabled=yes;
+        {% if firewall_group_place_before is defined and firewall_group_place_before and firewall_group_place_before != '0' %}
+        :local foundItems [/ip firewall filter find where comment~"{{ firewall_group_place_before }}_{{ firewall_block_start_marker_text }}"];
+        :if ([:len $foundItems] > 0) do={
+          /ip firewall filter add chain=input action=passthrough place-before [:pick $foundItems 0] comment="{{ firewall_group_end_text }}" disabled=yes;
         } else={
-          /ip firewall filter add chain=input action=passthrough place-before $placebeforeval comment="{{ firewall_group_end_text }}" disabled=yes;
-        }
+          /ip firewall filter add chain=input action=passthrough comment="{{ firewall_group_end_text }}" disabled=yes;
+        };
+        {% else %}
+        /ip firewall filter add chain=input action=passthrough comment="{{ firewall_group_end_text }}" disabled=yes;
+        {% endif %}
   when: firewall_group_filter_rules is defined
+  register: firewall_group_filter_rules_end_marker_output
 
 - name: Firewall - Filter Rules Beginn Marker (order is preserved by deleting and re-adding)
   community.routeros.command:
     commands:
       - >
         /ip firewall filter remove [find where comment="{{ firewall_group_start_text }}"];
-        /ip firewall filter add chain=input action=passthrough comment="{{ firewall_group_start_text }}" \
-            place-before [/ip firewall filter find where comment="{{ firewall_group_end_text }}"] \
-            disabled=yes;
+        :local endMarkerItems [/ip firewall filter find where comment="{{ firewall_group_end_text }}"];
+        :if ([:len $endMarkerItems] > 0) do={
+          /ip firewall filter add chain=input action=passthrough comment="{{ firewall_group_start_text }}" place-before [:pick $endMarkerItems 0] disabled=yes;
+        } else={
+          /ip firewall filter add chain=input action=passthrough comment="{{ firewall_group_start_text }}" disabled=yes;
+        };
   when: firewall_group_filter_rules is defined
 
 - name: Firewall - Process filter rules for the current group
@@ -56,6 +59,7 @@
         {%- if filterItem.srcAddressList is defined and filterItem.srcAddressList and '*' not in filterItem.srcAddressList %} src-address-list={{ filterItem.srcAddressList }}{%- endif -%}
         {%- if filterItem.destAddressList is defined and filterItem.destAddressList and '*' not in filterItem.destAddressList %} dst-address-list={{ filterItem.destAddressList }}{%- endif -%}
         {%- if filterItem.log is defined and filterItem.log %} log=yes{% else %} log=no{%- endif -%}
+        {%- if filterItem.disabled is defined and filterItem.disabled %} disabled=yes{% else %} disabled=no{%- endif -%}
   loop: "{{ firewall_group_filter_rules }}"
   loop_control:
     loop_var: filterItem
@@ -66,18 +70,17 @@
   community.routeros.command:
     commands:
       - >
-        :local placebeforeval 0;
-        {% if firewall_group_place_before is defined and firewall_group_place_before and firewall_group_place_before != '0' %}
-          :if ([:len [/ip firewall nat find where comment~"{{ firewall_group_place_before }}_{{ firewall_block_start_marker_text }}"]] > 0) do={
-            :set placebeforeval [/ip firewall nat find where comment~"{{ firewall_group_place_before }}_{{ firewall_block_start_marker_text }}"]
-          };
-        {% endif %}
         /ip firewall nat remove [find where comment="{{ firewall_group_end_text }}"];
-        :if ( $placebeforeval = 0) do={
-          /ip firewall nat add chain=input action=passthrough comment="{{ firewall_group_end_text }}" disabled=yes;
+        {% if firewall_group_place_before is defined and firewall_group_place_before and firewall_group_place_before != '0' %}
+        :local foundItems [/ip firewall nat find where comment~"{{ firewall_group_place_before }}_{{ firewall_block_start_marker_text }}"];
+        :if ([:len $foundItems] > 0) do={
+          /ip firewall nat add chain=input action=passthrough place-before [:pick $foundItems 0] comment="{{ firewall_group_end_text }}" disabled=yes;
         } else={
-          /ip firewall nat add chain=input action=passthrough place-before $placebeforeval comment="{{ firewall_group_end_text }}" disabled=yes;
-        }
+          /ip firewall nat add chain=input action=passthrough comment="{{ firewall_group_end_text }}" disabled=yes;
+        };
+        {% else %}
+        /ip firewall nat add chain=input action=passthrough comment="{{ firewall_group_end_text }}" disabled=yes;
+        {% endif %}
   when: firewall_group_inbound_nat_rules is defined
 
 - name: Firewall - NAT Rules Beginn Marker (order is preserved by deleting and re-adding)
@@ -85,9 +88,12 @@
     commands:
       - >
         /ip firewall nat remove [find where comment="{{ firewall_group_start_text }}"];
-        /ip firewall nat add chain=input action=passthrough comment="{{ firewall_group_start_text }}" \
-            place-before [/ip firewall nat find where comment="{{ firewall_group_end_text }}"] \
-            disabled=yes;
+        :local endMarkerItems [/ip firewall nat find where comment="{{ firewall_group_end_text }}"];
+        :if ([:len $endMarkerItems] > 0) do={
+          /ip firewall nat add chain=input action=passthrough comment="{{ firewall_group_start_text }}" place-before [:pick $endMarkerItems 0] disabled=yes;
+        } else={
+          /ip firewall nat add chain=input action=passthrough comment="{{ firewall_group_start_text }}" disabled=yes;
+        };
   when: firewall_group_inbound_nat_rules is defined
 
 - name: Firewall - Process inbound NAT rules for the current group.
@@ -115,6 +121,7 @@
         {%- if natItem.destAddressList is defined and natItem.destAddressList and '*' not in natItem.destAddressList %} dst-address-list={{ natItem.destAddressList }}{%- endif -%}
         {%- if natItem.ipSecPolicy is defined and natItem.ipSecPolicy and '*' not in natItem.ipSecPolicy %} ipsec-policy={{ natItem.ipSecPolicy }}{%- endif -%}
         {%- if natItem.log is defined and natItem.log %} log=yes{% else %} log=no{%- endif -%}
+        {%- if natItem.disabled is defined and natItem.disabled %} disabled=yes{% else %} disabled=no{%- endif -%}
   loop: "{{ firewall_group_inbound_nat_rules }}"
   loop_control:
     loop_var: natItem
