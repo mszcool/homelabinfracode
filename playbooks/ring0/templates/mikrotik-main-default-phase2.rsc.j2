@@ -135,9 +135,14 @@ add chain=input action=passthrough comment="{{ paramRuleGroup.comment }}_{{ para
 # Set up NAT rules
 :put "Setting up NAT rules for masquerading and port forwarding"
 /ip firewall nat
+
 {%- for paramRuleGroup in param_firewall_rule_groups %}
 {% if paramRuleGroup.required_for_blank_setup == true %}
 {% if paramRuleGroup.inbound_nat_rules is defined %}
+
+remove [find where comment~"{{ paramRuleGroup.comment }}_{{ param_start_marker_text }}"]
+add chain=input action=passthrough comment="{{ paramRuleGroup.comment }}_{{ param_start_marker_text }} -- {{ paramRuleGroup.name }}" disabled=yes
+
 {% for natRule in paramRuleGroup.inbound_nat_rules %}
 
 remove [find where comment~"{{ natRule.comment }}"]
@@ -157,6 +162,10 @@ add chain={{ natRule.direction }} action={{ natRule.action }} comment="{{ natRul
 {%- if natRule.destAddressList is defined and '*' not in natRule.destAddressList %} dst-address-list={{ natRule.destAddressList }}{%- endif -%}
 {%- if natRule.ipSecPolicy is defined and '*' not in natRule.ipSecPolicy %} ipsec-policy={{ natRule.ipSecPolicy }}{%- endif -%}
 {% endfor %}
+
+remove [find where comment~"{{ paramRuleGroup.comment }}_{{ param_end_marker_text }} -- {{ paramRuleGroup.name }}"]
+add chain=input action=passthrough comment="{{ paramRuleGroup.comment }}_{{ param_end_marker_text }} -- {{ paramRuleGroup.name }}" disabled=yes
+
 {% endif %}
 {% endif %}
 {% endfor %}
