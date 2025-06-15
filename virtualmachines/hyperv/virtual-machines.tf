@@ -124,8 +124,7 @@ resource "hyperv_machine_instance" "vm" {
           controller_location = 1
           path                = hyperv_vhd.secondary_disks[each.key].path
         }
-      }
-        # Network boot for each adapter
+      }        # Network boot for each adapter
       dynamic "boot_order" {
         for_each = each.value.network_adapters
         content {
@@ -141,23 +140,48 @@ resource "hyperv_machine_instance" "vm" {
   dynamic "network_adaptors" {
     for_each = each.value.network_adapters
     content {
-      name                                       = network_adaptors.value.name
-      switch_name                                = network_adaptors.value.name == "lab-wan" ? hyperv_network_switch.lab_wan.name : hyperv_network_switch.lab_lan.name
-      management_os                              = false
-      dynamic_mac_address                        = network_adaptors.value.static_mac_address != null ? false : true
-      wait_for_ips                               = false
-      static_mac_address                         = network_adaptors.value.static_mac_address
-      is_legacy                                  = false # Before had this: each.value.is_routeros ? true : false
-      vmmq_enabled                               = true
-      vmmq_queue_pairs                           = 16 # Before had this: each.value.is_routeros ? null : 16
-      vmq_weight                                 = 100  # Before had this: each.value.is_routeros ? null : 100
-      iov_weight                                 = 0
+      name            = network_adaptors.value.name
+      switch_name     = network_adaptors.value.name == "lab-wan" ? hyperv_network_switch.lab_wan.name : hyperv_network_switch.lab_lan.name
+      management_os   = false
+      dynamic_mac_address    = network_adaptors.value.static_mac_address != null ? false : true
+      wait_for_ips           = false
+      static_mac_address     = network_adaptors.value.static_mac_address
+      is_legacy              = false # Before had this: each.value.is_routeros ? true : false
+      vmmq_enabled           = true
+      vmmq_queue_pairs       = 16 # Before had this: each.value.is_routeros ? null : 16
+      vmq_weight             = 100  # Before had this: each.value.is_routeros ? null : 100
+      iov_weight             = 0
       iov_interrupt_moderation                   = "Default"  # Before had this: each.value.is_routeros ? "Off" : "Default"
       ipsec_offload_maximum_security_association = 512  # Before had this: each.value.is_routeros ? 0 : 512
       allow_teaming                              = "Off"
       packet_direct_moderation_count             = 64  # Before had this: each.value.is_routeros ? null : 64
       packet_direct_moderation_interval          = 1000000  # Before had this: each.value.is_routeros ? null : 1000000
     }
+  }
+  # Explicit dependency on network switches to ensure they exist before VM creation
+  depends_on = [
+    hyperv_network_switch.lab_wan,
+    hyperv_network_switch.lab_lan
+  ]
+}
+
+# Workaround for Hyper-V provider network adapter issue
+resource "null_resource" "fix_network_adapters" {
+  for_each = {
+    for vm_key, vm_config in module.shared_config.vm_configurations : vm_key => vm_config
+    if !vm_config.is_routeros  # Only apply this fix to non-RouterOS VMs
+  }
+  # This will run after the VM is created
+  depends_on = [hyperv_machine_instance.vm]
+
+  provisioner "local-exec" {
+    command = "powershell.exe -ExecutionPolicy RemoteSigned -File ${replace(path.module, "/", "\\")}\\Fix-NetworkAdapters.ps1 ${each.value.name} ${join(",", [for adapter in each.value.network_adapters : adapter.name])}"
+  }
+
+  # Re-run if the VM is recreated
+  triggers = {
+    vm_id = hyperv_machine_instance.vm[each.key].id
+    adapters = jsonencode(each.value.network_adapters)
   }
 }
 
@@ -169,7 +193,7 @@ resource "null_resource" "disable_automatic_checkpoints" {
   depends_on = [hyperv_machine_instance.vm]
 
   provisioner "local-exec" {
-    command = "powershell.exe -ExecutionPolicy Bypass -File ${replace(path.module, "/", "\\")}\\disable-checkpoints.ps1 -VMName ${each.value.name}"
+    command = "powershell.exe -ExecutionPolicy RemoteSigned -File ${replace(path.module, "/", "\\")}\\disable-checkpoints.ps1 -VMName ${each.value.name}"
   }
 
   # Re-run if the VM is recreated
