@@ -88,7 +88,7 @@ variable "vm_configurations" {
     "test_client" = {
       name      = "Test-Client"
       cpu_cores = 2
-      memory_mb = 1024
+      memory_mb = 1536  # This was the minimum for subiquity installer to run without errors on apt update/upgrade
       disks = [{
         name    = "main"
         size_gb = 128
@@ -102,7 +102,7 @@ variable "vm_configurations" {
     "test_client_2" = {
       name      = "Test-Client-2"
       cpu_cores = 2
-      memory_mb = 1024
+      memory_mb = 1536 # This was the minimum for subiquity installer to run without errors on apt update/upgrade
       disks = [{
         name    = "main"
         size_gb = 128
@@ -116,7 +116,7 @@ variable "vm_configurations" {
     "test_client_3" = {
       name      = "Test-Client-3"
       cpu_cores = 2
-      memory_mb = 1024
+      memory_mb = 1536 # This was the minimum for subiquity installer to run without errors on apt update/upgrade
       disks = [{
         name    = "main"
         size_gb = 128
