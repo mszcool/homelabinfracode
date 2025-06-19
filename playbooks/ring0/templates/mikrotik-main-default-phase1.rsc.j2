@@ -52,11 +52,16 @@ set [ find default=yes ] disabled=yes
 #
 # Set the root user password and SSH key.
 #
-:put "Setting root user password and SSH key"
+:put "Adding new or setting root user password and SSH key"
 /user
 :local uid [find name=$rootUserName]
-set $uid password=$rootUserPassword;
-:log info ("User " . $rootUserName . " password updated.");
+:if ([:len $uid] = 0) do={
+    add name=$rootUserName group=full password=$rootUserPassword;
+    :log info ("User " . $rootUserName . " added.");
+} else={
+    set $uid password=$rootUserPassword;
+    :log info ("User " . $rootUserName . " password updated.");
+}
 
 /user/ssh-keys
 :foreach key in=[find user=$rootUserName] do={
