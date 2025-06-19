@@ -19,6 +19,7 @@
 :local automationUserName "{{ param_automation_user_name }}"
 :local automationUserPassword "{{ param_automation_user_password }}"
 :local automationUserSshPubKey "{{ param_automation_user_ssh_pub_key }}"
+:local rootUserNameDefault = "admin"
 :local rootUserName "{{ param_root_user_name }}"
 :local rootUserPassword "{{ param_root_user_password }}"
 :local rootUserSshPubKey "{{ param_root_user_ssh_pub_key }}"
@@ -196,6 +197,16 @@ add chain=input action=drop
 #
 /tool mac-server set allowed-interface-list=$lanInterfaceList
 /tool mac-server mac-winbox set allowed-interface-list=$lanInterfaceList
+
+#
+# Disable the default root user if a new root user has been created.
+#
+:if ( $rootUserName != $rootUserNameDefault ) do={
+    :put "Disabling default root user '$rootUserNameDefault' as a new root user has been created."
+    /user disable [find name=$rootUserNameDefault]
+} else={
+    :put "Keeping default root user '$rootUserNameDefault' enabled."
+}
 
 #
 # IMPORTANT: Next steps after this script completes:
