@@ -8,6 +8,10 @@
   vars:
     ansible_connection: ansible.netcommon.network_cli
     ansible_network_os: community.network.routeros
+    ansible_command_timeout: 60
+    ansible_connect_timeout: 30
+    ansible_persistent_connect_timeout: 300
+    ansible_persistent_command_timeout: 60
     param_firewall_rule_groups: "{{ firewall_rules }}"
     param_devices_mapped: "{{ devices_mapped }}"
     param_networks: "{{ networks }}"

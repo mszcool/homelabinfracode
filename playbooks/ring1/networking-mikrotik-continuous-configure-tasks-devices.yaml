@@ -23,4 +23,4 @@
   loop_control:
     loop_var: dns_entry
     label: "{{ dns_entry }}"
-  when: device_mapped.static_dhcp is defined and device_mapped.static_dhcp.ip is defined
+  when: device_mapped.static_dhcp is defined and device_mapped.static_dhcp.ip is defined and dns_names is defined and dns_names | length > 0
