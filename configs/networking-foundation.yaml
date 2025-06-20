@@ -428,21 +428,20 @@ all:
           prf_algorithm: sha256
           nat_traversal: true
           lifetime: 28800
-    hostsConfig:
-      10.10.0.1:
-        hostname: maininternetrouter
-        loopback_interface_name: "lo"
-        wan_interface_list: "wan"
-        lan_interface_list: "lan"
-        wan_interface:
-          interface: ether1
-          ipaddr: "dhcp"
-          ipaddrv6: "dhcp6"
-        lan_interface: 
-          bridge: lanBridge
-          interfaces: "ether2"
-          ipaddr: "10.10.0.1"
-          subnet: "24"
+    mainrouterconfig:
+      hostname: maininternetrouter
+      loopback_interface_name: "lo"
+      wan_interface_list: "wan"
+      lan_interface_list: "lan"
+      wan_interface:
+        interface: ether1
+        ipaddr: "dhcp"
+        ipaddrv6: "dhcp6"
+      lan_interface: 
+        bridge: lanBridge
+        interfaces: "ether2"
+        ipaddr: "10.10.0.1"
+        subnet: "24"
   children:
     mainrouter:
       hosts:
