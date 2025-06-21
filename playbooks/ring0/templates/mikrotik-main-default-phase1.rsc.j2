@@ -31,6 +31,8 @@
 # First, set the hostname and time zone.
 #
 :put "Setting hostname and time zone"
+:put $routerHostName
+:put $routerTimeZone
 /system identity set name=$routerHostName
 /system clock set time-zone-name=$routerTimeZone
 
@@ -43,8 +45,8 @@ set [ find default=yes ] disabled=yes
 #
 # Some device defaults per Mikrotik default config.
 #
-/port set 0 name=serial0
-/interface lte apn set [ find default=yes ] ip-type=ipv4 use-network-apn=no
+# does not exist on my Mikrotik: /port set 0 name=serial0
+# does not exist on my Mikrotik: /interface lte apn set [ find default=yes ] ip-type=ipv4 use-network-apn=no
 /ip settings set accept-source-route=yes
 /ipv6 settings set disable-ipv6=yes
 /interface detect-internet set detect-interface-list=all
