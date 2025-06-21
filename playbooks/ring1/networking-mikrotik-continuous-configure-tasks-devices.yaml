@@ -3,7 +3,7 @@
   community.routeros.command:
     commands:
       - >
-        :if ([:len [/ip dhcp-server lease find where mac-address={{ device_mapped.static_dhcp.mac }}]] > 0) do={
+        :if ([:len [/ip dhcp-server lease find where mac-address={{ device_mapped.static_dhcp.mac }} and dynamic=no]] > 0) do={
           /ip dhcp-server lease set [find where mac-address={{ device_mapped.static_dhcp.mac }}] address={{ device_mapped.static_dhcp.ip }} comment="{{ device_group.group }} - {{ device_mapped.alias }}"
         } else={
           /ip dhcp-server lease add mac-address={{ device_mapped.static_dhcp.mac }} address={{ device_mapped.static_dhcp.ip }} comment="{{ device_group.group }} - {{ device_mapped.alias }}"
