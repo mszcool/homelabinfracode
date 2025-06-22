@@ -1,0 +1,34 @@
+# Hyper-V Configuration Example
+# Copy this file to terraform.tfvars and customize as needed
+
+# Global VM Power State Control
+# Set to "running" to start all VMs, "stopped" to stop all VMs
+# global_vm_power_state = "running"
+
+# Hyper-V Authentication (use environment variable instead)
+# hyperv_username = "your-user-name"
+# hyperv_password = "your-password-here"
+
+# vm_base_path = "C:\\VMs"
+# hyperv_generation = 2
+# vhd_type = "Dynamic"
+# checkpoint_type = "Production"
+# automatic_start_action = "Nothing"
+# automatic_stop_action = "ShutDown"
+
+# You can override VM configurations here if needed
+# vm_configurations = {
+#   "routeros" = {
+#     name          = "RouterOS"
+#     cpu_cores     = 4
+#     memory_mb     = 1024
+#     disks = [{
+#       name     = "main"
+#       size_gb  = 64
+#     }]
+#     network_adapters = ["lab-wan", "lab-lan"]
+#   }
+# }
+
+# Network adapter name for external switch (adjust based on your system)
+# external_network_adapter = "Ethernet"

@@ -1,0 +1,179 @@
+---
+- name: Networking continuous setup for Mikrotik router with firewall rules, devices, DNS registrations etc.
+  hosts: mainrouter
+  become: false
+  gather_facts: false
+  remote_user: "{{ users.automation.name }}"
+
+  vars:
+    ansible_connection: ansible.netcommon.network_cli
+    ansible_network_os: community.network.routeros
+    ansible_command_timeout: 60
+    ansible_connect_timeout: 30
+    ansible_persistent_connect_timeout: 300
+    ansible_persistent_command_timeout: 60
+    param_firewall_rule_groups: "{{ firewall_rules }}"
+    param_devices_mapped: "{{ devices_mapped }}"
+    param_networks: "{{ networks }}"
+    param_site_vpn_config: "{{ site_vpn_config }}"
+    param_start_marker_text: "{{ start_marker_text }}"
+    param_end_marker_text: "{{ end_marker_text }}"
+    param_include_blank_setup_tasks: "{{ include_blank_setup_tasks }}"
+
+  tasks:
+    - name: Prepare localhost -- install python3-paramiko on host.
+      ansible.builtin.apt:
+        name: python3-paramiko
+        state: present
+      delegate_to: localhost
+
+    - name: Network -- Create or update VLAN interfaces on the RouterOS target.
+      community.routeros.command:
+        commands:
+          - >
+            :if ([:len [/interface vlan find where name={{ item.interface }}]] > 0) do={
+              /interface vlan set [find where name={{ item.interface }}] vlan-id={{ item.vlan_id }} interface={{ item.parent_interface }} comment="{{ item.description }}"
+            } else={
+              /interface vlan add name={{ item.interface }} vlan-id={{ item.vlan_id }} interface={{ item.parent_interface }} comment="{{ item.description }}"
+            }
+      loop: "{{ param_networks | selectattr('interface_type', 'equalto', 'vlan') | list }}"
+      loop_control:
+        label: "{{ item.name }}"
+
+    - name: Network -- Create or update IP addresses on the interfaces.
+      community.routeros.command:
+        commands:
+          - >
+            :if ([:len [/ip address find where interface={{ item.interface }}]] > 0) do={
+              /ip address set [find where interface={{ item.interface }}] address={{ item.gateway }}/{{ item.subnet | regex_replace('^.*/', '') }} comment="{{ item.description }}"
+            } else={
+              /ip address add address={{ item.gateway }}/{{ item.subnet | regex_replace('^.*/', '') }} interface={{ item.interface }} comment="{{ item.description }}"
+            }
+      loop: "{{ param_networks }}"
+      loop_control:
+        label: "{{ item.name }}"
+
+    - name: DHCP-Server -- Create or update address pools on the RouterOS target.
+      community.routeros.command:
+        commands:
+          - >
+            :if ([:len [/ip pool find where name={{ item.name }}]] > 0) do={
+              /ip pool set [find where name={{ item.name }}] ranges="{{ item.dhcp_settings.address_pool.from }}-{{ item.dhcp_settings.address_pool.to }}"
+            } else={
+              /ip pool add name={{ item.name }} ranges="{{ item.dhcp_settings.address_pool.from }}-{{ item.dhcp_settings.address_pool.to }}"
+            }
+      loop: "{{ param_networks | selectattr('dhcp_settings.enabled', 'equalto', true) | list }}"
+      loop_control:
+        label: "{{ item.name }}"
+
+    - name: DHCP-Server -- Create or update DHCP-Server network on the RouterOS target.
+      community.routeros.command:
+        commands:
+          - >
+            :if ([:len [/ip dhcp-server network find where comment={{ item.name }}]] > 0) do={
+              /ip dhcp-server network set [find where comment={{ item.name }}] \
+              address={{ item.subnet }} \
+              gateway={{ item.gateway }} \
+              dns-server="{{ item.dhcp_settings.dns_servers | join(',') }}" \
+              comment="{{ item.name }}"
+            } else={
+              /ip dhcp-server network add \
+              address={{ item.subnet }} \
+              gateway={{ item.gateway }} \
+              dns-server="{{ item.dhcp_settings.dns_servers | join(',') }}" \
+              comment="{{ item.name }}"
+            }
+      loop: "{{ param_networks | selectattr('dhcp_settings.enabled', 'equalto', true) | list }}"
+      loop_control:
+        label: "{{ item.name }}"
+
+    - name: DHCP-Server -- Create or update DHCP-Server configuration on the RouterOS target.
+      community.routeros.command:
+        commands:
+          - >
+            :if ([:len [/ip dhcp-server find where name="{{ item.name }}"]] > 0) do={
+              /ip dhcp-server set [find where name="{{ item.name }}"] \
+              lease-time={{ item.dhcp_settings.lease_time.default }}s \
+              interface={{ item.interface }} address-pool={{ item.name }}
+            } else={
+              /ip dhcp-server add name="{{ item.name }}" \
+              lease-time={{ item.dhcp_settings.lease_time.default }}s \
+              interface={{ item.interface }} address-pool={{ item.name }}
+            }
+      loop: "{{ param_networks | selectattr('dhcp_settings.enabled', 'equalto', true) | list }}"
+      loop_control:
+        label: "{{ item.name }}"
+
+    - name: DNS-Server -- Enable DNS queries
+      community.routeros.command:
+        commands:
+          - >
+            /ip dns set allow-remote-requests=yes
+
+    - name: Device Groups -- Validate IP ranges and create address lists
+      ansible.builtin.include_tasks:
+        file: networking-mikrotik-continuous-configure-tasks-device-group-setup.yaml
+      vars:
+        device_group: "{{ item }}"
+      loop: "{{ param_devices_mapped }}"
+      loop_control:
+        label: "Processing group {{ item.group }}"
+
+    - name: Devices -- Create or update static DHCP leases and DNS entries for all devices in groups.
+      ansible.builtin.include_tasks:
+        file: networking-mikrotik-continuous-configure-tasks-devices.yaml
+      vars:
+        device_mapped: "{{ item.1 }}"
+        device_group: "{{ item.0 }}"
+      with_subelements:
+        - "{{ param_devices_mapped }}"
+        - members
+      loop_control:
+        label: "{{ item.0.group }} - {{ item.1.alias }}"
+
+    - name: Firewall Rules -- Create or update baseline firewall rules (those who are also required for blank setup).
+      ansible.builtin.include_tasks:
+        file: networking-mikrotik-continuous-configure-tasks-firewall.yaml
+      vars:
+        firewall_group_name: "{{ item.name }}"
+        firewall_group_place_before: "{{ item.place_before if item.place_before is defined else '0' }}"
+        firewall_group_comment: "{{ item.comment }}"
+        firewall_group_filter_rules: "{{ item.filter_rules }}"
+        firewall_group_inbound_nat_rules: "{{ item.inbound_nat_rules }}"
+        firewall_block_start_marker_text: "{{ param_start_marker_text }}"
+        firewall_block_end_marker_text: "{{ param_end_marker_text }}"
+      loop: >
+        {{ firewall_rules | selectattr('required_for_blank_setup', 'defined')
+           | selectattr('required_for_blank_setup', 'equalto', true)
+           | sort(attribute='comment') }}
+      loop_control:
+        label: "Processing {{ item.name }}"
+      when: param_include_blank_setup_tasks is defined and param_include_blank_setup_tasks
+
+    - name: Firewall Rules -- Create or update all other firewall rules.
+      ansible.builtin.include_tasks:
+        file: networking-mikrotik-continuous-configure-tasks-firewall.yaml
+      vars:
+        firewall_group_name: "{{ item.name }}"
+        firewall_group_place_before: "{{ item.place_before if item.place_before is defined else '0' }}"
+        firewall_group_comment: "{{ item.comment }}"
+        firewall_group_filter_rules: "{{ item.filter_rules }}"
+        firewall_group_inbound_nat_rules: "{{ item.inbound_nat_rules }}"
+        firewall_block_start_marker_text: "{{ param_start_marker_text }}"
+        firewall_block_end_marker_text: "{{ param_end_marker_text }}"
+      loop: >
+        {{ (firewall_rules | selectattr('required_for_blank_setup', 'undefined') | list +
+            firewall_rules | selectattr('required_for_blank_setup', 'equalto', false) | list)
+           | sort(attribute='comment') }}
+      loop_control:
+        label: "Processing {{ item.name }}"
+
+    # - name: Site2Site VPN Configurations -- Run through all configurations and make necessary changes.
+    #   ansible.builtin.include_tasks:
+    #     file: networking-mikrotik-continuous-configure-tasks-site2site-vpn.yaml
+    #   vars:
+    #     site_vpn_config: "{{ item }}"
+    #   loop: "{{ param_site_vpn_config }}"
+    #   loop_control:
+    #     label: "Processing S2S VPN configuration {{ item.name }}"
+    #   when: param_site_vpn_config is defined

@@ -1,0 +1,66 @@
+all:
+  vars:
+    localdomain: mszlocal
+    root_user: "root"
+    publickey_root: "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQCg0Y6vbXyN0q70R2Wkl6HhrH3GoE8163Uv19xFSmMrLJ2bFtzpGttlJ8tpHFWIh4eIKss0oq5TydCUC0p2c5v48Oj318y4CO9EBTtPafgzHyz6PkvBqL6uFv8NN8TvLZdwMaKdEpdVDLB+WD8dXqf+fPe8atY2YbIkd5XDIE1wjvjrA8Br6iSjNcaIW4jpsUNWKufEM+zkiYyVrTEIn/AMCA2E2eCJCasSq3sj/8R5ujJqTFxjo46XGhbjbsx4QRDzkApJVyKeA5+zv6DoRyBEFOmZ6MQjMqtPPtdtZwflRZ8GMKyRTMqgmnG0N6CFsd5aIHZ2plZljHF82U3LaX1D"
+    api_user:
+      name: "mszapiuser"
+      password_env: "mszapiuser_password"
+      token_id: "b7d74558-ee2b-401d-a468-9610c1da49e9"
+      expires_in_days: 30
+    repo_suites: "bookworm"
+    volume_group_name: pve
+    volume_group_name_vmdisk: pve-main
+    lvm_vmdisks_dirname: local-vmdisks
+    lvm_vmdisks_dirname_old: local-lvm
+    lvm_vmdisks_pool_name: local-main
+    lvm_vmdisks_pool_name_old: data
+  children:
+    proxmox:
+      hosts:
+        10.10.0.2:
+          hostname: mszpvetest1
+          diskdata:
+            wipe_disk_if_not_root: false
+            lvm_proxmox_device: /dev/sda
+            lvm_proxmox_partition_nr: 3       # Partition for the root LVM pool sits, for single disk scenarios the same as for LVM thin pool.
+            lvm_proxmox_partition: "/dev/sda3"
+            lvm_vmdisks_device: /dev/sda
+            lvm_vmdisks_partition_nr: 4  # Partition for the LVM-Thin pool defaults to the same as the regular LVM pool in default Proxmox setup.
+            lvm_vmdisks_partition: "/dev/sda4"
+          network:
+            main_interface:
+              name: intbr0
+              method: static
+              address: "10.10.0.2/24"
+              netmask: 255.255.255.0
+              #gateway: 
+              bridge_ports: eth0
+              bridge_vlan_aware: yes
+            ext_interface:
+              name: extbr0
+              bridge_ports: eth1
+              method: dhcp
+        10.10.0.3:
+          hostname: mszpvetest2
+          diskdata:
+            wipe_disk_if_not_root: false
+            lvm_proxmox_device: /dev/sda
+            lvm_proxmox_partition_nr: 3       # Partition for the root LVM pool sits, for single disk scenarios the same as for LVM thin pool.
+            lvm_proxmox_partition: "/dev/sda3"
+            lvm_vmdisks_device: /dev/sdb
+            lvm_vmdisks_partition_nr: 1  # Partition for the LVM-Thin pool defaults to the same as the regular LVM pool in default Proxmox setup.
+            lvm_vmdisks_partition: "/dev/sdb1"
+          network:
+            main_interface:
+              name: intbr0
+              method: static
+              address: "10.10.0.3/24"
+              #netmask: 255.255.255.0
+              #gateway: 
+              bridge_ports: eth0
+              bridge_vlan_aware: yes
+            ext_interface:
+              name: extbr0
+              bridge_ports: eth1
+              method: dhcp

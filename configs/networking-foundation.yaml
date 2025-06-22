@@ -1,0 +1,462 @@
+all:
+  vars:
+    localdomain: mszlocal
+    routername: mszrouter
+    timezone: "Etc/UTC"
+    language: "en_US"
+    start_marker_text: "START"
+    end_marker_text: "END"
+    users:
+      root:
+        name: "admin"
+        password_env: "ROOT_PWD"
+        ssh_key: "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQCg0Y6vbXyN0q70R2Wkl6HhrH3GoE8163Uv19xFSmMrLJ2bFtzpGttlJ8tpHFWIh4eIKss0oq5TydCUC0p2c5v48Oj318y4CO9EBTtPafgzHyz6PkvBqL6uFv8NN8TvLZdwMaKdEpdVDLB+WD8dXqf+fPe8atY2YbIkd5XDIE1wjvjrA8Br6iSjNcaIW4jpsUNWKufEM+zkiYyVrTEIn/AMCA2E2eCJCasSq3sj/8R5ujJqTFxjo46XGhbjbsx4QRDzkApJVyKeA5+zv6DoRyBEFOmZ6MQjMqtPPtdtZwflRZ8GMKyRTMqgmnG0N6CFsd5aIHZ2plZljHF82U3LaX1D"
+      automation:
+        name: "automation"
+        password_env: "AUTOM_PWD"
+        ssh_key: "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQCg0Y6vbXyN0q70R2Wkl6HhrH3GoE8163Uv19xFSmMrLJ2bFtzpGttlJ8tpHFWIh4eIKss0oq5TydCUC0p2c5v48Oj318y4CO9EBTtPafgzHyz6PkvBqL6uFv8NN8TvLZdwMaKdEpdVDLB+WD8dXqf+fPe8atY2YbIkd5XDIE1wjvjrA8Br6iSjNcaIW4jpsUNWKufEM+zkiYyVrTEIn/AMCA2E2eCJCasSq3sj/8R5ujJqTFxjo46XGhbjbsx4QRDzkApJVyKeA5+zv6DoRyBEFOmZ6MQjMqtPPtdtZwflRZ8GMKyRTMqgmnG0N6CFsd5aIHZ2plZljHF82U3LaX1D"
+    networks:
+      - name: "lan"
+        description: "Main LAN Network"
+        subnet: "10.10.0.0/16"
+        interface_type: "bridge"
+        interface: "lanBridge"
+        gateway: "10.10.0.1"
+        dhcp_settings:
+          enabled: true
+          dns_servers:
+            - "10.10.0.1"
+            - "10.10.0.10"
+            - "10.10.0.11"
+          lease_time:
+            default: 300
+            max: 7200
+          address_pool:
+            from: "10.10.0.100"
+            to: "10.10.0.254"
+      - name: "vlan-test-1"
+        description: "Test VLAN 1"
+        subnet: "10.90.90.0/24"
+        interface_type: "vlan"
+        interface: "vlan-test-1"
+        parent_interface: "lanBridge"
+        vlan_id: 90
+        gateway: "10.90.90.1"
+        dhcp_settings:
+          enabled: true
+          dns_servers:
+            - "10.10.0.1"
+            - "10.10.0.10"
+            - "10.10.0.11"
+          lease_time:
+            default: 300
+            max: 7200
+          address_pool:
+            from: "10.90.90.100"
+            to: "10.90.90.200"
+      - name: "vlan-test-2"
+        description: "Test VLAN 2"
+        subnet: "10.91.100.0/24"
+        interface_type: "vlan"
+        interface: "vlan-test-2"
+        parent_interface: "lanBridge"
+        vlan_id: 91
+        gateway: "10.91.100.1"
+        dhcp_settings:
+          enabled: false
+    devices_mapped:
+      - group: "core-infrastructure"
+        start_ip: "10.10.0.1"
+        end_ip: "10.10.0.1"
+        members:
+          - alias: "{{ routername }}"
+            dns_names:
+              - "{{ routername }}"
+              - "{{ routername }}.{{ localdomain }}"
+            static_dhcp:
+              ip: "10.10.0.1"
+      - group: "incus-servers"
+        start_ip: "10.10.0.2"
+        end_ip: "10.10.0.3"
+        members:
+          - alias: "IncusSrv1"
+            dns_names:
+              - "mszincus1"
+              - "mszincus1.{{ localdomain}}"
+            static_dhcp:
+              mac: "00:15:5D:63:A6:06"
+              ip: "10.10.0.2"
+          - alias: "IncusSrv2"
+            dns_names:
+              - "mszincus2"
+              - "mszincus2.{{ localdomain}}"
+            static_dhcp:
+              mac: "00:15:5D:63:A6:07"
+              ip: "10.10.0.3"
+      - group: "restricted-devices"
+        start_ip: "10.10.0.20"
+        end_ip: "10.10.0.30"
+        members:
+          - alias: "test-dev-1"
+            dns_names:
+              - "test-device-1"
+              - "test-device-1.{{ localdomain}}"
+            static_dhcp:
+              mac: "00:15:5D:63:A6:08"
+              ip: "10.10.0.20"
+          - alias: "test-dev-2"
+            dns_names:
+              - "test-device-2"
+              - "test-device-2.{{ localdomain}}"
+            static_dhcp:
+              mac: "00:15:5D:63:A6:09"
+              ip: "10.10.0.21"
+      - group: "dedicated-subnet-devices"
+        start_ip: "10.10.20.0"
+        end_ip: "10.10.20.100"
+        members:
+          - alias: "test-dev-3"
+            dns_names:
+              - "test-dev-3"
+              - "test-dev-3.{{ localdomain}}"
+            static_dhcp:
+              mac: "00:15:5D:63:A6:0A"
+              ip: "10.10.20.10"
+    firewall_rules:
+      - name: "Custom rules for the home network"
+        comment: "custom_100"
+        required_for_blank_setup: false
+        place_before: "default_500"
+        filter_rules:
+          - name: "Allow SSH In"
+            direction: "input"
+            action: "accept"
+            comment: "custom_105"
+            srcAddress: "*"
+            destAddress: "*"
+            srcPort: "*"
+            destPort: "2022"
+            protocol: "tcp"
+            connectionState: "*"
+            connectionNatState: "*"
+            inInterface: "*"
+            outInterface: "*"
+            inInterfaceList: "wan"
+            outInterfaceList: "*"
+            srcAddressList: "*"
+            destAddressList: "*"
+            log: false
+          - name: "Disable internet access for restricted devices"
+            disabled: true
+            direction: "forward"
+            action: "drop"
+            comment: "custom_110"
+            srcAddress: "*"
+            destAddress: "*"
+            srcPort: "*"
+            destPort: "*"
+            protocol: "*"
+            connectionState: "*"
+            connectionNatState: "*"
+            inInterface: "*"
+            outInterface: "*"
+            inInterfaceList: "*"
+            outInterfaceList: "*"
+            srcAddressList: "restricted-devices"
+            destAddressList: "*"
+            log: false
+        inbound_nat_rules:
+          - name: "Inbound to SSH gateway node"
+            direction: "dstnat"
+            action: "dst-nat"
+            comment: "custom_nat_105"
+            srcAddress: "*"
+            destAddress: "*"
+            srcPort: "*"
+            destPort: "2022"
+            protocol: "tcp"
+            localTargetAddress: "10.10.0.2"
+            localTargetPort: "22"
+            inInterface: "*"
+            outInterface: "*"
+            inInterfaceList: "wan"
+            outInterfaceList: "*"
+            srcAddressList: "*"
+            destAddressList: "*"
+            ipSecPolicy: "*"
+            log: false
+      - name: "Defaults for allowing internet connections from LAN"
+        comment: "default_500"
+        required_for_blank_setup: true
+        filter_rules:
+          - name: "Allow established and related connections"
+            direction: "input"
+            action: "accept"
+            comment: "default_505"
+            srcAddress: "*"
+            destAddress: "*"
+            srcPort: "*"
+            destPort: "*"
+            protocol: "*"
+            connectionState: "established,related"
+            connectionNatState: "*"
+            inInterface: "*"
+            outInterface: "*"
+            inInterfaceList: "*"
+            outInterfaceList: "*"
+            srcAddressList: "*"
+            destAddressList: "*"
+            log: false
+          - name: "Allow ICMP traffic from all excluding WAN"
+            direction: "input"
+            action: "accept"
+            comment: "default_510"
+            srcAddress: "*"
+            destAddress: "*"
+            srcPort: "*"
+            destPort: "*"
+            protocol: "icmp"
+            connectionState: "*"
+            connectionNatState: "*"
+            inInterface: "*"
+            outInterface: "*"
+            inInterfaceList: "lan"
+            outInterfaceList: "*"
+            srcAddressList: "*"
+            destAddressList: "*"              
+            log: true
+          - name: "Allow traffic to the router from itself for CAPsMAN"
+            direction: "input"
+            action: "accept"
+            comment: "default_515"
+            srcAddress: "*"
+            destAddress: "127.0.0.1"
+            srcPort: "*"
+            destPort: "*"
+            protocol: "*"
+            connectionState: "*"
+            connectionNatState: "*"
+            inInterface: "lo"
+            outInterface: "*"
+            inInterfaceList: "*"
+            outInterfaceList: "*"
+            srcAddressList: "*"
+            destAddressList: "*"              
+            log: true
+          - name: "Allow established and related connections in forward chain"
+            direction: "forward"
+            action: "accept"
+            comment: "default_520"
+            srcAddress: "*"
+            destAddress: "*"
+            srcPort: "*"
+            destPort: "*"
+            protocol: "*"
+            connectionState: "established,related"
+            connectionNatState: "*"
+            inInterface: "*"
+            outInterface: "*"
+            inInterfaceList: "*"
+            outInterfaceList: "*"
+            srcAddressList: "*"
+            destAddressList: "*"
+            log: false
+          - name: "Allow all outbound traffic from LAN through WAN"
+            direction: "forward"
+            action: "accept"
+            comment: "default_525"
+            srcAddress: "*"
+            destAddress: "*"
+            srcPort: "*"
+            destPort: "*"
+            protocol: "*"
+            connectionState: "*"
+            connectionNatState: "*"
+            inInterface: "*"
+            outInterface: "*"
+            inInterfaceList: "*"
+            outInterfaceList: "wan"
+            srcAddressList: "*"
+            destAddressList: "*"
+            log: false
+        inbound_nat_rules:
+          - name: "Masquerade everything outgoing"
+            direction: "srcnat"
+            action: "masquerade"
+            comment: "default_nat_505"
+            srcAddress: "*"
+            destAddress: "*"
+            srcPort: "*"
+            destPort: "*"
+            protocol: "*"
+            localTargetAddress: "*"
+            localTargetPort: "*"
+            inInterface: "*"
+            outInterface: "*"
+            inInterfaceList: "*"
+            outInterfaceList: "wan"
+            srcAddressList: "*"
+            destAddressList: "*"
+            ipSecPolicy: "out,none"
+            log: false
+      - name: "Drop all remaining traffic"
+        comment: "default_900"
+        required_for_blank_setup: true
+        filter_rules:
+          - name: "Drop all inbound traffic from WAN"
+            direction: "input"
+            action: "drop"
+            comment: "default_905"
+            srcAddress: "*"
+            destAddress: "*"
+            srcPort: "*"
+            destPort: "*"
+            protocol: "*"
+            connectionState: "*"
+            connectionNatState: "*"
+            inInterface: "*"
+            outInterface: "*"
+            inInterfaceList: "wan"
+            outInterfaceList: "*"
+            srcAddressList: "*"
+            destAddressList: "*"
+            log: true
+          - name: "Drop all inbound traffic that is not from LAN"
+            direction: "input"
+            action: "drop"
+            comment: "default_910"
+            srcAddress: "*"
+            destAddress: "*"
+            srcPort: "*"
+            destPort: "*"
+            protocol: "*"
+            connectionState: "*"
+            connectionNatState: "*"
+            inInterface: "*"
+            outInterface: "*"
+            inInterfaceList: "!lan"
+            outInterfaceList: "*"
+            srcAddressList: "*"
+            destAddressList: "*"
+            log: true
+          - name: "Drop all invalid connections"
+            direction: "forward"
+            action: "drop"
+            comment: "default_915"
+            srcAddress: "*"
+            destAddress: "*"
+            srcPort: "*"
+            destPort: "*"
+            protocol: "*"
+            connectionState: "invalid"
+            connectionNatState: "*"
+            inInterface: "*"
+            outInterface: "*"
+            inInterfaceList: "*"
+            outInterfaceList: "*"
+            srcAddressList: "*"
+            destAddressList: "*"
+            log: true
+          - name: "Drop all connections from WAN without a destination NAT rule."
+            direction: "forward"
+            action: "drop"
+            comment: "default_920"
+            srcAddress: "*"
+            destAddress: "*"
+            srcPort: "*"
+            destPort: "*"
+            protocol: "*"
+            connectionState: "new"
+            connectionNatState: "!dstnat"
+            inInterface: "*"
+            outInterface: "*"
+            inInterfaceList: "wan"
+            outInterfaceList: "*"
+            srcAddressList: "*"
+            destAddressList: "*"
+            log: false
+    site_vpn_config:
+      - name: "local-to-local"
+        enabled: false
+        mode: ike2
+        security:
+          auth_method: "pre-shared-key"
+          pre_shared_key_env: "IPSEC_KEY_LOCAL"
+        peer:
+          name: "remote-site"
+          ip: "10.200.0.1/32"
+          local_wan_address: "17.100.0.1"
+          local_private_address_range: "10.10.0.0/24"
+          remote_private_address_range: "10.20.0.0/24"
+        ipsec:
+          auth_algorithms: sha256
+          encryption_algorithms: "aes-256-cbc,aes-256-ctr,aes-256-gcm,aes-128-cbc,aes-128-ctr,aes-128-gcm"
+          pfs_group: "ecp384"
+          encryption: aes256
+          integrity: sha256
+          dh_group: ecp384
+          dpd_interval: 2m
+          dpd_maximum_failures: 5
+          enc_algorithm: aes256
+          hash_algorithm: sha256
+          prf_algorithm: sha256
+          nat_traversal: true
+          lifetime: 28800
+      - name: "azure-vpn"
+        enabled: false
+        mode: ike2
+        security:
+          auth_method: "pre-shared-key"
+          pre_shared_key_env: "IPSEC_KEY_AZURE"
+        peer:
+          name: "Azure"
+          ip: "20.126.58.44/32"
+          local_wan_address: "17.100.0.1"
+          local_private_address_range: "10.10.0.0/24"
+          remote_private_address_range: "10.30.0.0/24"
+        ipsec:
+          auth_algorithms: "sha256,sha1"
+          encryption_algorithms: "aes-256-cbc,aes-128-cbc"
+          pfs_group: "ecp384"
+          encryption: aes256
+          integrity: sha256
+          dh_group: ecp384
+          dpd_interval: 2m
+          dpd_maximum_failures: 5
+          enc_algorithm: aes256
+          hash_algorithm: sha256
+          prf_algorithm: sha256
+          nat_traversal: true
+          lifetime: 28800
+    mainrouterconfig:
+      hostname: maininternetrouter
+      loopback_interface_name: "lo"
+      wan_interface_list: "wan"
+      lan_interface_list: "lan"
+      wan_interface:
+        interface: ether1
+        ipaddr: "dhcp"
+        ipaddrv6: "dhcp6"
+      lan_interface: 
+        bridge: lanBridge
+        interfaces: "ether2"
+        ipaddr: "10.10.0.1"
+        subnet: "24"
+  children:
+    mainrouter:
+      hosts:
+        10.10.0.1
+    piwifiaccesspoint:
+      hosts:
+        10.10.0.5:
+          main_adapter: eth0
+          edge_wifi_adapter: wlan0
+          edge_local_wifi_name: piwifitest
+          edge_bridge_name: br0
+          edge_fw_allowed_ports:
+            - "80"
+            - "443"
+            - "67"
+            - "68"
+            - "53"
+            - "22"

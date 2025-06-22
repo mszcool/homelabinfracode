@@ -1,0 +1,231 @@
+#
+# PHASE 1 - BASIC CONFIGURATION
+# IMPORTANT: Execute this script through Winbox with MAC-based access to the router
+# by copying & pasting these contents to the router Terminal, or uploading it as a script.
+# DO NOT attempt to run the SSL configuration or complex firewall rules in this phase - it will cause Winbox to crash.
+#
+# This script configures basic networking, users, and SSH access to prepare for Phase 2.
+#
+
+:local routerHostName "{{ param_router_name }}"
+:local routerTimeZone "{{ param_router_time_zone }}"
+:local wanInterfaceList "{{ param_wan_interface_list }}"
+:local lanInterfaceList "{{ param_lan_interface_list }}"
+:local loopbackInterfaceName "{{ param_loopback_interface_name }}"
+:local wanInterfaceName "{{ param_wan_interface_name }}"
+:local lanInterfaceName "{{ param_lan_interface_bridge_name }}"
+:local lanInterfaceMembers "{{ param_lan_interface_members }}"
+:local lanBridgeAddress "{{ param_lan_interface_bridge_ip_address }}"
+:local automationUserName "{{ param_automation_user_name }}"
+:local automationUserPassword "{{ param_automation_user_password }}"
+:local automationUserSshPubKey "{{ param_automation_user_ssh_pub_key }}"
+:local rootUserNameDefault "admin"
+:local rootUserName "{{ param_root_user_name }}"
+:local rootUserPassword "{{ param_root_user_password }}"
+:local rootUserSshPubKey "{{ param_root_user_ssh_pub_key }}"
+:local scriptFileName "{{ param_router_name }}-bootstrap-phase1.rsc"
+:local startMarkerText "{{ param_start_marker_text }}"
+:local endMarkerText "{{ param_end_marker_text }}"
+
+#
+# First, set the hostname and time zone.
+#
+:put "Setting hostname and time zone"
+:put $routerHostName
+:put $routerTimeZone
+/system identity set name=$routerHostName
+/system clock set time-zone-name=$routerTimeZone
+
+#
+# Disable default SMB users.
+#
+/ip smb users
+set [ find default=yes ] disabled=yes
+
+#
+# Some device defaults per Mikrotik default config.
+#
+# does not exist on my Mikrotik: /port set 0 name=serial0
+# does not exist on my Mikrotik: /interface lte apn set [ find default=yes ] ip-type=ipv4 use-network-apn=no
+/ip settings set accept-source-route=yes
+/ipv6 settings set disable-ipv6=yes
+/interface detect-internet set detect-interface-list=all
+/system note set show-at-login=no
+
+#
+# Set the root user password and SSH key.
+#
+:put "Adding new or setting root user password and SSH key"
+/user
+:local uid [find name=$rootUserName]
+:if ([:len $uid] = 0) do={
+    add name=$rootUserName group=full password=$rootUserPassword;
+    :log info ("User " . $rootUserName . " added.");
+} else={
+    set $uid password=$rootUserPassword;
+    :log info ("User " . $rootUserName . " password updated.");
+}
+
+/user/ssh-keys
+:foreach key in=[find user=$rootUserName] do={
+    remove $key;
+}
+add user=$rootUserName key=$rootUserSshPubKey;
+
+#
+# Add the user that is used for automation.
+#
+:put "Adding automation user.."
+/user
+:local uid [find name=$automationUserName]
+:if ([:len $uid] = 0) do={
+    add name=$automationUserName group=full password=$automationUserPassword;
+    :log info ("User " . $automationUserName . " added.");
+} else={
+    set $uid password=$automationUserPassword;
+    :log info ("User " . $automationUserName . " password updated.");
+}
+
+/user/ssh-keys
+:foreach key in=[find user=$automationUserName] do={
+    remove $key;
+}
+add user=$automationUserName key=$automationUserSshPubKey;
+:log info ("SSH key for user " . $automationUserName . " has been set to the new key.");
+
+#
+# Now configure DHCP for the WAN interface.
+#
+:put "Configuring DHCP for WAN interface"
+:if ([:len [/ip dhcp-client find interface=$wanInterfaceName]] > 0) do={
+    /ip dhcp-client remove [find interface=$wanInterfaceName]
+}
+/ip dhcp-client add interface=$wanInterfaceName disabled=no default-route-distance=5 comment="default / DHCP client for WAN"
+
+#
+# Now configure the LAN bridge-interface with all members.
+#
+:put "Configuring LAN bridge interface and members"
+/interface bridge
+:if ([:len [/interface bridge find name=$lanInterfaceName]] > 0) do={
+    :local bridgePorts [/interface bridge port find bridge=$lanInterfaceName]
+    :foreach port in=$bridgePorts do={
+        /interface bridge port remove $port
+    }
+    /interface bridge remove [find name=$lanInterfaceName]
+}
+add name=$lanInterfaceName comment="default / local bridge interface"
+/interface bridge port
+:local interfaceArray [:toarray $lanInterfaceMembers]
+:foreach i in=$interfaceArray do={
+  :local interfaceName $i
+  add bridge=$lanInterfaceName interface=$interfaceName ingress-filtering=no internal-path-cost=10 path-cost=10
+}
+
+#
+# Configure the static IP for the LAN bridge interface.
+#
+:put "Configuring static IP for LAN bridge interface"
+:local bridgeIpAddress "$lanBridgeAddress/24"
+:if ([:len [/ip address find address=$bridgeIpAddress]] > 0) do={
+    /ip address remove [find address=$bridgeIpAddress]
+}
+/ip address add address=$bridgeIpAddress interface=$lanInterfaceName comment="default / LAN bridge address"
+
+#
+# Configure the interface lists for LAN and WAN
+#
+:put "Configuring interface lists for LAN and WAN"
+/interface list
+:if ([:len [/interface list find name=$wanInterfaceList]] = 0) do={
+    add name=$wanInterfaceList comment="default / WAN interface list"
+}
+:if ([:len [/interface list find name=$lanInterfaceList]] = 0) do={
+    add name=$lanInterfaceList comment="default / LAN interface list"
+}
+
+/interface list member
+:local existingMembers [/interface list member find]
+:foreach member in=$existingMembers do={
+    /interface list member remove $member
+}
+:if ([:len [/interface list member find interface=$lanInterfaceName list=$lanInterfaceList]] = 0) do={
+    add interface=$lanInterfaceName list=$lanInterfaceList comment="default / add LAN bridge to LAN interface list"
+}
+:if ([:len [/interface list member find interface=$wanInterfaceName list=$wanInterfaceList]] = 0) do={
+    add interface=$wanInterfaceName list=$wanInterfaceList comment="default / add LAN bridge to WAN interface list"
+}
+
+/ip neighbor discovery-settings set discover-interface-list=$lanInterfaceList
+
+#
+# Set only minimal required firewall rules to allow SSH access
+# Full firewall configuration will be done in Phase 2
+#
+:put "Adding minimal firewall rules for Phase 1 (full setup in Phase 2)"
+
+/ip firewall filter
+# Allow established connections
+add chain=input action=accept comment="phase1_temp - allow established connections" connection-state=established,related
+# Allow SSH from LAN
+add chain=input action=accept comment="phase1_temp - allow SSH from LAN" protocol=tcp dst-port=22 in-interface-list=lan
+# Allow access from LAN 
+add chain=input action=accept comment="phase1_temp - allow all from LAN" in-interface-list=lan
+# Allow ICMP
+add chain=input action=accept comment="phase1_temp - allow ICMP" protocol=icmp
+# Drop everything else
+add chain=input action=drop comment="phase1_temp - drop all other input"
+# Allow outgoing connections in the forward chain
+add chain=forward action=accept comment="phase1_temp - allow established in forwarding" connection-state=established,related
+add chain=forward action=accept comment="phase1_temp - allow outbound traffic to WAN" out-interface-list=wan
+
+#
+# Currently no support for IPv6, hence drop all packets
+#
+/ipv6 firewall filter
+add chain=output action=drop 
+add chain=forward action=drop
+add chain=input action=drop
+
+#
+# Enable SSH service on standard port (22)
+# This is required for Phase 2
+#
+:put "Enabling SSH service for Phase 2 configuration"
+/ip service set ssh disabled=no port=22
+
+#
+# Limit Winbox to the LAN interface, only.
+#
+/tool mac-server set allowed-interface-list=$lanInterfaceList
+/tool mac-server mac-winbox set allowed-interface-list=$lanInterfaceList
+
+#
+# Disable the default root user if a new root user has been created.
+#
+:if ( $rootUserName != $rootUserNameDefault ) do={
+    :put "Disabling default root user '$rootUserNameDefault' as a new root user has been created."
+    /user disable [find name=$rootUserNameDefault]
+} else={
+    :put "Keeping default root user '$rootUserNameDefault' enabled."
+}
+
+#
+# IMPORTANT: Next steps after this script completes:
+# 1. Upload the certificate files to the router:
+#    - $routerRootCertFileName
+#    - $routerCertFileName
+#    - $routerKeyFileName
+# 2. Connect to the router via SSH (at $lanBridgeAddress)
+# 3. Run the Phase 2 script to complete SSL configuration
+#
+
+:put ""
+:put "===================================================================================="
+:put "PHASE 1 COMPLETED SUCCESSFULLY"
+:put "Now upload certificate files and run Phase 2 script via SSH to complete configuration"
+:put ""
+:put "***** IMPORTANT INFO *****"
+:put "Execution finished, please make sure you delete '$scriptFileName' from the router!!"
+:put "*****"
+:put "===================================================================================="

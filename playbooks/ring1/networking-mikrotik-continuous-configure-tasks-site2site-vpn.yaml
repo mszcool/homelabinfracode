@@ -1,0 +1,141 @@
+---
+- name: Site-2-Site VPN - Check if environment variable for pre shared key is set.
+  ansible.builtin.set_fact:
+    site_vpn_security_pre_shared_key: "{{ lookup('env', site_vpn_config.security.pre_shared_key) }}"
+  failed_when: >
+    site_vpn_config is not defined or
+    site_vpn_config == "" or
+    site_vpn_config.security.pre_shared_key is not defined or
+    site_vpn_config.security.pre_shared_key == ""
+
+- name: Site-2-Site VPN - Check if environment variable for pre shared key is set.
+  ansible.builtin.assert:
+    that:
+      - site_vpn_security_pre_shared_key is not defined or site_vpn_security_pre_shared_key != ""
+    fail_msg: "The environment variable {{ site_vpn_config.security.pre_shared_key }} for the pre-shared key is not set."
+
+- name: Site-2-Site VPN - Configure Profile.
+  community.routeros.command:
+    commands:
+      - >
+        :if ([:len [/ip ipsec profile find where name="{{ site_vpn_config.name }}"]] > 0) do={
+          /ip ipsec profile set [find where name="{{ site_vpn_config.name }}"] \
+          dh-group="{{ site_vpn_config.dh_group }}" \
+          dpd-interval="{{ site_vpn_config.dpd_interval }}" \
+          dpd-maximum-failures="{{ site_vpn_config.dpd_max_failures }}" \
+          enc-algorithm="{{ site_vpn_config.ipsec.encryption_algorithm }}" \
+          hash-algorithm="{{ site_vpn_config.ipsec.hash_algorithm }}" \
+          prf-algorithm="{{ site_vpn_config.ipsec.prf_algorithm }}" \
+          nat-traversal="{{ site_vpn_config.ipsec.nat_traversal }}" \
+          lifetime="{{ site_vpn_config.ipsec.lifetime }}"
+          comment="{{ site_vpn_config.name }} -- {{ site_vpn_config.peer.name }}"
+        } else={
+          /ip ipsec profile add name="{{ site_vpn_config.name }}" \
+          dh-group="{{ site_vpn_config.ipsec.dh_group }}" \
+          dpd-interval="{{ site_vpn_config.dpd_interval }}" \
+          dpd-maximum-failures="{{ site_vpn_config.dpd_max_failures }}" \
+          enc-algorithm="{{ site_vpn_config.ipsec.encryption_algorithm }}" \
+          hash-algorithm="{{ site_vpn_config.ipsec.hash_algorithm }}" \
+          prf-algorithm="{{ site_vpn_config.ipsec.prf_algorithm }}" \
+          nat-traversal="{{ site_vpn_config.ipsec.nat_traversal }}" \
+          lifetime="{{ site_vpn_config.ipsec.lifetime }}"
+          comment="{{ site_vpn_config.name }} -- {{ site_vpn_config.peer.name }}"
+        }
+
+- name: Site-2-Site VPN - Configure Peer.
+  community.routeros.command:
+    commands:
+      - >
+        :if ([:len [/ip ipsec peer find where name="{{ site_vpn_config.name }}"]] > 0) do={
+          /ip ipsec peer set [find where name="{{ site_vpn_config.name }}"] \
+          address="{{ site_vpn_config.peer.ip }}" \
+          exchange-mode="{{ site_vpn_config.mode }}" \
+          local-address="{{ site_vpn_config.peer.local_wan_address }}" \
+          profile="{{ site_vpn_config.name }}" \
+          {%- if site_vpn_config.enabled %} disabled=no {% else %} disabled=yes{%- endif -%}
+          comment="{{ site_vpn_config.name }} -- {{ site_vpn_config.peer.name }}"
+        } else={
+          /ip ipsec peer add name="{{ site_vpn_config.name }}" \
+          address="{{ site_vpn_config.peer.ip }}" \
+          exchange-mode="{{ site_vpn_config.mode }}" \
+          local-address="{{ site_vpn_config.peer.local_wan_address }}" \
+          profile="{{ site_vpn_config.name }}" \
+          {%- if site_vpn_config.enabled %} disabled=no {% else %} disabled=yes{%- endif %} \
+          comment="{{ site_vpn_config.name }} -- {{ site_vpn_config.peer.name }}"
+        }
+
+- name: Site-2-Site VPN - Configure Proposal.
+  community.routeros.command:
+    commands:
+      - >
+        :if ([:len [/ip ipsec proposal find where name="{{ site_vpn_config.name }}"]] > 0) do={
+          /ip ipsec proposal set [find where name="{{ site_vpn_config.name }}"] \
+          auth-algorithms="{{ site_vpn_config.ipsec.auth_algorithms }}" \
+          enc-algorithms="{{ site_vpn_config.ipsec.encryption_algorithms }}" \
+          pfs-group="{{ site_vpn_config.ipsec.pfs_group }}" \
+          {%- if site_vpn_config.enabled %} disabled=no {% else %} disabled=yes{%- endif %} \
+          comment="{{ site_vpn_config.name }} -- {{ site_vpn_config.peer.name }}"
+        } else={
+          /ip ipsec proposal add name="{{ site_vpn_config.name }}" \
+          auth-algorithms="{{ site_vpn_config.ipsec.auth_algorithm }}" \
+          enc-algorithms="{{ site_vpn_config.ipsec.encryption_algorithm }}" \
+          pfs-group="{{ site_vpn_config.ipsec.pfs_group }}" \
+          {%- if site_vpn_config.enabled %} disabled=no {% else %} disabled=yes{%- endif %} \
+          comment="{{ site_vpn_config.name }} -- {{ site_vpn_config.peer.name }}"
+        }
+
+- name: Site-2-Site VPN - Configure Policy.
+  community.routeros.command:
+    commands:
+      - >
+        :if ([:len [/ip ipsec policy find where name="{{ site_vpn_config.name }}"]] > 0) do={
+          /ip ipsec policy set [find where name="{{ site_vpn_config.name }}"] \
+          src-address="{{ site_vpn_config.peer.local_private_address_range }}" \
+          dst-address="{{ site_vpn_config.peer.remote_private_address_range }}" \
+          sa-src-address="{{ site_vpn_config.peer.local_wan_address }}" \
+          sa-dst-address="{{ site_vpn_config.peer.ip }}" \
+          tunnel=yes \
+          action=encrypt \
+          level=require \
+          ipsec-protocols=esp \
+          proposal="{{ site_vpn_config.name }}" \
+          {%- if site_vpn_config.enabled %} disabled=no {% else %} disabled=yes{%- endif %} \
+          comment="{{ site_vpn_config.name }} -- {{ site_vpn_config.peer.name }}"
+        } else={
+          /ip ipsec policy add name="{{ site_vpn_config.name }}" \
+          src-address="{{ site_vpn_config.peer.local_private_address_range }}" \
+          dst-address="{{ site_vpn_config.peer.remote_private_address_range }}" \
+          sa-src-address="{{ site_vpn_config.peer.local_wan_address }}" \
+          sa-dst-address="{{ site_vpn_config.peer.ip }}" \
+          tunnel=yes \
+          action=encrypt \
+          level=require \
+          ipsec-protocols=esp \
+          proposal="{{ site_vpn_config.name }}" \
+          {%- if site_vpn_config.enabled %} disabled=no {% else %} disabled=yes{%- endif %} \
+          comment="{{ site_vpn_config.name }} -- {{ site_vpn_config.peer.name }}"
+        }
+
+- name: Site-2-Site VPN - Configure Identity.
+  community.routeros.command:
+    commands:
+      - >
+        :if ([:len [/ip ipsec identity find where name="{{ site_vpn_config.name }}"]] > 0) do={
+          /ip ipsec identity set [find where name="{{ site_vpn_config.name }}"] \
+          peer="{{ site_vpn_config.name }}" \
+          auth-method={{ site_von_config.security.auth_method }} \
+          secret="{{ site_vpn_security_pre_shared_key }}" \
+          generate-policy=no \
+          policy-template-group="{{ site_vpn_config.name }}" \
+          {%- if site_vpn_config.enabled %} disabled=no {% else %} disabled=yes{%- endif %} \
+          comment="{{ site_vpn_config.name }} -- {{ site_vpn_config.peer.name }}"
+        } else={
+          /ip ipsec identity add name="{{ site_vpn_config.name }}" \
+          peer="{{ site_vpn_config.name }}" \
+          auth-method={{ site_von_config.security.auth_method }} \
+          secret="{{ site_vpn_security_pre_shared_key }}" \
+          generate-policy=no \
+          policy-template-group="{{ site_vpn_config.name }}" \
+          {%- if site_vpn_config.enabled %} disabled=no {% else %} disabled=yes{%- endif %} \
+          comment="{{ site_vpn_config.name }} -- {{ site_vpn_config.peer.name }}"
+        }

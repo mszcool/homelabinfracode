@@ -1,0 +1,136 @@
+---
+- name: Setup Raspberry Pi Edge with bridged WiFi
+  hosts: all
+  become: true
+  gather_facts: true
+  remote_user: "{{ root_user }}"
+
+  vars:
+    edge_wifi_password: "{{ lookup('env', wifi_password_env) }}"
+    param_edge_main_adapter: "{{ hostvars[inventory_hostname].main_adapter }}"
+    param_edge_wifi_adapter: "{{ hostvars[inventory_hostname].edge_wifi_adapter }}"
+    param_edge_local_wifi_name: "{{ hostvars[inventory_hostname].edge_local_wifi_name }}"
+    param_edge_bridge_name: "{{ hostvars[inventory_hostname].edge_bridge_name }}"
+    param_edge_fw_allowed_ports: "{{ hostvars[inventory_hostname].edge_fw_allowed_ports }}"
+
+  tasks:
+    - name: Pre-Checks - Check if the WIFI password environment variable is set
+      vars:
+        env_var_name: "{{ wifi_password_env }}"
+      ansible.builtin.assert:
+        that:
+          - lookup('env', env_var_name)
+        fail_msg: "Please set the {{ env_var_name }} environment variable before executing this playbook!"
+
+    - name: Prepare - Install additional pre-requisites for WiFi bridging
+      ansible.builtin.apt:
+        name: "{{ item }}"
+        state: present
+      loop:
+        - ufw
+        - network-manager
+        - bridge-utils
+
+    - name: Prepare - Add a Wifi Country
+      ansible.builtin.command:
+        cmd: raspi-config nonint do_wifi_country {{ wifi_country }}
+      changed_when: true
+
+    - name: Prepare - Stop and disable wpa_supplicant service
+      ansible.builtin.service:
+        name: wpa_supplicant
+        state: stopped
+        enabled: false
+
+    - name: Prepare - Remove rfkill blocks - Get all rfkill Wireless devices
+      ansible.builtin.shell: |
+        set -o pipefail
+        rfkill list | grep Wireless
+      args:
+        executable: "/bin/bash"
+      register: rfkill_output
+      changed_when: rfkill_output.failed == false
+
+    - name: Prepare - Remove rfkill blocks - Unblock all WiFi adapters from rfkill
+      ansible.builtin.command: rfkill unblock {{ item }}
+      loop: "{{ rfkill_output.stdout_lines | map('regex_replace', '^(\\d+):.*$', '\\1') | list }}"
+      register: unblock_result
+      changed_when: unblock_result.stdout != ""
+
+    - name: Access Point - Get MAC address of the main adapter
+      ansible.builtin.command:
+        cmd: nmcli device show "{{ param_edge_main_adapter }}"
+      register: main_adapter_info
+      changed_when: false
+
+    - name: Access Point - Extract MAC address from main adapter info
+      ansible.builtin.set_fact:
+        main_adapter_mac: "{{ main_adapter_info.stdout | regex_search('GENERAL.HWADDR\\s*:\\s*(\\S+)', '\\1') | first }}"
+
+    - name: Access Point - Create bridge connection for ethernet and wifi
+      community.general.nmcli:
+        conn_name: "bridge0"
+        type: bridge
+        ifname: "bridge0"
+        mac: "{{ main_adapter_mac }}"
+        state: present
+
+    - name: Access Point - Add ethernet adapter to bridge
+      community.general.nmcli:
+        conn_name: "bridge0-{{ param_edge_main_adapter }}"
+        type: ethernet
+        ifname: "{{ param_edge_main_adapter }}"
+        master: "bridge0"
+        slave_type: bridge
+        state: present
+
+    - name: Access Point - Enable Wifi interface with NetworkManager
+      community.general.nmcli:
+        type: wifi
+        conn_name: "bridge-{{ param_edge_local_wifi_name }}"
+        ifname: "{{ param_edge_wifi_adapter }}"
+        ssid: "{{ edge_local_wifi_name }}"
+        wifi:
+          mode: ap
+          band: bg
+          channel: 6
+        wifi_sec:
+          auth-alg: "open"
+          key-mgmt: "wpa-psk"
+          psk: "{{ edge_wifi_password }}"
+          proto: ["rsn"]
+          pairwise: ["ccmp"]
+          group: ["ccmp"]
+        method4: shared
+        master: "bridge0"
+        slave_type: bridge
+        state: present
+
+    - name: Firewall - General allow connections on Raspberry Pi
+      community.general.ufw:
+        rule: allow
+        port: "{{ item }}"
+      loop: "{{ edge_fw_allowed_ports }}"
+      register: ufw_port_result
+      changed_when: ufw_port_result.changed
+
+    - name: Firewall - Add UFW rules to allow bridged traffic
+      ansible.builtin.blockinfile:
+        path: /etc/ufw/before.rules
+        marker_begin: "# Ansible-managed: Custom UFW rules for bridge, don't edit"
+        marker_end: "# Ansible-managed: Custom UFW rules for bridge, end"
+        insertbefore: 'COMMIT'
+        block: |
+          -A ufw-before-forward -i {{ edge_bridge_name }} -j ACCEPT
+
+    - name: Firewall - Enable ufw
+      ansible.builtin.command: ufw --force enable
+      register: ufw_start_result
+      changed_when: ufw_start_result.changed
+
+    - name: Finalization - Reboot the system
+      ansible.builtin.reboot:
+        msg: "Rebooting to apply changes"
+        pre_reboot_delay: 0
+        post_reboot_delay: 60
+        test_command: whoami

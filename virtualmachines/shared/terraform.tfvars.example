@@ -1,0 +1,152 @@
+# Example VM Configuration Override
+# Copy this file to terraform.tfvars in either incus/ or hyperv/ directory
+# and customize the VM specifications as needed.
+
+# Global VM Power State Control
+# Set to "running" to start all VMs, "stopped" to stop all VMs
+global_vm_power_state = "running"
+
+# Enhanced VM configurations with new VMs
+vm_configurations = {
+  # RouterOS - Special VM with WAN connectivity (always single disk)
+  "routeros" = {
+    name          = "RouterOS"
+    cpu_cores     = 4         # Increased from 2 to 4 cores
+    memory_mb     = 1024      # Increased from 512MB to 1GB
+    disks = [{
+      name     = "main"
+      size_gb  = 128          # Increased from 64GB to 128GB
+    }]
+    network_adapters = ["lab-wan", "lab-lan"]
+    is_routeros = true        # Special flag for RouterOS
+  }
+  
+  # Single disk VMs
+  "incus_single_disk" = {
+    name          = "Incus-SingleDisk"
+    cpu_cores     = 4         # Increased from 2 to 4 cores
+    memory_mb     = 4096      # Increased from 2GB to 4GB
+    disks = [{
+      name     = "main"
+      size_gb  = 256          # Increased from 128GB to 256GB
+    }]
+    network_adapters = ["lab-lan"]
+  }
+  
+  # Dual disk VMs
+  "incus_dual_disk" = {
+    name          = "Incus-DualDisk"
+    cpu_cores     = 4         # Increased from 2 to 4 cores
+    memory_mb     = 4096      # Increased from 2GB to 4GB
+    disks = [
+      {
+        name     = "main"
+        size_gb  = 256        # Increased from 128GB to 256GB
+      },
+      {
+        name     = "data"
+        size_gb  = 512        # Increased from 128GB to 512GB
+      }
+    ]
+    network_adapters = ["lab-lan"]
+  }
+  
+  "test_client" = {
+    name          = "Test-Client"
+    cpu_cores     = 2         # Keep at 2 cores
+    memory_mb     = 3072      # Increased from 2GB to 3GB
+    disks = [{
+      name     = "main"
+      size_gb  = 200          # Increased from 128GB to 200GB
+    }]
+    network_adapters = ["lab-lan"]
+  }
+
+  # NEW VMs - Easy to add without touching template files!
+  
+  # Development VM with dual disks
+  "dev_server" = {
+    name          = "Development-Server"
+    cpu_cores     = 6
+    memory_mb     = 8192      # 8GB RAM
+    disks = [
+      {
+        name     = "main"
+        size_gb  = 256
+      },
+      {
+        name     = "projects"   # Second disk for development projects
+        size_gb  = 1024        # 1TB for projects
+      }
+    ]
+    network_adapters = ["lab-lan"]
+  }
+  
+  # Database VM with large single disk
+  "database_server" = {
+    name          = "Database-Server" 
+    cpu_cores     = 8
+    memory_mb     = 16384     # 16GB RAM
+    disks = [{
+      name     = "main"
+      size_gb  = 2048         # 2TB for database storage
+    }]
+    network_adapters = ["lab-lan"]
+  }
+  
+  # Web server cluster (multiple VMs)
+  "web_server_1" = {
+    name          = "Web-Server-1"
+    cpu_cores     = 4
+    memory_mb     = 4096
+    disks = [{
+      name     = "main"
+      size_gb  = 128
+    }]
+    network_adapters = ["lab-lan"]
+  }
+  
+  "web_server_2" = {
+    name          = "Web-Server-2"  
+    cpu_cores     = 4
+    memory_mb     = 4096
+    disks = [{
+      name     = "main"
+      size_gb  = 128
+    }]
+    network_adapters = ["lab-lan"]
+  }
+  
+  # Monitoring VM with dual disks
+  "monitoring" = {
+    name          = "Monitoring-Server"
+    cpu_cores     = 4
+    memory_mb     = 6144      # 6GB RAM
+    disks = [
+      {
+        name     = "main"
+        size_gb  = 128
+      },
+      {
+        name     = "metrics"    # Second disk for time-series data
+        size_gb  = 512
+      }
+    ]
+    network_adapters = ["lab-lan"]
+  }
+}
+
+# Network configurations can also be customized if needed
+network_configurations = {
+  "lab_wan" = {
+    name        = "lab-wan"
+    description = "External network with internet connection"
+    type        = "external"
+  }
+  
+  "lab_lan" = {
+    name        = "lab-lan"
+    description = "Internal VM network - Production Lab"
+    type        = "internal"
+  }
+}

@@ -1,9 +1,0 @@
-interface={{ edge_wifi_adapter }}
-listen-address={{ edge_wifi_ip_address }}
-bind-interfaces
-{% for dns_server in edge_wifi_dhcp_dns %}
-server={{ dns_server }}
-{% endfor %}
-domain-needed
-bogus-priv
-dhcp-range={{ edge_wifi_dhcp_range }}

@@ -1,0 +1,105 @@
+---
+- name: Create a Proxmox API token for automated VM and container creation.
+  hosts: proxmox
+  become: true
+  gather_facts: true
+  remote_user: "{{ root_user }}"
+
+  vars:
+    pve_api_user: "{{ api_user.name }}"
+    pve_proxmox_realm: "pve" # {{ api_user.realm }}"
+    pve_api_user_password: "{{ lookup('env', api_user.password_env) }}"
+    pve_api_token_id: "{{ api_user.token_id }}"
+    pve_api_token_duration: "{{ api_user.expires_in_days }}"
+    pve_api_token_permissions: "PVEVMAdmin,PVEVMUser"
+
+  tasks:
+    - name: Ensure API user password environment variable is set
+      ansible.builtin.fail:
+        msg: "The environment variable {{ api_user.password_env }} for the API user password is not set."
+      when: pve_api_user_password is not defined or pve_api_user_password == ""
+
+    - name: Check if the user exists
+      ansible.builtin.command:
+        cmd: pveum user list
+      register: user_list
+      changed_when: false
+
+    - name: Set user existence condition
+      ansible.builtin.set_fact:
+        existing_username: "{{ pve_api_user }}@{{ pve_proxmox_realm }}"
+
+    - name: Create a Proxmox user if not exists
+      ansible.builtin.command:
+        cmd: pveum useradd {{ pve_api_user }}@{{ pve_proxmox_realm }} -comment 'User for API token' -password {{ pve_api_user_password }}
+      when: existing_username not in user_list.stdout
+      register: result_user
+      changed_when: result_user is defined and result_user.rc == 0
+      failed_when: result_user is defined and result_user.rc != 0
+
+    - name: Ensure user was created or already exists
+      ansible.builtin.debug:
+        var: result_user
+      changed_when: false
+
+    - name: Check if API token exists
+      ansible.builtin.command:
+        cmd: pveum user token list {{ pve_api_user }}@{{ pve_proxmox_realm }}
+      register: token_list
+      changed_when: false
+
+    - name: Get current date
+      ansible.builtin.command:
+        cmd: date +%s
+      register: current_date
+      changed_when: false
+
+    - name: Check if API token is expired
+      ansible.builtin.shell: |
+        set -o pipefail
+        token_expiry=$(pveum user token info {{ pve_api_user }}@{{ pve_proxmox_realm }} {{ pve_api_token_id }} | grep 'expire:' | awk '{print $2}')
+        if [ ! -z "$token_expiry" ] && [ "$token_expiry" -le "$(($(date +%s) - 60 * 60 * 24 * {{ pve_api_token_duration }}))"; then
+          echo "expired"
+        else
+          echo "valid"
+        fi
+      args:
+        executable: /bin/bash
+      register: token_expiry_status
+      changed_when: false
+
+    - name: Delete expired API token
+      ansible.builtin.command:
+        cmd: pveum user token del {{ pve_api_user }}@{{ pve_proxmox_realm }} {{ pve_api_token_id }}
+      when: token_expiry_status.stdout == "expired"
+      register: result_token_del
+      changed_when: result_token_del is defined and result_token_del.rc == 0
+
+    - name: Set API token expiration date
+      ansible.builtin.set_fact:
+        pve_api_token_expire: "{{ (ansible_date_time.epoch | int) + (60 * 60 * 24 * pve_api_token_duration | int) }}"
+
+    - name: Create API token
+      ansible.builtin.command:
+        cmd: |
+          pveum user token add "{{ pve_api_user }}@{{ pve_proxmox_realm }}" "{{ pve_api_token_id }}" --expire "{{ pve_api_token_expire }}"
+      when: pve_api_token_id not in token_list.stdout or token_expiry_status.stdout == 'expired'
+      register: result_token
+      changed_when: result_token is defined and result_token.rc == 0
+
+    - name: Ensure API token was created
+      ansible.builtin.debug:
+        var: result_token
+      changed_when: false
+
+    - name: Assign permissions for the API token
+      ansible.builtin.command:
+        cmd: |
+          pveum aclmod "/" -role '{{ pve_api_token_permissions }}' -user '{{ pve_api_user }}@{{ pve_proxmox_realm }}'
+      register: result_acl
+      changed_when: result_acl is defined and result_acl.rc == 0
+
+    - name: Ensure permissions were assigned
+      ansible.builtin.debug:
+        var: result_acl
+      changed_when: false

@@ -1,0 +1,70 @@
+---
+- name: Setup Proxmox SSL and Multi-factor Authentication.
+  hosts: localhost
+  become: true
+  tasks:
+    - name: Install required TOTP tools locally.
+      ansible.builtin.apt:
+        name: "oathtool"
+        state: present
+        update_cache: true
+
+    - name: Generate a new TOTP secret for the root user. Similar to oathkeygen from PVE.
+      ansible.builtin.shell: |
+        set -o pipefail
+        head -c 10 /dev/urandom | base32
+      args:
+        executable: /bin/bash
+      register: totp_secret
+      changed_when: true
+
+    - name: Set the TOTP fact for the current session.
+      ansible.builtin.set_fact:
+        totp_secret: "{{ totp_secret.stdout.strip() }}"
+
+- name: Apply TOTP secret to Proxmox hosts.
+  hosts: proxmox
+  become: false
+  gather_facts: true
+  remote_user: "{{ root_user }}"
+  vars:
+    rotate_key: "{{ rotated_totp_keys | default(false) }}"
+    totp_secret: "{{ hostvars['localhost']['totp_secret'] }}"
+  tasks:
+    - name: Get the current list of users and their keys to determine, if root has a key set.
+      ansible.builtin.command:
+        cmd: "pveum user list --output=json"
+      register: pve_users
+      changed_when: false
+
+    - name: Filter to the keys for the targeted root user.
+      ansible.builtin.set_fact:
+        root_user_keys: "{{ pve_users.stdout | from_json | json_query('[?userid==`' + root_user | quote + '@pam`] | [0].keys') | default('') }}"
+
+    - name: Set new TOTP secret for root user.
+      ansible.builtin.command:
+        cmd: "pveum user modify {{ root_user }}@pam --keys {{ totp_secret }}"
+      when: root_user_keys == "" or rotate_key | bool
+      changed_when: root_user_keys == "" or rotate_key | bool
+
+    - name: Update the PAM realm to do MFA.
+      ansible.builtin.command:
+        cmd: "pveum realm modify pam --tfa type=oath"
+      when: root_user_keys == "" or rotate_key | bool
+      changed_when: root_user_keys == "" or rotate_key | bool
+
+- name: Render QR code for registration on a phone authenticator app.
+  hosts: localhost
+  become: true
+  tasks:
+    - name: Install qrencode package.
+      ansible.builtin.apt:
+        name: "qrencode"
+        state: present
+        update_cache: true
+
+    - name: Generate QR code for TOTP secret.
+      ansible.builtin.debug:
+        msg: |
+          Now execute this command
+          qrencode -t ANSIUTF8 "otpauth://totp/Proxmox:{{ root_user }}?secret={{ hostvars['localhost']['totp_secret'] }}"

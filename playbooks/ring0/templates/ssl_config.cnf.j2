@@ -1,0 +1,31 @@
+# OpenSSL configuration file for generating certificates with SAN support
+
+[ req ]
+default_bits = 2048
+default_keyfile = privkey.pem
+distinguished_name = req_distinguished_name
+req_extensions = v3_req
+prompt = no
+
+[ req_distinguished_name ]
+C = EU
+ST = State
+L = City
+O = MszCool Organization
+OU = IT Department
+CN = {{ router_fqdn }}
+
+[ v3_req ]
+basicConstraints = CA:FALSE
+keyUsage = nonRepudiation, digitalSignature, keyEncipherment
+extendedKeyUsage = serverAuth
+subjectAltName = @alt_names
+
+[ alt_names ]
+{% for name in alt_names %}
+{% if name is match("^[0-9]+\\.[0-9]+\\.[0-9]+\\.[0-9]+$") %}
+IP.{{ loop.index }} = {{ name }}
+{% else %}
+DNS.{{ loop.index }} = {{ name }}
+{% endif %}
+{% endfor %}

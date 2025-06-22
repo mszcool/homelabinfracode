@@ -3,11 +3,26 @@
   hosts: all
   gather_facts: false
   become: true
-  remote_user: "{{ lookup('env', 'USE_SSH_USER_NAME') }}"
-  pre_tasks:
-    - include_tasks: ../../tasklib/checkuserenv-tasks.yaml
+  remote_user: "{{ root_user }}"
+
   tasks:
-    - include_tasks: ../../tasklib/upgrade-tasks.yaml
+    - name: Update apt cache {{ inventory_hostname }}
+      ansible.builtin.apt:
+        update_cache: true
+      register: apt_update_result
+
+    - name: Upgrade packages {{ inventory_hostname }}
+      ansible.builtin.apt:
+        upgrade: "safe"
+        force_apt_get: true
+        autoremove: true
+      register: apt_upgrade_result
+
+    - name: Fail if upgrade fails {{ inventory_hostname }}
+      ansible.builtin.fail:
+        msg: "Failed to upgrade Ubuntu packages"
+      when: apt_upgrade_result is failed
+
   # Loop over the hosts one by one such that on failure it stops, immediately
   serial: 1
   strategy: linear

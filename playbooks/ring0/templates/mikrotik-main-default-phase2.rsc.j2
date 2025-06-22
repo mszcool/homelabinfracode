@@ -1,0 +1,188 @@
+#
+# PHASE 2 - SSL CONFIGURATION AND FIREWALL SETUP
+# IMPORTANT: Execute this script via SSH only, not via Winbox!
+# Winbox will crash when handling certificate operations, but SSH handles them correctly.
+#
+# This script must be run after Phase 1 has completed and certificate files have been uploaded.
+# Connect to the router via SSH using the automation or admin user and run this script.
+#
+
+:local routerHostName "{{ param_router_name }}"
+:local scriptFileName "{{ param_router_name }}-bootstrap-phase2.rsc"
+:local startMarkerText "{{ param_start_marker_text }}"
+:local endMarkerText "{{ param_end_marker_text }}"
+:local wanInterfaceList "{{ param_wan_interface_list }}"
+:local lanInterfaceList "{{ param_lan_interface_list }}"
+
+# Certificate file variables - these must be uploaded before running this script
+:local routerRootCertName "mszcool_ssl_selfroot"
+:local routerRootCertFileName ($routerRootCertName . ".crt")
+:local routerCertFileName ($routerHostName . ".crt")
+:local routerKeyFileName ($routerHostName . ".key")
+
+#
+# Install SSL certificates and enable SSL for secure services
+#
+:put "Installing SSL certificates and enabling SSL - running via SSH to prevent Winbox crashes"
+
+# Check if certificate files exist first
+:if ([:len [/file find name="$routerRootCertFileName"]] = 0) do={
+    :put "ERROR: Root CA certificate file not found: $routerRootCertFileName"
+    :log error "Root CA certificate file not found: $routerRootCertFileName"
+} else={
+    # Import the root CA certificate
+    :put "Importing root CA certificate..."
+    /certificate import file-name="$routerRootCertFileName" passphrase=""
+    :delay 5s
+    
+    # Find and trust the imported root CA
+    :local rootCaCert [/certificate find where name~"$routerRootCertName"]
+    :if ([:len $rootCaCert] = 0) do={
+        :put "ERROR: Failed to find imported root CA certificate"
+        :log error "Failed to find imported root CA certificate"
+    } else={
+        :put "Setting root CA certificate as trusted..."
+        /certificate set trusted=yes $rootCaCert
+        :delay 5s
+        :put "Root CA certificate trusted successfully"
+    }
+}
+
+# Check if server certificate file exists
+:if ([:len [/file find name="$routerCertFileName"]] = 0) do={
+    :put "ERROR: Server certificate file not found: $routerCertFileName"
+    :log error "Server certificate file not found: $routerCertFileName"
+} else={
+    # Import the server certificate
+    :put "Importing server certificate..."
+    /certificate import file-name="$routerCertFileName" passphrase=""
+    :delay 5s
+    :put "Server certificate imported successfully"
+}
+
+# Check if server key file exists
+:if ([:len [/file find name="$routerKeyFileName"]] = 0) do={
+    :put "ERROR: Server key file not found: $routerKeyFileName"
+    :log error "Server key file not found: $routerKeyFileName"
+} else={
+    # Import the server key
+    :put "Importing server key..."
+    /certificate import file-name="$routerKeyFileName" passphrase=""
+    :delay 5s
+    :put "Server key imported successfully"
+}
+
+# Enable HTTPS service with the server certificate
+:delay 5s
+:local serverCert [/certificate find where name~"$routerHostName"]
+:if ([:len $serverCert] = 0) do={
+    :put "ERROR: Failed to find server certificate for SSL configuration"
+    :log error "Failed to find server certificate for SSL configuration"
+} else={
+    :put "Enabling HTTPS service with server certificate..."
+    /ip service set www-ssl certificate=$serverCert disabled=no port=443
+    :log info "SSL certificate installed and HTTPS service enabled"
+    :put "HTTPS service enabled successfully with SSL certificate"
+}
+
+#
+# Configure the full firewall rules
+#
+:put "Setting up complete firewall configuration"
+
+# First remove the temporary rules from Phase 1
+/ip firewall filter
+:put "Removing temporary Phase 1 firewall rules"
+:foreach r in=[find where comment~"phase1_temp"] do={
+    remove $r
+}
+
+# Set up connection tracking
+/ip firewall connection tracking set udp-timeout=10s
+
+# Add the new complete ruleset
+:put "Adding complete firewall ruleset"
+/ip firewall filter
+{%- for paramRuleGroup in param_firewall_rule_groups %}
+{% if paramRuleGroup.required_for_blank_setup == true %}
+
+remove [find where comment~"{{ paramRuleGroup.comment }}_{{ param_start_marker_text }}"]
+add chain=input action=passthrough comment="{{ paramRuleGroup.comment }}_{{ param_start_marker_text }} -- {{ paramRuleGroup.name }}" disabled=yes
+{% for paramRule in paramRuleGroup.filter_rules %}
+
+remove [find where comment~"{{ paramRule.comment }}"]
+add chain={{ paramRule.direction }} action={{ paramRule.action }} comment="{{ paramRule.comment }} -- {{ paramRule.name }}"
+{%- if paramRule.srcAddress is defined and '*' not in paramRule.srcAddress %} src-address={{ paramRule.srcAddress }}{%- endif -%}
+{%- if paramRule.destAddress is defined and '*' not in paramRule.destAddress %} dst-address={{ paramRule.destAddress }}{%- endif -%}
+{%- if paramRule.srcPort is defined and '*' not in paramRule.srcPort %} src-port={{ paramRule.srcPort }}{%- endif -%}
+{%- if paramRule.destPort is defined and '*' not in paramRule.destPort %} dst-port={{ paramRule.destPort }}{%- endif -%}
+{%- if paramRule.protocol is defined and '*' not in paramRule.protocol %} protocol={{ paramRule.protocol }}{%- endif -%}
+{%- if paramRule.connectionState is defined and '*' not in paramRule.connectionState %} connection-state={{ paramRule.connectionState }}{%- endif -%}
+{%- if paramRule.connectionNatState is defined and '*' not in paramRule.connectionNatState %} connection-nat-state={{ paramRule.connectionNatState }}{%- endif -%}
+{%- if paramRule.inInterface is defined and '*' not in paramRule.inInterface %} in-interface={{ paramRule.inInterface }}{%- endif -%}
+{%- if paramRule.outInterface is defined and '*' not in paramRule.outInterface %} out-interface={{ paramRule.outInterface }}{%- endif -%}
+{%- if paramRule.inInterfaceList is defined and '*' not in paramRule.inInterfaceList %} in-interface-list={{ paramRule.inInterfaceList }}{%- endif -%}
+{%- if paramRule.outInterfaceList is defined and '*' not in paramRule.outInterfaceList %} out-interface-list={{ paramRule.outInterfaceList }}{%- endif -%}
+{%- if paramRule.srcAddressList is defined and '*' not in paramRule.srcAddressList %} src-address-list={{ paramRule.srcAddressList }}{%- endif -%}
+{%- if paramRule.destAddressList is defined and '*' not in paramRule.destAddressList %} dst-address-list={{ paramRule.destAddressList }}{%- endif -%}
+{% endfor %}
+
+remove [find where comment~"{{ paramRuleGroup.comment }}_{{ param_end_marker_text }} -- {{ paramRuleGroup.name }}"]
+add chain=input action=passthrough comment="{{ paramRuleGroup.comment }}_{{ param_end_marker_text }} -- {{ paramRuleGroup.name }}" disabled=yes
+{% endif %}
+{% endfor %}
+
+# Set up NAT rules
+:put "Setting up NAT rules for masquerading and port forwarding"
+/ip firewall nat
+
+{%- for paramRuleGroup in param_firewall_rule_groups %}
+{% if paramRuleGroup.required_for_blank_setup == true %}
+{% if paramRuleGroup.inbound_nat_rules is defined %}
+
+remove [find where comment~"{{ paramRuleGroup.comment }}_{{ param_start_marker_text }}"]
+add chain=input action=passthrough comment="{{ paramRuleGroup.comment }}_{{ param_start_marker_text }} -- {{ paramRuleGroup.name }}" disabled=yes
+
+{% for natRule in paramRuleGroup.inbound_nat_rules %}
+
+remove [find where comment~"{{ natRule.comment }}"]
+add chain={{ natRule.direction }} action={{ natRule.action }} comment="{{ natRule.comment }} -- {{ natRule.name }}"
+{%- if natRule.srcAddress is defined and '*' not in natRule.srcAddress %} src-address={{ natRule.srcAddress }}{%- endif -%}
+{%- if natRule.destAddress is defined and '*' not in natRule.destAddress %} dst-address={{ natRule.destAddress }}{%- endif -%}
+{%- if natRule.srcPort is defined and '*' not in natRule.srcPort %} src-port={{ natRule.srcPort }}{%- endif -%}
+{%- if natRule.destPort is defined and '*' not in natRule.destPort %} dst-port={{ natRule.destPort }}{%- endif -%}
+{%- if natRule.protocol is defined and '*' not in natRule.protocol %} protocol={{ natRule.protocol }}{%- endif -%}
+{%- if natRule.localTargetAddress is defined and '*' not in natRule.localTargetAddress %} to-addresses={{ natRule.localTargetAddress }}{%- endif -%}
+{%- if natRule.localTargetPort is defined and '*' not in natRule.localTargetPort %} to-ports={{ natRule.localTargetPort }}{%- endif -%}
+{%- if natRule.inInterface is defined and '*' not in natRule.inInterface %} in-interface={{ natRule.inInterface }}{%- endif -%}
+{%- if natRule.outInterface is defined and '*' not in natRule.outInterface %} out-interface={{ natRule.outInterface }}{%- endif -%}
+{%- if natRule.inInterfaceList is defined and '*' not in natRule.inInterfaceList %} in-interface-list={{ natRule.inInterfaceList }}{%- endif -%}
+{%- if natRule.outInterfaceList is defined and '*' not in natRule.outInterfaceList %} out-interface-list={{ natRule.outInterfaceList }}{%- endif -%}
+{%- if natRule.srcAddressList is defined and '*' not in natRule.srcAddressList %} src-address-list={{ natRule.srcAddressList }}{%- endif -%}
+{%- if natRule.destAddressList is defined and '*' not in natRule.destAddressList %} dst-address-list={{ natRule.destAddressList }}{%- endif -%}
+{%- if natRule.ipSecPolicy is defined and '*' not in natRule.ipSecPolicy %} ipsec-policy={{ natRule.ipSecPolicy }}{%- endif -%}
+{% endfor %}
+
+remove [find where comment~"{{ paramRuleGroup.comment }}_{{ param_end_marker_text }} -- {{ paramRuleGroup.name }}"]
+add chain=input action=passthrough comment="{{ paramRuleGroup.comment }}_{{ param_end_marker_text }} -- {{ paramRuleGroup.name }}" disabled=yes
+
+{% endif %}
+{% endif %}
+{% endfor %}
+
+#
+# Disable insecure services.
+#
+:put "Disabling insecure services"
+/ip service disable telnet,ftp,www,api
+
+:put ""
+:put "===================================================================================="
+:put "PHASE 2 COMPLETED SUCCESSFULLY"
+:put "SSL configuration and firewall setup is complete."
+:put "You can now connect securely via HTTPS and SSH."
+:put ""
+:put "***** IMPORTANT INFO *****"
+:put "Execution finished, please make sure you delete '$scriptFileName' from the router!!"
+:put "*****"
+:put "===================================================================================="
