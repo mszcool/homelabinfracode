@@ -3,12 +3,15 @@
   community.routeros.command:
     commands:
       - >
-        :if ([:len [/ip dhcp-server lease find where mac-address={{ device_mapped.static_dhcp.mac }} and dynamic=no]] > 0) do={
-          /ip dhcp-server lease set [find where mac-address={{ device_mapped.static_dhcp.mac }}] address={{ device_mapped.static_dhcp.ip }} comment="{{ device_group.group }} - {{ device_mapped.alias }}"
+        :if ([:len [/ip dhcp-server lease find where mac-address="{{ device_mapped.static_dhcp.mac }}" and dynamic=no]] > 0) do={
+          /ip dhcp-server lease set [find where mac-address="{{ device_mapped.static_dhcp.mac }}"] address="{{ device_mapped.static_dhcp.ip }}" comment="{{ device_group.group }} - {{ device_mapped.alias }}";
         } else={
-          /ip dhcp-server lease add mac-address={{ device_mapped.static_dhcp.mac }} address={{ device_mapped.static_dhcp.ip }} comment="{{ device_group.group }} - {{ device_mapped.alias }}"
-        }
-  when: device_mapped.static_dhcp is defined and device_mapped.static_dhcp.mac is defined
+          /ip dhcp-server lease add mac-address="{{ device_mapped.static_dhcp.mac }}" address="{{ device_mapped.static_dhcp.ip }}" comment="{{ device_group.group }} - {{ device_mapped.alias }}";
+        };
+        :if ([:len [/ip dhcp-server lease find where mac-address="{{ device_mapped.static_dhcp.mac }}" and dynamic=yes]] > 0) do={
+          /ip dhcp-server lease remove [/ip dhcp-server lease find where mac-address="{{ device_mapped.static_dhcp.mac }}" and dynamic=yes];
+        };
+  when: device_mapped.static_dhcp is defined and device_mapped.static_dhcp.mac is defined and device_mapped.static_dhcp.ip is defined
 
 - name: Devices -- Create or update static DNS entries for mapped devices.
   community.routeros.command:
