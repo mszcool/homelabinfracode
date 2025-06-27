@@ -9,6 +9,7 @@
   loop_control:
     loop_var: device
     label: "Validating {{ device.alias }}"
+  when: device_group.members is defined and device_group.members | length > 0
 
 - name: Create or update firewall address list for device group
   community.routeros.command:
