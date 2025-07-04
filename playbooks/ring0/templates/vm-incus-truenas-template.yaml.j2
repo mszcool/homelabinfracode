@@ -1,0 +1,62 @@
+architecture: x86_64
+config:
+  # CPU and Memory limits
+  limits.cpu: "{{ truenas_cpu_cores }}"
+  limits.memory: "{{ truenas_memory_gb }}GB"
+  
+  # Security settings
+  security.nesting: "{{ vm_security_nesting | lower }}"
+  security.privileged: "{{ vm_security_privileged | lower }}"
+  
+  # Boot configuration
+  boot.autostart: "true"
+  boot.priority: "1"
+  
+  # VM-specific configuration
+  raw.qemu: "-device virtio-vga"
+  
+{% if not pcie_passthrough_enabled %}
+  # Virtual SATA controller when not using PCIe passthrough
+  raw.qemu.conf: |
+    [device "sata-controller"]
+    driver = "ich9-ahci"
+    
+    [device "virtio-scsi-pci"]
+    id = "scsi0"
+{% endif %}
+
+devices:
+  # Root filesystem disk
+  root:
+    type: disk
+    path: /
+    pool: {{ storage_pool }}
+    size: {{ truenas_system_disk_gb }}GB
+    boot.priority: "1"
+  
+  # Installation media (TrueNAS ISO)
+  install-media:
+    type: disk
+    source: {{ truenas_iso_path }}
+    boot.priority: "10"
+    readonly: "true"
+  
+  # Primary network interface
+  eth0:
+    type: nic
+    network: {{ truenas_network_bridge }}
+    name: eth0
+
+{% if pcie_passthrough_enabled and pcie_controller_id != "" %}
+  # PCIe passthrough for SATA controller
+  sata-controller:
+    type: pci
+    address: {{ pcie_controller_id }}
+{% endif %}
+
+ephemeral: false
+profiles:
+- default
+stateful: true
+description: TrueNAS Scale VM - {{ truenas_vm_name }}
+type: virtual-machine

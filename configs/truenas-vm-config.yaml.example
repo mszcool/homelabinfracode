@@ -1,0 +1,72 @@
+# TrueNAS Scale VM Configuration Example
+# Copy this to your configs folder and customize as needed
+
+all:
+  vars:
+    # Basic VM Configuration
+    vm_name: "truenas-scale"
+    cpu_cores: 4
+    memory_gb: 16
+    system_disk_gb: 128
+    network_bridge: "incusbr0"
+    
+    # TrueNAS ISO Configuration
+    iso_url: "https://download.truenas.com/TrueNAS-SCALE/24.10.0/TrueNAS-SCALE-24.10.0.iso"
+    iso_path: "/tmp/truenas-scale.iso"
+    
+    # PCIe/SATA Controller Passthrough
+    enable_pcie_passthrough: true
+    # Find your SATA controller with: lspci | grep -i sata
+    # Example: "0000:00:17.0" - replace with your actual controller ID
+    pcie_controller: "0000:00:17.0"
+    
+    # Storage Configuration
+    incus_storage_pool: "default"
+    
+    # Security Settings
+    security_nesting: false
+    security_privileged: false
+    
+    # Optional: Cleanup ISO after installation
+    cleanup_iso: false
+
+# Example configurations for different scenarios:
+
+# High-Performance TrueNAS with lots of memory
+high_performance:
+  vars:
+    vm_name: "truenas-scale-hp"
+    cpu_cores: 8
+    memory_gb: 32
+    system_disk_gb: 256
+    network_bridge: "incusbr0"
+    enable_pcie_passthrough: true
+    pcie_controller: "0000:00:17.0"
+
+# Development/Testing TrueNAS with minimal resources
+development:
+  vars:
+    vm_name: "truenas-scale-dev"
+    cpu_cores: 2
+    memory_gb: 8
+    system_disk_gb: 64
+    network_bridge: "incusbr0"
+    enable_pcie_passthrough: false
+    pcie_controller: ""
+
+# Multiple TrueNAS instances
+truenas_cluster:
+  vars:
+    # Primary TrueNAS
+    primary_vm_name: "truenas-primary"
+    primary_cpu_cores: 6
+    primary_memory_gb: 24
+    primary_system_disk_gb: 128
+    primary_pcie_controller: "0000:00:17.0"
+    
+    # Secondary TrueNAS
+    secondary_vm_name: "truenas-secondary"
+    secondary_cpu_cores: 4
+    secondary_memory_gb: 16
+    secondary_system_disk_gb: 128
+    secondary_pcie_controller: "0000:00:1f.2"

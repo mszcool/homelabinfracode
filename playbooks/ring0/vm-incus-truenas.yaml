@@ -1,0 +1,129 @@
+---
+- name: Create TrueNAS Scale VM on Incus
+  hosts: incus
+  become: true
+  gather_facts: true
+  remote_user: "{{ root_user }}"
+
+  vars:
+    # TrueNAS VM Configuration Parameters
+    truenas_vm_name: "{{ vm_name | default('truenas-scale') }}"
+    truenas_cpu_cores: "{{ cpu_cores | default(4) }}"
+    truenas_memory_gb: "{{ memory_gb | default(16) }}"
+    truenas_system_disk_gb: "{{ system_disk_gb | default(128) }}"
+    truenas_network_bridge: "{{ network_bridge | default('incusbr0') }}"
+    truenas_iso_url: "{{ iso_url | default('https://download.truenas.com/TrueNAS-SCALE/24.10.0/TrueNAS-SCALE-24.10.0.iso') }}"
+    truenas_iso_path: "{{ iso_path | default('/tmp/truenas-scale.iso') }}"
+    
+    # PCIe/SATA Controller Passthrough Configuration
+    pcie_passthrough_enabled: "{{ enable_pcie_passthrough | default(true) }}"
+    pcie_controller_id: "{{ pcie_controller | default('') }}"  # e.g., "0000:00:17.0"
+    
+    # Storage pool configuration
+    storage_pool: "{{ incus_storage_pool | default('default') }}"
+    
+    # VM Security settings
+    vm_security_nesting: "{{ security_nesting | default(false) }}"
+    vm_security_privileged: "{{ security_privileged | default(false) }}"
+
+  tasks:
+    - name: Validate required parameters
+      ansible.builtin.fail:
+        msg: "PCIe controller ID is required when PCIe passthrough is enabled"
+      when: pcie_passthrough_enabled and pcie_controller_id == ""
+
+    - name: Download TrueNAS Scale ISO
+      ansible.builtin.get_url:
+        url: "{{ truenas_iso_url }}"
+        dest: "{{ truenas_iso_path }}"
+        mode: '0644'
+        timeout: 3600
+
+    - name: Create TrueNAS VM configuration template
+      ansible.builtin.template:
+        src: vm-incus-truenas-template.yaml.j2
+        dest: "/tmp/{{ truenas_vm_name }}-config.yaml"
+        mode: '0644'
+
+    - name: Create or update TrueNAS VM from template
+      ansible.builtin.shell: |
+        if incus info {{ truenas_vm_name }} >/dev/null 2>&1; then
+          echo "VM already exists - updating configuration"
+          incus config edit {{ truenas_vm_name }} < /tmp/{{ truenas_vm_name }}-config.yaml
+        else
+          echo "Creating new VM from template"
+          incus init --config /tmp/{{ truenas_vm_name }}-config.yaml {{ truenas_vm_name }}
+        fi
+      register: vm_create_result
+      changed_when: "'Creating new VM' in vm_create_result.stdout"
+
+    - name: Start TrueNAS VM
+      ansible.builtin.shell: |
+        incus start {{ truenas_vm_name }}
+      register: vm_start_result
+      failed_when: 
+        - vm_start_result.rc != 0
+        - "'Instance is already running' not in vm_start_result.stderr"
+      changed_when: vm_start_result.rc == 0
+
+    - name: Wait for VM to be running
+      ansible.builtin.shell: |
+        incus info {{ truenas_vm_name }} | grep -q "Status: Running"
+      register: vm_running_check
+      retries: 30
+      delay: 10
+      until: vm_running_check.rc == 0
+
+    - name: Get VM IP address
+      ansible.builtin.shell: |
+        incus info {{ truenas_vm_name }} | grep -E "eth0.*inet" | awk '{print $3}' | head -1
+      register: vm_ip_result
+      retries: 10
+      delay: 30
+      until: vm_ip_result.stdout != ""
+      failed_when: false
+
+    - name: Display VM information
+      ansible.builtin.debug:
+        msg: |
+          TrueNAS Scale VM configuration complete!
+          
+          VM Name: {{ truenas_vm_name }}
+          CPU Cores: {{ truenas_cpu_cores }}
+          Memory: {{ truenas_memory_gb }}GB
+          System Disk: {{ truenas_system_disk_gb }}GB
+          Network Bridge: {{ truenas_network_bridge }}
+          {% if vm_ip_result.stdout != "" %}IP Address: {{ vm_ip_result.stdout }}{% endif %}
+          {% if pcie_passthrough_enabled %}PCIe Controller: {{ pcie_controller_id }}{% endif %}
+          
+          Next Steps:
+          1. Connect to the VM console: incus console {{ truenas_vm_name }}
+          2. Follow the TrueNAS Scale installation wizard
+          3. Configure your storage pools using the passed-through SATA controller
+          4. Access TrueNAS web interface at: {% if vm_ip_result.stdout != "" %}http://{{ vm_ip_result.stdout }}{% else %}[VM IP]{% endif %}
+          
+          Useful Commands:
+          - View VM status: incus info {{ truenas_vm_name }}
+          - Stop VM: incus stop {{ truenas_vm_name }}
+          - Start VM: incus start {{ truenas_vm_name }}
+          - Access console: incus console {{ truenas_vm_name }}
+          - Remove ISO after installation: incus config device remove {{ truenas_vm_name }} install-media
+
+    - name: Create VM management script
+      ansible.builtin.template:
+        src: vm-incus-truenas-manage.sh.j2
+        dest: "/usr/local/bin/manage-{{ truenas_vm_name }}.sh"
+        mode: '0755'
+
+    - name: Cleanup temporary files
+      ansible.builtin.file:
+        path: "/tmp/{{ truenas_vm_name }}-config.yaml"
+        state: absent
+      when: cleanup_iso | default(false)
+
+  handlers:
+    - name: cleanup iso
+      ansible.builtin.file:
+        path: "{{ truenas_iso_path }}"
+        state: absent
+      when: cleanup_iso | default(false)
