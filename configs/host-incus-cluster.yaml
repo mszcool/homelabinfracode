@@ -55,18 +55,19 @@ all:
       - ca-certificates
       - gnupg
       - acl
+      - bc
   children:
     incus:
       hosts:
-        10.10.0.20:
+        192.168.0.31:
           hostname: mszpvetest1
           disk_config_name: "msz_single_disk_server"
           incus_network:
-            physical_network_parent: "eth1"
-            bridged_network_parents: "eth2"
+            physical_network_parent: "eth0"
+            bridged_network_parents: "eth0"
         10.10.0.30:
           hostname: mszpvetest2
           disk_config_name: "msz_dual_disk_server"
           incus_network:
-            physical_network_parent: "eth1"
-            bridged_network_parents: "eth2"
+            physical_network_parent: "eth0"
+            bridged_network_parents: "eth0"

@@ -109,34 +109,6 @@ autoinstall:
 
           - lvm-{{ device.device }}-part
           {%- endfor %}
-      
-      {%- for vol_name, vol_config in tp_diskdata.volume_group_volumes.items() %}
-
-      # Create LVM volume for {{ vol_name }}
-      - type: lvm_partition
-        id: lvm-{{ vol_name }}
-        volgroup: {{ tp_volgroupname }}
-        name: {{ vol_name }}
-        {%- if vol_config.all_remaining_space is defined and vol_config.all_remaining_space %}
-
-        size: -1  # Use remaining space
-        {%- else %}
-        
-        size: {{ vol_config.size_MB }}M
-        {%- endif %}
-        
-      # Format the LVM volume
-      - type: format
-        id: lvm-{{ vol_name }}-format
-        volume: lvm-{{ vol_name }}
-        fstype: ext4
-        
-      # Mount the LVM volume
-      - type: mount
-        id: lvm-{{ vol_name }}-mount
-        device: lvm-{{ vol_name }}-format
-        path: /var/lib/{{ vol_name }}
-      {%- endfor %}
   
   packages:
     - {{ tp_packages|join('\n    - ') }}
@@ -147,3 +119,22 @@ autoinstall:
     - echo 'APT::Periodic::AutocleanInterval "7";' >> /target/etc/apt/apt.conf.d/20auto-upgrades
     - curtin in-target --target=/target -- sed -i 's/#PasswordAuthentication yes/PasswordAuthentication no/' /etc/ssh/sshd_config
     - curtin in-target --target=/target -- sed -i 's/#PermitRootLogin prohibit-password/PermitRootLogin no/' /etc/ssh/sshd_config
+    - echo "=== Creating LVM thin pools for Incus storage ==="
+    - vgs {{ tp_volgroupname }}
+    - lvs {{ tp_volgroupname }}
+    {% for vol_name, vol_config in tp_diskdata.volume_group_volumes.items() -%}
+    {% if not (vol_config.all_remaining_space is defined and vol_config.all_remaining_space) -%}
+    - echo "Creating {{ vol_name }} thin pool with size {{ vol_config.size_MB }}M"
+    - lvcreate --type thin-pool -n {{ vol_name }} -L {{ vol_config.size_MB }}M {{ tp_volgroupname }}
+    {% endif -%}
+    {% endfor -%}
+    {% for vol_name, vol_config in tp_diskdata.volume_group_volumes.items() -%}
+    {% if vol_config.all_remaining_space is defined and vol_config.all_remaining_space -%}
+    - echo "Creating {{ vol_name }} thin pool with remaining space"
+    - lvcreate --type thin-pool -n {{ vol_name }} -l 100%FREE {{ tp_volgroupname }}
+    {% endif -%}
+    {% endfor -%}
+    - echo "=== Final LVM state ==="
+    - vgs {{ tp_volgroupname }}
+    - lvs {{ tp_volgroupname }}
+    - echo "=== Incus will manage thin volumes within these pools ==="
