@@ -1,13 +1,12 @@
 config:
   core.https_address: 127.0.0.1:9443
   images.auto_update_interval: 15
-  storage.images_volume: incus-images
 
 networks:
 - name: incsext
   type: macvlan
   config:
-    parent: {{ tp_incus_config.networks.physical_network_parent }}
+    parent: {{ tp_incus_netconfig.physical_network_parent }}
 - name: incusint
   type: bridge
   config:
