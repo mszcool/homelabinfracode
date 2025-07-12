@@ -59,13 +59,13 @@ all:
   children:
     incus:
       hosts:
-        192.168.0.31:
+        10.10.0.2:
           hostname: mszpvetest1
           disk_config_name: "msz_single_disk_server"
           incus_network:
             physical_network_parent: "eth0"
             bridged_network_parents: "eth0"
-        10.10.0.30:
+        10.10.0.3:
           hostname: mszpvetest2
           disk_config_name: "msz_dual_disk_server"
           incus_network:
