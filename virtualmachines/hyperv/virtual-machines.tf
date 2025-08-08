@@ -66,7 +66,6 @@ resource "hyperv_machine_instance" "vm" {
     minimum_iops                    = 0
     qos_policy_id                   = "00000000-0000-0000-0000-000000000000"
   }
-
   # Optional second disk (only if more than 1 disk is configured)
   dynamic "hard_disk_drives" {
     for_each = length(each.value.disks) > 1 ? [1] : []
@@ -82,6 +81,13 @@ resource "hyperv_machine_instance" "vm" {
       minimum_iops                    = 0
       qos_policy_id                   = "00000000-0000-0000-0000-000000000000"
     }
+  }
+  # DVD drive for all VMs
+  dvd_drives {
+    controller_number   = each.value.is_routeros ? 1 : 0
+    controller_location = each.value.is_routeros ? 0 : 2
+    path                = null  # No ISO mounted by default
+    resource_pool_name  = "Primordial"
   }
 
   # VM Processor configuration
@@ -107,7 +113,14 @@ resource "hyperv_machine_instance" "vm" {
       preferred_network_boot_protocol = "IPv4"
       secure_boot_template            = null # Before had this; need to disable because of my custom ISO images: each.value.is_routeros ? "OpenSourceShieldedVM" : "MicrosoftWindows"
       
-      # Boot from hard disk first, then network
+      # Boot from DVD first
+      boot_order {
+        boot_type           = "DvdDrive"
+        controller_number   = each.value.is_routeros ? 1 : 0
+        controller_location = each.value.is_routeros ? 0 : 2
+      }
+      
+      # Boot from hard disk second
       boot_order {
         boot_type           = "HardDiskDrive"
         controller_number   = 0
@@ -124,7 +137,8 @@ resource "hyperv_machine_instance" "vm" {
           controller_location = 1
           path                = hyperv_vhd.secondary_disks[each.key].path
         }
-      }        # Network boot for each adapter
+      }
+      # Network boot for each adapter
       dynamic "boot_order" {
         for_each = each.value.network_adapters
         content {
@@ -136,7 +150,9 @@ resource "hyperv_machine_instance" "vm" {
         }
       }
     }
-  }  # Network adapters - dynamically create based on configuration
+  }
+
+  # Network adapters - dynamically create based on configuration
   dynamic "network_adaptors" {
     for_each = each.value.network_adapters
     content {
