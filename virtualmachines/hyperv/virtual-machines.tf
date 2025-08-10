@@ -1,26 +1,34 @@
 # Hyper-V Virtual Machines Configuration
 
-# Dynamic VHD creation for main disks
-resource "hyperv_vhd" "main_disks" {
-  for_each = local.vm_configurations
+# Local variables to help with disk management
+locals {
+  # Flatten disks for all VMs with additional metadata
+  all_vm_disks = flatten([
+    for vm_key, vm_config in module.shared_config.vm_configurations : [
+      for disk_idx, disk in vm_config.disks : {
+        vm_key = vm_key
+        vm_name = vm_config.name
+        disk_key = "${vm_key}_${disk_idx}"
+        disk_name = disk.name
+        size_gb = disk.size_gb
+        disk_index = disk_idx  # Sequential disk index
+        is_routeros = vm_config.is_routeros != null ? vm_config.is_routeros : false
+      }
+    ]
+  ])
 
-  path                 = "${var.vm_base_path}\\${each.value.name}\\${each.value.name}.vhdx"
-  size                 = each.value.disks[0].size_gb * 1024 * 1024 * 1024
-  block_size           = 0
-  logical_sector_size  = 0
-  physical_sector_size = 0
-  vhd_type             = var.vhd_type
+  # Convert to map for for_each
+  vm_disks_map = {
+    for disk in local.all_vm_disks : disk.disk_key => disk
+  }
 }
 
-# Dynamic VHD creation for secondary disks (only if VM has more than 1 disk)
-resource "hyperv_vhd" "secondary_disks" {
-  for_each = {
-    for vm_key, vm_config in local.vm_configurations : vm_key => vm_config
-    if length(vm_config.disks) > 1
-  }
+# Dynamic VHD creation for all disks
+resource "hyperv_vhd" "vm_disks" {
+  for_each = local.vm_disks_map
 
-  path                 = "${var.vm_base_path}\\${each.value.name}\\${each.value.name}-${each.value.disks[1].name}.vhdx"
-  size                 = each.value.disks[1].size_gb * 1024 * 1024 * 1024
+  path                 = "${var.vm_base_path}\\${each.value.vm_name}\\${each.value.vm_name}-${each.value.disk_name}.vhdx"
+  size                 = each.value.size_gb * 1024 * 1024 * 1024
   block_size           = 0
   logical_sector_size  = 0
   physical_sector_size = 0
@@ -53,27 +61,20 @@ resource "hyperv_machine_instance" "vm" {
   snapshot_file_location             = "${var.vm_base_path}\\${each.value.name}"
   static_memory                      = true
 
-  # Main disk (always present)
-  hard_disk_drives {
-    controller_type                 = each.value.is_routeros ? "Ide" : "Scsi"
-    controller_number               = 0
-    controller_location             = 0
-    path                            = hyperv_vhd.main_disks[each.key].path
-    resource_pool_name              = "Primordial"
-    support_persistent_reservations = false
-    override_cache_attributes       = "Default"
-    maximum_iops                    = 0
-    minimum_iops                    = 0
-    qos_policy_id                   = "00000000-0000-0000-0000-000000000000"
-  }
-  # Optional second disk (only if more than 1 disk is configured)
+  # Dynamic hard disk drives - all disks go to controller 0 (default)
   dynamic "hard_disk_drives" {
-    for_each = length(each.value.disks) > 1 ? [1] : []
+    for_each = [
+      for disk_idx, disk in each.value.disks : {
+        controller_location = disk_idx  # Simple sequential location on controller 0
+        path_key = "${each.key}_${disk_idx}"
+        is_routeros = each.value.is_routeros != null ? each.value.is_routeros : false
+      }
+    ]
     content {
-      controller_type                 = each.value.is_routeros ? "Ide" : "Scsi"
-      controller_number               = 0
-      controller_location             = 1
-      path                            = hyperv_vhd.secondary_disks[each.key].path
+      controller_type                 = hard_disk_drives.value.is_routeros ? "Ide" : "Scsi"
+      controller_number               = 0  # All disks on controller 0
+      controller_location             = hard_disk_drives.value.controller_location
+      path                            = hyperv_vhd.vm_disks[hard_disk_drives.value.path_key].path
       resource_pool_name              = "Primordial"
       support_persistent_reservations = false
       override_cache_attributes       = "Default"
@@ -82,10 +83,10 @@ resource "hyperv_machine_instance" "vm" {
       qos_policy_id                   = "00000000-0000-0000-0000-000000000000"
     }
   }
-  # DVD drive for all VMs
+  # DVD drive for all VMs - placed after all disks on controller 0
   dvd_drives {
     controller_number   = each.value.is_routeros ? 1 : 0
-    controller_location = each.value.is_routeros ? 0 : 2
+    controller_location = each.value.is_routeros ? 0 : length(each.value.disks)
     path                = null  # No ISO mounted by default
     resource_pool_name  = "Primordial"
   }
@@ -117,30 +118,32 @@ resource "hyperv_machine_instance" "vm" {
       boot_order {
         boot_type           = "DvdDrive"
         controller_number   = each.value.is_routeros ? 1 : 0
-        controller_location = each.value.is_routeros ? 0 : 2
+        controller_location = each.value.is_routeros ? 0 : length(each.value.disks)
       }
       
-      # Boot from hard disk second
-      boot_order {
-        boot_type           = "HardDiskDrive"
-        controller_number   = 0
-        controller_location = 0
-        path                = hyperv_vhd.main_disks[each.key].path
-      }
-      
-      # Add second disk to boot order if it exists
+      # Boot from hard disks - dynamically add all disks to boot order
       dynamic "boot_order" {
-        for_each = length(each.value.disks) > 1 ? [1] : []
+        for_each = [
+          for disk_idx, disk in each.value.disks : {
+            controller_number = 0  # All disks on controller 0
+            controller_location = disk_idx
+            path = hyperv_vhd.vm_disks["${each.key}_${disk_idx}"].path
+          }
+        ]
         content {
           boot_type           = "HardDiskDrive"
-          controller_number   = 0
-          controller_location = 1
-          path                = hyperv_vhd.secondary_disks[each.key].path
+          controller_number   = boot_order.value.controller_number
+          controller_location = boot_order.value.controller_location
+          path                = boot_order.value.path
         }
       }
-      # Network boot for each adapter
+
+      # Network boot for connected adapters only (those with switches)
       dynamic "boot_order" {
-        for_each = each.value.network_adapters
+        for_each = [
+          for adapter in each.value.network_adapters : adapter
+          if adapter.name == "lab-wan" || adapter.name == "lab-lan"
+        ]
         content {
           boot_type            = "NetworkAdapter"
           controller_location  = -1
@@ -152,9 +155,12 @@ resource "hyperv_machine_instance" "vm" {
     }
   }
 
-  # Network adapters - dynamically create based on configuration
+  # Network adapters - only connected adapters (lab-wan, lab-lan)
   dynamic "network_adaptors" {
-    for_each = each.value.network_adapters
+    for_each = [
+      for adapter in each.value.network_adapters : adapter
+      if adapter.name == "lab-wan" || adapter.name == "lab-lan"
+    ]
     content {
       name            = network_adaptors.value.name
       switch_name     = network_adaptors.value.name == "lab-wan" ? hyperv_network_switch.lab_wan.name : hyperv_network_switch.lab_lan.name
@@ -162,16 +168,16 @@ resource "hyperv_machine_instance" "vm" {
       dynamic_mac_address    = network_adaptors.value.static_mac_address != null ? false : true
       wait_for_ips           = false
       static_mac_address     = network_adaptors.value.static_mac_address
-      is_legacy              = false # Before had this: each.value.is_routeros ? true : false
+      is_legacy              = false
       vmmq_enabled           = true
-      vmmq_queue_pairs       = 16 # Before had this: each.value.is_routeros ? null : 16
-      vmq_weight             = 100  # Before had this: each.value.is_routeros ? null : 100
+      vmmq_queue_pairs       = 16
+      vmq_weight             = 100
       iov_weight             = 0
-      iov_interrupt_moderation                   = "Default"  # Before had this: each.value.is_routeros ? "Off" : "Default"
-      ipsec_offload_maximum_security_association = 512  # Before had this: each.value.is_routeros ? 0 : 512
+      iov_interrupt_moderation                   = "Default"
+      ipsec_offload_maximum_security_association = 512
       allow_teaming                              = "Off"
-      packet_direct_moderation_count             = 64  # Before had this: each.value.is_routeros ? null : 64
-      packet_direct_moderation_interval          = 1000000  # Before had this: each.value.is_routeros ? null : 1000000
+      packet_direct_moderation_count             = 64
+      packet_direct_moderation_interval          = 1000000
     }
   }
   # Explicit dependency on network switches to ensure they exist before VM creation
@@ -179,6 +185,27 @@ resource "hyperv_machine_instance" "vm" {
     hyperv_network_switch.lab_wan,
     hyperv_network_switch.lab_lan
   ]
+}
+
+# Add disconnected network adapters using PowerShell
+resource "null_resource" "disconnected_network_adapters" {
+  for_each = {
+    for vm_key, vm_config in module.shared_config.vm_configurations : vm_key => vm_config
+    if length([for adapter in vm_config.network_adapters : adapter if adapter.name != "lab-wan" && adapter.name != "lab-lan"]) > 0
+  }
+
+  # This will run after the VM is created
+  depends_on = [hyperv_machine_instance.vm]
+
+  provisioner "local-exec" {
+    command = "powershell.exe -ExecutionPolicy RemoteSigned -File ${replace(path.module, "/", "\\")}\\Add-DisconnectedAdapters.ps1 -VMName ${each.value.name} -AdapterNames ${join(",", [for adapter in each.value.network_adapters : adapter.name if adapter.name != "lab-wan" && adapter.name != "lab-lan"])} -StaticMacAddresses ${join(",", [for adapter in each.value.network_adapters : (adapter.static_mac_address != null ? adapter.static_mac_address : "") if adapter.name != "lab-wan" && adapter.name != "lab-lan"])}"
+  }
+
+  # Re-run if the VM is recreated or adapter configuration changes
+  triggers = {
+    vm_id = hyperv_machine_instance.vm[each.key].id
+    disconnected_adapters = jsonencode([for adapter in each.value.network_adapters : adapter if adapter.name != "lab-wan" && adapter.name != "lab-lan"])
+  }
 }
 
 # Workaround for Hyper-V provider network adapter issue
@@ -191,13 +218,13 @@ resource "null_resource" "fix_network_adapters" {
   depends_on = [hyperv_machine_instance.vm]
 
   provisioner "local-exec" {
-    command = "powershell.exe -ExecutionPolicy RemoteSigned -File ${replace(path.module, "/", "\\")}\\Fix-NetworkAdapters.ps1 ${each.value.name} ${join(",", [for adapter in each.value.network_adapters : adapter.name])}"
+    command = "powershell.exe -ExecutionPolicy RemoteSigned -File ${replace(path.module, "/", "\\")}\\Fix-NetworkAdapters.ps1 ${each.value.name} ${join(",", [for adapter in each.value.network_adapters : adapter.name if adapter.name == "lab-wan" || adapter.name == "lab-lan"])}"
   }
 
-  # Re-run if the VM is recreated
+  # Re-run if the VM is recreated or connected adapter configuration changes
   triggers = {
     vm_id = hyperv_machine_instance.vm[each.key].id
-    adapters = jsonencode(each.value.network_adapters)
+    connected_adapters = jsonencode([for adapter in each.value.network_adapters : adapter if adapter.name == "lab-wan" || adapter.name == "lab-lan"])
   }
 }
 

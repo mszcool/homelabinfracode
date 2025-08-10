@@ -30,6 +30,11 @@ output "test_client_id" {
   value       = try(hyperv_machine_instance.vm["test_client"].name, null)
 }
 
+output "truenas_id" {
+  description = "TrueNAS VM instance ID"
+  value       = try(hyperv_machine_instance.vm["truenas"].name, null)
+}
+
 output "lab_wan_switch" {
   description = "Lab WAN switch details"
   value = {
@@ -49,9 +54,14 @@ output "lab_lan_switch" {
 output "vm_disk_paths" {
   description = "Virtual machine disk paths"
   value = {
-    for vm_key, vm in local.vm_configurations : vm_key => {
-      main      = hyperv_vhd.main_disks[vm_key].path
-      secondary = length(vm.disks) > 1 ? hyperv_vhd.secondary_disks[vm_key].path : null
+    for vm_key, vm in module.shared_config.vm_configurations : vm_key => {
+      disks = [
+        for disk_idx, disk in vm.disks : {
+          name = disk.name
+          path = hyperv_vhd.vm_disks["${vm_key}_${disk_idx}"].path
+          controller_location = disk_idx
+        }
+      ]
     }
   }
 }

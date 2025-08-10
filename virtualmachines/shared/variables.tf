@@ -113,18 +113,34 @@ variable "vm_configurations" {
       }]
     }
 
-    "test_client_3" = {
-      name      = "Test-Client-3"
-      cpu_cores = 2
-      memory_mb = 1536 # This was the minimum for subiquity installer to run without errors on apt update/upgrade
-      disks = [{
-        name    = "main"
-        size_gb = 128
-      }]
-      network_adapters = [{
-        name = "lab-lan"
-        static_mac_address = "00:15:5D:63:A6:0A"
-      }]
+    "truenas" = {
+      name      = "TrueNAS"
+      cpu_cores = 4
+      memory_mb = 6144  # 6GB of RAM
+      disks = [
+        {
+          name    = "boot"
+          size_gb = 256
+        },
+        {
+          name    = "data1"
+          size_gb = 512
+        },
+        {
+          name    = "data2"
+          size_gb = 512
+        }
+      ]
+      network_adapters = [
+        {
+          name = "lab-lan"
+          static_mac_address = "00:15:5D:63:A6:0A"
+        },
+        {
+          name = "disconnected"  # Second adapter not connected to anything
+          static_mac_address = "00:15:5D:63:A6:0B"
+        }
+      ]
     }
   }
 }
