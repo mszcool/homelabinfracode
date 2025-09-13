@@ -21,7 +21,7 @@
 
 - name: Get the disk configuration for the current host.
   ansible.builtin.set_fact:
-    selected_disk_config: "{{ (param_disk_config | default({})) if (param_disk_config is defined and (param_disk_config|length) > 0) else (param_volume_disk_configs | default([]) | selectattr('name','equalto', param_host_disk_config_name | default('')) | list | first | default({})) }}"
+    selected_disk_config: "{{ (param_disk_config | default({})) if (param_disk_config is defined and (param_disk_config|length) > 0) else (param_volume_disk_configs | default([]) | first | default({})) }}"
   failed_when: selected_disk_config is not defined or selected_disk_config | length == 0
 
 - name: Now validate if all LVM thin pools defined in the disk config are present on the target machine.
