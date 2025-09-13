@@ -18,30 +18,6 @@ all:
         volume_group: "vg0"
         volume: "instances"
     volume_group_name: "vg0"
-    volume_disk_configs:
-      - name: "msz_single_disk_server"
-        devices_in_scope:
-          - device: "sda"
-        root_partition:
-          device: "sda"
-          size_MB: "20480"
-        volume_group_volumes:
-          images:
-            size_MB: "51200"
-          instances:
-            all_remaining_space: true
-      - name: "msz_dual_disk_server"
-        devices_in_scope:
-          - device: "sda"
-          - device: "sdb"
-        root_partition:
-          device: "sda"
-          size_MB: "20480"
-        volume_group_volumes:
-          images:
-            size_MB: "51200"
-          instances:
-            all_remaining_space: true
     minimum_packages:
       - openssh-server
       - curl
@@ -61,13 +37,36 @@ all:
       hosts:
         10.10.0.2:
           hostname: mszpvetest1
-          disk_config_name: "msz_single_disk_server"
+          disk_config:
+            name: "msz_single_disk_server"
+            devices_in_scope:
+              - device: "sda"
+            root_partition:
+              device: "sda"
+              size_MB: "20480"
+            volume_group_volumes:
+              images:
+                size_MB: "51200"
+              instances:
+                all_remaining_space: true
           incus_network:
             physical_network_parent: "eth0"
             bridged_network_parents: "eth0"
         10.10.0.3:
           hostname: mszpvetest2
-          disk_config_name: "msz_dual_disk_server"
+          disk_config:
+            name: "msz_dual_disk_server"
+            devices_in_scope:
+              - device: "sda"
+              - device: "sdb"
+            root_partition:
+              device: "sda"
+              size_MB: "20480"
+            volume_group_volumes:
+              images:
+                size_MB: "51200"
+              instances:
+                all_remaining_space: true
           incus_network:
             physical_network_parent: "eth0"
             bridged_network_parents: "eth0"
