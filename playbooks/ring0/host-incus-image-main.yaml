@@ -107,4 +107,4 @@
         label: "{{ incus_host }}"
       vars:
         disk_config: "{{ hostvars[incus_host].disk_config }}"
-        param_random_hostname: "{{ hostvars[incus_host].hostname | default(param_random_hostname) }}"
+        param_hostname: "{{ hostvars[incus_host].hostname | default(param_random_hostname) }}"

@@ -7,7 +7,7 @@
     dest: "{{ param_iso_working_path }}/autoinstall.yaml"
     mode: '0644'
   vars:
-    tp_hostname: "{{ param_random_hostname }}"
+    tp_hostname: "{{ param_hostname }}"
     tp_volgroupname: "{{ param_volume_group_name }}"
     tp_diskdata: "{{ disk_config }}"
     tp_packages: "{{ param_minimum_packages }}"
