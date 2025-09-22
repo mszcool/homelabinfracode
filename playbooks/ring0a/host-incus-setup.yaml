@@ -20,6 +20,7 @@
       ansible.builtin.set_fact:
         ansible_user: "{{ incus_root_user }}"
         param_hostname: "{{ hostvars[inventory_hostname]['hostname'] }}"
+        param_host_disk_config_name: "{{ hostvars[inventory_hostname]['disk_config_name'] | default('') }}"
         param_incus_network: "{{ hostvars[inventory_hostname]['incus_network'] }}"
         param_disk_config: "{{ hostvars[inventory_hostname]['disk_config'] | default({}) }}"
 

@@ -38,6 +38,7 @@ all:
         10.10.0.2:
           hostname: mszpvetest1
           disk_config:
+            name: "msz_single_disk_server"
             devices_in_scope:
               - device: "sda"
             root_partition:
@@ -54,6 +55,7 @@ all:
         10.10.0.3:
           hostname: mszpvetest2
           disk_config:
+            name: "msz_dual_disk_server"
             devices_in_scope:
               - device: "sda"
               - device: "sdb"
