@@ -1,0 +1,10 @@
+---
+- name: Ensure host_config_name is defined for this host
+  ansible.builtin.fail:
+    msg: "Host {{ inventory_hostname }} does not set host_config_name. Set host_config_name in the inventory to a name present in host_configs."
+  when: hostvars[inventory_hostname]['host_config_name'] is not defined or hostvars[inventory_hostname]['host_config_name'] | length == 0
+
+- name: Ensure referenced host_config exists in host_configs
+  ansible.builtin.fail:
+    msg: "Host {{ inventory_hostname }} references unknown host_config_name '{{ hostvars[inventory_hostname]['host_config_name'] }}'"
+  when: (host_configs | selectattr('name', 'equalto', hostvars[inventory_hostname]['host_config_name']) | list | length) == 0

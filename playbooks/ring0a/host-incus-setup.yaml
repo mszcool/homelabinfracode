@@ -14,15 +14,34 @@
     param_volume_group_volume_root: "{{ volume_group_volume_root | default('root') }}"
     param_volume_group_volume_images: "{{ volume_group_volume_images | default('images') }}"
     param_volume_group_volume_instances: "{{ volume_group_volume_instances | default('instances') }}"
-    param_volume_disk_configs: "{{ volume_disk_configs | default([]) }}"
+    param_volume_disk_configs: "{{ param_host_configs | map(attribute='virtual_disk_config') | list }}"
+    param_host_config_name: "{{ hostvars[inventory_hostname]['host_config_name'] }}"
+    param_host_configs: "{{ host_configs | default([]) }}"
+    param_incus_network: >-
+      {{
+        (host_configs
+         | selectattr('name', 'equalto', hostvars[inventory_hostname]['host_config_name'])
+         | map(attribute='network_config')
+         | first)
+        | default({})
+      }}
 
   tasks:
     - name: Set the SSH user name in case it is not the default.
       ansible.builtin.set_fact:
         ansible_user: "{{ incus_root_user }}"
         param_hostname: "{{ hostvars[inventory_hostname]['hostname'] }}"
-        param_host_disk_config_name: "{{ hostvars[inventory_hostname]['disk_config_name'] }}"
-        param_incus_network: "{{ hostvars[inventory_hostname]['incus_network'] }}"
+        param_host_config_name: "{{ hostvars[inventory_hostname]['host_config_name'] }}"
+        param_host_configs: "{{ host_configs | default([]) }}"
+        param_volume_disk_configs: "{{ param_host_configs | map(attribute='virtual_disk_config') | list }}"
+        param_incus_network: >-
+          {{
+            (host_configs
+             | selectattr('name', 'equalto', hostvars[inventory_hostname]['host_config_name'])
+             | map(attribute='network_config')
+             | first)
+            | default({})
+          }}
 
     - name: Run baseline installation tasks
       ansible.builtin.include_tasks: ../tasks/bootstrap_tasks.yaml
@@ -64,7 +83,7 @@
 
     - name: Check if Incus is already initialized
       ansible.builtin.shell: |
-        incus profile show default | grep -E "^devices:" -A 20 | grep -E "(root|eth0)" | wc -l
+        set -o pipefail && incus profile show default | grep -E "^devices:" -A 20 | grep -E "(root|eth0)" | wc -l
       register: incus_status
       failed_when: false
       changed_when: false
@@ -100,6 +119,6 @@
       ansible.builtin.file:
         path: "{{ temp_dir.path }}"
         state: absent
-      when: 
+      when:
         - incus_needs_init | bool
         - temp_dir is defined
