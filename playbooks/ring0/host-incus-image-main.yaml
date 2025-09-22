@@ -14,6 +14,7 @@
     param_iso_destination_path: "{{ lookup('env', 'HOME') }}{{ iso_destination_path }}"
     param_iso_working_path: "{{ lookup('env', 'HOME') }}{{ iso_working_path }}"
     param_volume_group_name: "{{ volume_group_name }}"
+    param_volume_disk_configs: "{{ volume_disk_configs }}"
     param_minimum_packages: "{{ minimum_packages }}"
 
   tasks:
@@ -93,18 +94,9 @@
         state: directory
         mode: '0755'
 
-    - name: Validation -- Ensure each incus host has a disk_config defined
-      ansible.builtin.fail:
-        msg: "Inventory host {{ item }} is missing a 'disk_config' definition; please add one."
-      when: (hostvars[item].disk_config is not defined) or (hostvars[item].disk_config | length == 0)
-      loop: "{{ groups['incus'] | default([]) }}"
-
-    - name: Processing -- Process each server's disk configuration
+    - name: Processing -- Process each disk configuration
       ansible.builtin.include_tasks: host-incus-image-process-disk-tasks.yml
-      loop: "{{ groups['incus'] | default([]) }}"
+      loop: "{{ param_volume_disk_configs }}"
       loop_control:
-        loop_var: incus_host
-        label: "{{ incus_host }}"
-      vars:
-        disk_config: "{{ hostvars[incus_host].disk_config }}"
-        param_random_hostname: "{{ hostvars[incus_host].hostname | default(param_random_hostname) }}"
+        loop_var: disk_config
+        label: "{{ disk_config.name }}"

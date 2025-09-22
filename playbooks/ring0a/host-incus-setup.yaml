@@ -14,15 +14,15 @@
     param_volume_group_volume_root: "{{ volume_group_volume_root | default('root') }}"
     param_volume_group_volume_images: "{{ volume_group_volume_images | default('images') }}"
     param_volume_group_volume_instances: "{{ volume_group_volume_instances | default('instances') }}"
+    param_volume_disk_configs: "{{ volume_disk_configs | default([]) }}"
 
   tasks:
     - name: Set the SSH user name in case it is not the default.
       ansible.builtin.set_fact:
         ansible_user: "{{ incus_root_user }}"
         param_hostname: "{{ hostvars[inventory_hostname]['hostname'] }}"
-        param_host_disk_config_name: "{{ hostvars[inventory_hostname]['disk_config_name'] | default('') }}"
+        param_host_disk_config_name: "{{ hostvars[inventory_hostname]['disk_config_name'] }}"
         param_incus_network: "{{ hostvars[inventory_hostname]['incus_network'] }}"
-        param_disk_config: "{{ hostvars[inventory_hostname]['disk_config'] | default({}) }}"
 
     - name: Run baseline installation tasks
       ansible.builtin.include_tasks: ../tasks/bootstrap_tasks.yaml

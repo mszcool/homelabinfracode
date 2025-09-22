@@ -51,17 +51,17 @@
       -appended_part_as_gpt
       -isohybrid-gpt-basdat
       -isohybrid-mbr {{ param_iso_working_path }}/bootpart/mbr_code_grub2.img
-      -o {{ param_iso_destination_path }}/ubuntu-custom-{{ param_random_hostname }}-{{ disk_config.name }}.iso
+      -o {{ param_iso_destination_path }}/ubuntu-custom-{{ disk_config.name }}.iso
       {{ param_iso_working_path }}
   args:
-    creates: "{{ param_iso_destination_path }}/ubuntu-custom-{{ param_random_hostname }}-{{ disk_config.name }}.iso"
+    creates: "{{ param_iso_destination_path }}/ubuntu-custom-{{ disk_config.name }}.iso"
 
 - name: Processing per disk config -- Verify ISO was created.
   ansible.builtin.stat:
-    path: "{{ param_iso_destination_path }}/ubuntu-custom-{{ param_random_hostname }}-{{ disk_config.name }}.iso"
+    path: "{{ param_iso_destination_path }}/ubuntu-custom-{{ disk_config.name }}.iso"
   register: iso_stat
 
 - name: Processing per disk config -- Display ISO creation result.
   ansible.builtin.debug:
-    msg: "Custom ISO for {{ param_random_hostname }} ({{ disk_config.name }}) created successfully at {{ param_iso_destination_path }}/ubuntu-custom-{{ param_random_hostname }}-{{ disk_config.name }}.iso"
+    msg: "Custom ISO for {{ disk_config.name }} created successfully at {{ param_iso_destination_path }}/ubuntu-custom-{{ disk_config.name }}.iso"
   when: iso_stat.stat.exists
