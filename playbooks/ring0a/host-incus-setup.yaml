@@ -1,5 +1,19 @@
 ---
-- name: Baseline for each Proxmox node
+- name: Pre-validation - Check preseed files exist for all hosts
+  hosts: localhost
+  gather_facts: false
+  connection: local
+  tasks:
+    - name: Validate preseed files exist for all incus hosts
+      ansible.builtin.stat:
+        path: "{{ incus_preseed_output_dir }}/incus.preseed.{{ hostvars[item]['host_config_name'] }}.yaml"
+      register: preseed_validation
+      loop: "{{ groups['incus'] }}"
+      failed_when: not preseed_validation.stat.exists
+      vars:
+        msg: "Missing preseed file for host {{ item }} with config {{ hostvars[item]['host_config_name'] }}"
+
+- name: Baseline for each Incus node
   hosts: incus
   become: true
   gather_facts: true
@@ -42,6 +56,19 @@
              | first)
             | default({})
           }}
+        param_preseed_file_path: "{{ incus_preseed_output_dir }}/incus.preseed.{{ hostvars[inventory_hostname]['host_config_name'] }}.yaml"
+
+    - name: Validate that preseed file exists for this host configuration
+      ansible.builtin.stat:
+        path: "{{ param_preseed_file_path }}"
+      register: preseed_file_stat
+      delegate_to: localhost
+      become: false
+
+    - name: Fail if preseed file does not exist
+      ansible.builtin.fail:
+        msg: "Required preseed file '{{ param_preseed_file_path }}' does not exist for host config '{{ param_host_config_name }}'"
+      when: not preseed_file_stat.stat.exists
 
     - name: Run baseline installation tasks
       ansible.builtin.include_tasks: ../tasks/bootstrap_tasks.yaml
@@ -58,7 +85,7 @@
     - name: If the environment variable in incus_root_password_env is set, update the password.
       ansible.builtin.user:
         name: "{{ incus_root_user }}"
-        password: "{{ generate_password_input }}"
+        password: "{{ generate_password_input | password_hash('sha512') }}"
       when: generate_password_input is defined and generate_password_input | length > 0
 
     - name: Set the Incus server admin SSH Key.
@@ -92,23 +119,33 @@
       ansible.builtin.set_fact:
         incus_needs_init: "{{ incus_status.stdout | int < 2 }}"
 
-    - name: Create temporary directory for Incus preseed file
-      ansible.builtin.tempfile:
-        state: directory
-        suffix: .incus
-      register: temp_dir
+    - name: Copy preseed file to target host
+      ansible.builtin.copy:
+        src: "{{ param_preseed_file_path }}"
+        dest: "/tmp/incus-preseed.yaml"
+        mode: '0600'
       when: incus_needs_init | bool
 
     - name: Initialize Incus with preseed configuration
-      ansible.builtin.shell: incus admin init --preseed < {{ temp_dir.path }}/incus-preseed.yaml
+      ansible.builtin.shell: incus admin init --preseed < /tmp/incus-preseed.yaml
       args:
         creates: /var/lib/incus/database/global/db.bin
       when: incus_needs_init | bool
 
-    - name: Clean up temporary directory
+    - name: Clean up preseed file from target host
       ansible.builtin.file:
-        path: "{{ temp_dir.path }}"
+        path: "/tmp/incus-preseed.yaml"
         state: absent
-      when:
-        - incus_needs_init | bool
-        - temp_dir is defined
+      when: incus_needs_init | bool
+
+    - name: Copy production profile from default project to production project
+      ansible.builtin.shell: |
+        if ! incus profile show production --project production >/dev/null 2>&1; then
+          # Create the profile in production project first
+          incus profile create production --project production
+          # Copy the profile configuration from default project
+          incus profile show production --project default > /tmp/production-profile.yaml
+          incus profile edit production --project production < /tmp/production-profile.yaml
+          rm -f /tmp/production-profile.yaml
+        fi
+      when: incus_needs_init | bool

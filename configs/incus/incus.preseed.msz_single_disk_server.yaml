@@ -40,18 +40,32 @@ projects:
     features.profiles: true
     features.storage.volumes: true
     limits.disk: 350GB
-  description: Lab VMs with NAT networking and storage limits
+  description: Default Lab VMs with NAT networking and storage limits
 - name: production
   config:
     features.images: true
-    features.networks: true
+    features.networks: false
     features.profiles: true
     features.storage.volumes: true
   description: Production VMs with bridged networking
 
 profiles:
-- name: prod
-  project: production
+- name: bridged
+  description: "Profile for VMs with bridged networking (production-like)"
+  devices:
+    root:
+      path: /
+      pool: incus-instances
+      type: disk
+    eth0:
+      name: eth0
+      network: incus-prod-bridge
+      type: nic
+  config:
+    boot.autostart: true
+    security.privileged: false
+    security.protection.delete: true
+- name: production
   description: "Profile for production VMs with bridged networking"
   devices:
     root:
@@ -67,7 +81,6 @@ profiles:
     security.privileged: false
     security.protection.delete: true
 - name: default
-  project: default
   description: "Profile for lab VMs with NAT networking"
   devices:
     root:

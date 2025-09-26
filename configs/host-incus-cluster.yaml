@@ -68,9 +68,9 @@ all:
   children:
     incus:
       hosts:
-        10.10.0.2:
+        192.168.0.31:
           hostname: mszpvetest1
           host_config_name: "msz_single_disk_server"
-        10.10.0.3:
+        192.168.0.32:
           hostname: mszpvetest2
           host_config_name: "msz_dual_disk_server"

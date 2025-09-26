@@ -19,9 +19,6 @@
     msg: "Volume group {{ param_volume_group_name }} does not exist."
   when: vg_check is failed
 
-- name: Build list of matching host_configs
-  # (removed long inline selection; using a short loop to find host_config_entry below)
-
 - name: Find host_config entry for this host
   ansible.builtin.set_fact:
     host_config_entry: "{{ item }}"
