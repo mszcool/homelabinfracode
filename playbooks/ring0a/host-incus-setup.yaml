@@ -99,16 +99,6 @@
       register: temp_dir
       when: incus_needs_init | bool
 
-    - name: Generate Incus preseed configuration from template
-      ansible.builtin.template:
-        src: incus-preseed.yaml.j2
-        dest: "{{ temp_dir.path }}/incus-preseed.yaml"
-        mode: '0600'
-      vars:
-        tp_incus_config: "{{ param_incus_config }}"
-        tp_incus_netconfig: "{{ param_incus_network }}"
-      when: incus_needs_init | bool
-
     - name: Initialize Incus with preseed configuration
       ansible.builtin.shell: incus admin init --preseed < {{ temp_dir.path }}/incus-preseed.yaml
       args:

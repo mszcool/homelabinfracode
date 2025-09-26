@@ -1,0 +1,83 @@
+config:
+  core.https_address: 127.0.0.1:9443
+  images.auto_update_interval: 15
+
+networks:
+- name: incus-prod-bridge
+  type: macvlan
+  config:
+    parent: eth0
+- name: incus-lab-nat
+  type: bridge
+  config:
+    ipv4.address: 10.100.0.1/24
+    ipv4.dhcp: true
+    ipv4.nat: true
+    ipv6.address: none
+    ipv6.nat: false
+
+storage_pools:
+- name: incus-images
+  driver: lvm
+  config:
+    source: vg0
+    lvm.use_thinpool: true
+    lvm.vg.force_reuse: true
+    lvm.thinpool_name: images
+- name: incus-instances
+  driver: lvm
+  config:
+    source: vg0
+    lvm.use_thinpool: true
+    lvm.vg.force_reuse: true
+    lvm.thinpool_name: instances
+
+projects:
+- name: default
+  config:
+    features.images: true
+    features.networks: true
+    features.profiles: true
+    features.storage.volumes: true
+    limits.disk: 350GB
+  description: Lab VMs with NAT networking and storage limits
+- name: production
+  config:
+    features.images: true
+    features.networks: true
+    features.profiles: true
+    features.storage.volumes: true
+  description: Production VMs with bridged networking
+
+profiles:
+- name: prod
+  project: production
+  description: "Profile for production VMs with bridged networking"
+  devices:
+    root:
+      path: /
+      pool: incus-instances
+      type: disk
+    eth0:
+      name: eth0
+      network: incus-prod-bridge
+      type: nic
+  config:
+    boot.autostart: true
+    security.privileged: false
+    security.protection.delete: true
+- name: default
+  project: default
+  description: "Profile for lab VMs with NAT networking"
+  devices:
+    root:
+      path: /
+      pool: incus-instances
+      type: disk
+    eth0:
+      name: eth0
+      network: incus-lab-nat
+      type: nic
+  config:
+    boot.autostart: false
+    security.privileged: false

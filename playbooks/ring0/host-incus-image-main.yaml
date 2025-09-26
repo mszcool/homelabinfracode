@@ -1,4 +1,16 @@
 ---
+# Host setup for bare-metal servers running Incus.
+# This playbook generates preseed files for each server configuration type.
+#
+# Usage examples:
+#   # Generate preseeds in configs directory:
+#   ansible-playbook -i configs/host-incus-cluster.yaml playbooks/ring0/host-incus-image-main.yaml
+#
+#   # Generate preseeds in configs.private directory:
+#   ansible-playbook -i configs.private/infra-bootstrap/host-incus-cluster.yaml \
+#                    -e preseed_output_dir=configs.private/infra-bootstrap \
+#                    playbooks/ring0/host-incus-image-main.yaml
+#
 - name: Host setup for bare-metal servers running Incus.
   hosts: localhost
   become: false
@@ -15,8 +27,10 @@
     param_iso_working_path: "{{ lookup('env', 'HOME') }}{{ iso_working_path }}"
     param_volume_group_name: "{{ volume_group_name }}"
     param_host_configs: "{{ host_configs | default([]) }}"
-    param_volume_disk_configs: "{{ param_host_configs | map(attribute='virtual_disk_config') | list }}"
     param_minimum_packages: "{{ minimum_packages }}"
+    param_incus_config: "{{ incus_config }}"
+    # Output directory for preseed files - can be overridden with -e preseed_output_dir=path
+    param_preseed_output_dir: "{{ incus_preseed_output_dir | default('configs') }}"
 
   tasks:
     - name: Pre-requisites -- Install required packages
@@ -96,8 +110,27 @@
         mode: '0755'
 
     - name: Processing -- Process each disk configuration
-      ansible.builtin.include_tasks: host-incus-image-process-disk-tasks.yml
-      loop: "{{ param_volume_disk_configs }}"
+      ansible.builtin.include_tasks: ./tasks/host-incus-image-process-disk-tasks.yml
+      loop: "{{ param_host_configs }}"
       loop_control:
-        loop_var: disk_config
-        label: "{{ disk_config.name }}"
+        loop_var: host_config_item
+        label: "{{ host_config_item.name }}"
+
+    - name: Processing -- Ensure preseed output directory exists
+      ansible.builtin.file:
+        path: "{{ param_preseed_output_dir }}"
+        state: directory
+        mode: '0755'
+
+    - name: Processing -- Generate Incus preseed configuration for each server type
+      ansible.builtin.template:
+        src: incus-preseed.yaml.j2
+        dest: "{{ param_preseed_output_dir }}/incus.preseed.{{ host_config.name }}.yaml"
+        mode: '0600'
+      vars:
+        tp_incus_config: "{{ param_incus_config }}"
+        tp_incus_netconfig: "{{ host_config.network_config }}"
+      loop: "{{ param_host_configs }}"
+      loop_control:
+        loop_var: host_config
+        label: "{{ host_config.name }}"

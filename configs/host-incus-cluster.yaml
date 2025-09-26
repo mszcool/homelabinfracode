@@ -9,6 +9,7 @@ all:
     iso_source_path: "/iso/ubuntu-24.04.2-live-server-amd64.iso"
     iso_destination_path: "/iso"
     iso_working_path: "/iso/temp"
+    incus_preseed_output_dir: "../../configs/incus"
     incus_config:
       port: 8443
       storage_images:
@@ -21,7 +22,6 @@ all:
     host_configs:
       - name: "msz_single_disk_server"
         virtual_disk_config:
-          name: "msz_single_disk_server"
           devices_in_scope:
             - device: "sda"
           root_partition:
@@ -37,7 +37,6 @@ all:
           bridged_network_parents: "eth0"
       - name: "msz_dual_disk_server"
         virtual_disk_config:
-          name: "msz_dual_disk_server"
           devices_in_scope:
             - device: "sda"
             - device: "sdb"
