@@ -120,16 +120,6 @@ autoinstall:
         device: disk-{{ device.device }}
         size: -1  # Use remaining space
       {%- endfor %}
-      
-      # Create volume group with all LVM partitions
-      - type: lvm_volgroup
-        id: {{ tp_volgroupname }}
-        name: {{ tp_volgroupname }}
-        devices:
-          {%- for device in tp_diskdata.devices_in_scope %}
-
-          - lvm-{{ device.device }}-part
-          {%- endfor %}
   
   packages:
     - {{ tp_packages|join('\n    - ') }}
@@ -140,7 +130,19 @@ autoinstall:
     - echo 'APT::Periodic::AutocleanInterval "7";' >> /target/etc/apt/apt.conf.d/20auto-upgrades
     - curtin in-target --target=/target -- sed -i 's/#PasswordAuthentication yes/PasswordAuthentication no/' /etc/ssh/sshd_config
     - curtin in-target --target=/target -- sed -i 's/#PermitRootLogin prohibit-password/PermitRootLogin no/' /etc/ssh/sshd_config
-    - echo "=== Creating LVM thin pools for Incus storage ==="
+    - echo "=== Creating LVM volume group for Incus storage ==="
+    # Force cleanup of any existing volume group and physical volumes
+    - vgremove --force {{ tp_volgroupname }} 2>/dev/null || echo "No existing VG {{ tp_volgroupname }} to remove"
+    {%- for device in tp_diskdata.devices_in_scope %}
+    - pvremove --force /dev/{{ device.device }}* 2>/dev/null || echo "No existing PVs on {{ device.device }} to remove"
+    {%- endfor %}
+    # Create physical volumes and volume group using the partition devices created by autoinstall
+    {%- for device in tp_diskdata.devices_in_scope %}
+    - pvcreate --force $(lsblk -lnp -o NAME /dev/{{ device.device }} | tail -1) || echo "Failed to create PV on {{ device.device }}"
+    {%- endfor %}
+    # Create volume group with all the LVM partition devices
+    - vgcreate {{ tp_volgroupname }} {% for device in tp_diskdata.devices_in_scope %}$(lsblk -lnp -o NAME /dev/{{ device.device }} | tail -1) {% endfor %}|| echo "Failed to create VG {{ tp_volgroupname }}"
+    - echo "=== LVM volume group created, now creating thin pools ==="
     - vgs {{ tp_volgroupname }}
     - lvs {{ tp_volgroupname }}
     {% for vol_name, vol_config in tp_diskdata.volume_group_volumes.items() -%}
