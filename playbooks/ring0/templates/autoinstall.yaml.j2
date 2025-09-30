@@ -19,6 +19,26 @@ autoinstall:
     authorized-keys:
       - {{ tp_root_user_publickey }}
   
+  early-commands:
+    - echo "=== Starting aggressive disk cleanup ==="
+    {%- for device in tp_diskdata.devices_in_scope %}
+    - echo "Cleaning disk {{ device.device }}"
+    # Zero out the first 100MB of the disk to destroy all headers and metadata
+    - dd if=/dev/zero of=/dev/{{ device.device }} bs=1M count=100 conv=notrunc || true
+    # Zero out the last 100MB of the disk to destroy backup GPT and trailing metadata
+    - DISK_SIZE=$(cat /sys/block/{{ device.device }}/size 2>/dev/null || echo 0)
+    # Only zero the end if disk is larger than 100MB (204800 sectors = 100MB in 512-byte sectors)
+    # This prevents seeking to negative positions on very small disks
+    - if [ "$DISK_SIZE" -gt 204800 ]; then dd if=/dev/zero of=/dev/{{ device.device }} bs=512 seek=$(( DISK_SIZE - 204800 )) count=204800 conv=notrunc || true; fi
+    # Force kernel to re-read partition table by writing to it
+    - echo 1 > /sys/block/{{ device.device }}/device/rescan 2>/dev/null || true
+    {%- endfor %}
+    - echo "=== Disk cleanup completed ==="
+    # Give the system time to recognize the changes
+    - sleep 3
+    - echo "=== Available block devices after cleanup ==="
+    - ls -la /dev/sd* /dev/nvme* 2>/dev/null || true
+  
   storage:
     config:
       # Define all disk devices from devices_in_scope
@@ -29,7 +49,7 @@ autoinstall:
         path: /dev/{{ device.device }}
         ptable: gpt
         grub_device: {{ loop.first }}
-        wipe: superblock-recursive
+        wipe: superblock
         preserve: false
       {%- endfor %}
       
