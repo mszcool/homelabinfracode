@@ -18,6 +18,9 @@ all:
       storage_instances:
         volume_group: "vg0"
         volume: "instances"
+      profile_disk_sizes:
+        default: "30GiB"
+        production: "128GiB"
     volume_group_name: "vg0"
     host_configs:
       - name: "msz_single_disk_server"
@@ -65,6 +68,9 @@ all:
       - gnupg
       - acl
       - bc
+      - incus
+      - qemu-utils
+      - qemu-system-x86
   children:
     incus:
       hosts:

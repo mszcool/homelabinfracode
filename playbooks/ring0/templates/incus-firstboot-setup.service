@@ -1,0 +1,14 @@
+[Unit]
+Description=Incus First Boot Setup and Configuration
+After=multi-user.target incus.service
+Wants=incus.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/bin/incus-firstboot-setup.sh
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

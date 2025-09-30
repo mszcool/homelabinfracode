@@ -41,52 +41,16 @@ projects:
     features.storage.volumes: true
     limits.disk: 350GB
   description: Default Lab VMs with NAT networking and storage limits
-- name: production
-  config:
-    features.images: true
-    features.networks: false
-    features.profiles: true
-    features.storage.volumes: true
-  description: Production VMs with bridged networking
 
 profiles:
-- name: bridged
-  description: "Profile for VMs with bridged networking (production-like)"
-  devices:
-    root:
-      path: /
-      pool: incus-instances
-      type: disk
-    eth0:
-      name: eth0
-      network: incus-prod-bridge
-      type: nic
-  config:
-    boot.autostart: true
-    security.privileged: false
-    security.protection.delete: true
-- name: production
-  description: "Profile for production VMs with bridged networking"
-  devices:
-    root:
-      path: /
-      pool: incus-instances
-      type: disk
-    eth0:
-      name: eth0
-      network: incus-prod-bridge
-      type: nic
-  config:
-    boot.autostart: true
-    security.privileged: false
-    security.protection.delete: true
 - name: default
-  description: "Profile for lab VMs with NAT networking"
+  description: "Default profile for VMs with NAT networking and {{ tp_incus_config.profile_disk_sizes.default }} root disk"
   devices:
     root:
       path: /
       pool: incus-instances
       type: disk
+      size: {{ tp_incus_config.profile_disk_sizes.default }}
     eth0:
       name: eth0
       network: incus-lab-nat
@@ -94,3 +58,19 @@ profiles:
   config:
     boot.autostart: false
     security.privileged: false
+- name: production
+  description: "Profile for production VMs with bridged networking and {{ tp_incus_config.profile_disk_sizes.production }} root disk"
+  devices:
+    root:
+      path: /
+      pool: incus-instances
+      type: disk
+      size: {{ tp_incus_config.profile_disk_sizes.production }}
+    eth0:
+      name: eth0
+      network: incus-prod-bridge
+      type: nic
+  config:
+    boot.autostart: true
+    security.privileged: false
+    security.protection.delete: false

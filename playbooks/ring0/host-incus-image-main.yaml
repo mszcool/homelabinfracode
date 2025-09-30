@@ -109,13 +109,6 @@
         state: directory
         mode: '0755'
 
-    - name: Processing -- Process each disk configuration
-      ansible.builtin.include_tasks: ./tasks/host-incus-image-process-disk-tasks.yml
-      loop: "{{ param_host_configs }}"
-      loop_control:
-        loop_var: host_config_item
-        label: "{{ host_config_item.name }}"
-
     - name: Processing -- Ensure preseed output directory exists
       ansible.builtin.file:
         path: "{{ param_preseed_output_dir }}"
@@ -134,3 +127,10 @@
       loop_control:
         loop_var: host_config
         label: "{{ host_config.name }}"
+
+    - name: Processing -- Process each disk configuration
+      ansible.builtin.include_tasks: ./tasks/host-incus-image-process-disk-tasks.yml
+      loop: "{{ param_host_configs }}"
+      loop_control:
+        loop_var: host_config_item
+        label: "{{ host_config_item.name }}"

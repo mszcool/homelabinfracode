@@ -1,6 +1,40 @@
 ---
 # Tasks for processing each disk configuration to create a custom ISO
 
+- name: Processing per disk config -- Copy Incus preseed file to ISO
+  ansible.builtin.copy:
+    src: "{{ param_preseed_output_dir }}/incus.preseed.{{ host_config_item.name }}.yaml"
+    dest: "{{ param_iso_working_path }}/autoinstall/incus-preseed.yaml"
+    mode: '0644'
+
+- name: Processing per disk config -- Generate and copy Incus first-boot script to ISO
+  ansible.builtin.template:
+    src: "templates/incus-firstboot-setup.sh.j2"
+    dest: "{{ param_iso_working_path }}/autoinstall/incus-firstboot-setup.sh"
+    mode: '0755'
+  vars:
+    tp_root_user: "{{ root_user }}"
+
+- name: Processing per disk config -- Copy Incus systemd service file to ISO
+  ansible.builtin.copy:
+    src: "templates/incus-firstboot-setup.service"
+    dest: "{{ param_iso_working_path }}/autoinstall/incus-firstboot-setup.service"
+    mode: '0644'
+
+- name: Processing per disk config -- Verify files were copied to ISO
+  ansible.builtin.stat:
+    path: "{{ item }}"
+  register: iso_files_stat
+  loop:
+    - "{{ param_iso_working_path }}/autoinstall/incus-preseed.yaml"
+    - "{{ param_iso_working_path }}/autoinstall/incus-firstboot-setup.sh"
+    - "{{ param_iso_working_path }}/autoinstall/incus-firstboot-setup.service"
+
+- name: Processing per disk config -- Display copy results
+  ansible.builtin.debug:
+    msg: "Incus files for {{ host_config_item.name }} copied successfully to ISO"
+  when: iso_files_stat.results | map(attribute='stat.exists') | list | unique == [true]
+
 - name: Processing per disk config -- Generate autoinstall configuration
   ansible.builtin.template:
     src: "templates/autoinstall.yaml.j2"

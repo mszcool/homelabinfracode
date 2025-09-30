@@ -1,0 +1,88 @@
+#!/bin/bash
+# Incus First Boot Setup Script
+# This script runs once on first boot to configure Incus with preseed
+
+set -euo pipefail
+
+# Setup logging
+LOGFILE="/var/log/incus-firstboot-setup.log"
+exec > >(tee -a "$LOGFILE")
+exec 2>&1
+
+echo "=== Incus First Boot Setup Starting at $(date) ==="
+
+# Add user to incus group (try different group names)
+echo "Adding user {{ tp_root_user }} to incus group..."
+if getent group incus-admin >/dev/null 2>&1; then
+    echo "Found incus-admin group, adding user..."
+    usermod -a -G incus-admin {{ tp_root_user }}
+elif getent group incus >/dev/null 2>&1; then
+    echo "Found incus group, adding user..."
+    usermod -a -G incus {{ tp_root_user }}
+else
+    echo "Creating incus group and adding user..."
+    groupadd incus
+    usermod -a -G incus {{ tp_root_user }}
+fi
+
+# Start Incus service and wait for it to be ready
+echo "Starting Incus service..."
+systemctl start incus
+
+echo "Waiting for Incus service to be ready..."
+timeout=60
+counter=0
+while ! systemctl is-active --quiet incus; do
+    sleep 2
+    counter=$((counter + 2))
+    if [ $counter -ge $timeout ]; then
+        echo "ERROR: Incus service did not start within $timeout seconds"
+        exit 1
+    fi
+done
+
+echo "Incus service is ready!"
+
+# Initialize Incus with preseed configuration
+PRESEED_FILE="/usr/local/bin/incus-preseed.yaml"
+if [ -f "$PRESEED_FILE" ]; then
+    echo "Found preseed file at $PRESEED_FILE, showing content for debugging:"
+    echo "--- Preseed file content ---"
+    cat "$PRESEED_FILE"
+    echo "--- End of preseed file ---"
+    
+    echo "Initializing Incus with preseed configuration..."
+    if /usr/bin/incus admin init --preseed < "$PRESEED_FILE"; then
+        echo "Incus initialization completed successfully!"
+        
+        # Show final state
+        echo "Current Incus state:"
+        /usr/bin/incus info || echo "Failed to get incus info"
+        /usr/bin/incus storage list || echo "Failed to list storage"
+        /usr/bin/incus network list || echo "Failed to list networks"
+        
+        # Clean up preseed file
+        echo "Cleaning up preseed file..."
+        rm -f "$PRESEED_FILE"
+    else
+        echo "ERROR: Incus initialization failed!"
+        echo "Preseed file content was:"
+        cat "$PRESEED_FILE"
+        exit 1
+    fi
+else
+    echo "ERROR: Preseed file $PRESEED_FILE not found!"
+    echo "Available files in /usr/local/bin/:"
+    ls -la /usr/local/bin/ || true
+    echo "Available files in /tmp:"
+    ls -la /tmp/ || true
+    exit 1
+fi
+
+# Disable this service so it doesn't run again
+echo "Disabling first-boot setup service..."
+systemctl disable incus-firstboot-setup.service
+
+echo "=== Incus First Boot Setup Completed Successfully at $(date) ==="
+echo "Check 'sudo incus info' to verify Incus is working"
+echo "Log file location: $LOGFILE"

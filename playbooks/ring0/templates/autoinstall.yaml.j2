@@ -30,6 +30,7 @@ autoinstall:
         ptable: gpt
         grub_device: {{ loop.first }}
         wipe: superblock-recursive
+        preserve: false
       {%- endfor %}
       
       # Create partitions on the root partition device
@@ -138,3 +139,17 @@ autoinstall:
     - vgs {{ tp_volgroupname }}
     - lvs {{ tp_volgroupname }}
     - echo "=== Incus will manage thin volumes within these pools ==="
+    - echo "=== Setting up Incus for first-boot initialization ==="
+    - curtin in-target --target=/target -- cp /cdrom/autoinstall/incus-preseed.yaml /usr/local/bin/incus-preseed.yaml
+    - curtin in-target --target=/target -- chown root:root /usr/local/bin/incus-preseed.yaml
+    - curtin in-target --target=/target -- chmod 600 /usr/local/bin/incus-preseed.yaml
+    - echo "=== Installing Incus first-boot setup script ==="
+    - curtin in-target --target=/target -- cp /cdrom/autoinstall/incus-firstboot-setup.sh /usr/local/bin/incus-firstboot-setup.sh
+    - curtin in-target --target=/target -- chown root:root /usr/local/bin/incus-firstboot-setup.sh
+    - curtin in-target --target=/target -- chmod 755 /usr/local/bin/incus-firstboot-setup.sh
+    - echo "=== Installing Incus first-boot systemd service ==="
+    - curtin in-target --target=/target -- cp /cdrom/autoinstall/incus-firstboot-setup.service /etc/systemd/system/incus-firstboot-setup.service
+    - curtin in-target --target=/target -- chown root:root /etc/systemd/system/incus-firstboot-setup.service
+    - curtin in-target --target=/target -- chmod 644 /etc/systemd/system/incus-firstboot-setup.service
+    - curtin in-target --target=/target -- systemctl enable incus-firstboot-setup.service
+    - echo "=== Incus first-boot setup configured successfully ==="
