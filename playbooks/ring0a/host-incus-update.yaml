@@ -1,0 +1,42 @@
+---
+- name: Baseline for each Incus node
+  hosts: incus
+  become: true
+  gather_facts: true
+  remote_user: "{{ root_user }}"
+
+  vars:
+    param_incus_config: "{{ incus_config }}"
+
+  tasks:
+    - name: Set the SSH user name in case it is not the default.
+      ansible.builtin.set_fact:
+        ansible_user: "{{ incus_root_user }}"
+        param_hostname: "{{ hostvars[inventory_hostname]['hostname'] }}"
+
+    - name: If the environment variable for the password set, set input variable for the password generation tasks.
+      ansible.builtin.set_fact:
+        generate_password_input: "{{ lookup('env', incus_root_password_env) | default('') }}"
+      when: lookup('env', incus_root_password_env) | default('') | length > 0
+      no_log: true
+
+    - name: If the environment variable in incus_root_password_env is set, update the password.
+      ansible.builtin.user:
+        name: "{{ incus_root_user }}"
+        password: "{{ generate_password_input | password_hash('sha512') }}"
+      when: generate_password_input is defined and generate_password_input | length > 0
+
+    - name: Set the Incus server admin SSH Key.
+      ansible.posix.authorized_key:
+        user: "{{ incus_root_user }}"
+        state: present
+        key: "{{ incus_root_publickey }}"
+
+    - name: Allow Incus remote access on the port defined.
+      community.general.ufw:
+        rule: allow
+        port: "{{ param_incus_config.port }}"
+        proto: tcp
+
+    - name: Update and upgrade the operating system.
+      ansible.builtin.include_tasks: ../../tasks/upgrade_tasks.yaml
