@@ -20,30 +20,15 @@ autoinstall:
       - {{ tp_root_user_publickey }}
   
   early-commands:
-    - echo "=== Starting aggressive disk cleanup ==="
-    {%- for device in tp_diskdata.devices_in_scope %}
-    - echo "Cleaning disk {{ device.device }}"
-    # Zero out the first 100MB of the disk to destroy all headers and metadata
-    - dd if=/dev/zero of=/dev/{{ device.device }} bs=1M count=100 conv=notrunc || true
-    # Zero out the last 100MB of the disk to destroy backup GPT and trailing metadata
-    - DISK_SIZE=$(cat /sys/block/{{ device.device }}/size 2>/dev/null || echo 0)
-    # Only zero the end if disk is larger than 100MB (204800 sectors = 100MB in 512-byte sectors)
-    # This prevents seeking to negative positions on very small disks
-    - if [ "$DISK_SIZE" -gt 204800 ]; then dd if=/dev/zero of=/dev/{{ device.device }} bs=512 seek=$(( DISK_SIZE - 204800 )) count=204800 conv=notrunc || true; fi
-    # Force kernel to re-read partition table by writing to it
-    - echo 1 > /sys/block/{{ device.device }}/device/rescan 2>/dev/null || true
-    {%- endfor %}
-    - echo "=== Disk cleanup completed ==="
-    # Give the system time to recognize the changes
-    - sleep 3
-    - echo "=== Available block devices after cleanup ==="
-    - ls -la /dev/sd* /dev/nvme* 2>/dev/null || true
+    - echo "=== Letting installer handle native LVM cleanup ==="
+    - echo "=== Available block devices before install ==="
+    - lsblk -o NAME,SIZE,TYPE,FSTYPE,MOUNTPOINT 2>/dev/null || true
   
   storage:
     config:
       # Define all disk devices from devices_in_scope
       {%- for device in tp_diskdata.devices_in_scope %}
- 
+
       - type: disk
         id: disk-{{ device.device }}
         path: /dev/{{ device.device }}
@@ -63,6 +48,8 @@ autoinstall:
         size: 512M
         flag: boot
         grub_device: true
+        wipe: superblock
+        preserve: false
       
       # Format EFI partition 
       - type: format
@@ -81,6 +68,8 @@ autoinstall:
         id: boot-part
         device: disk-{{ root_device }}
         size: 1024M
+        wipe: superblock
+        preserve: false
         
       # Format boot partition
       - type: format
@@ -99,6 +88,8 @@ autoinstall:
         id: root-part
         device: disk-{{ root_device }}
         size: {{ tp_diskdata.root_partition.size_MB }}M
+        wipe: superblock
+        preserve: false
         
       # Format root partition
       - type: format
@@ -112,14 +103,28 @@ autoinstall:
         device: root-format
         path: /
       
-      # Create LVM partitions on all devices
+      # LVM PV partitions on all disks (use remaining space); give them stable labels
       {%- for device in tp_diskdata.devices_in_scope %}
 
       - type: partition
         id: lvm-{{ device.device }}-part
         device: disk-{{ device.device }}
-        size: -1  # Use remaining space
+        size: -1
+        flag: lvm
+        name: lvm-{{ device.device }}
+        wipe: superblock
+        preserve: false
       {%- endfor %}
+
+      # Volume group across all LVM PV partitions
+      - type: lvm_volgroup
+        id: vg-{{ tp_volgroupname }}
+        name: {{ tp_volgroupname }}
+        devices:
+          {%- for device in tp_diskdata.devices_in_scope %}
+
+          - lvm-{{ device.device }}-part
+          {%- endfor %}
   
   packages:
     - {{ tp_packages|join('\n    - ') }}
@@ -130,36 +135,17 @@ autoinstall:
     - echo 'APT::Periodic::AutocleanInterval "7";' >> /target/etc/apt/apt.conf.d/20auto-upgrades
     - curtin in-target --target=/target -- sed -i 's/#PasswordAuthentication yes/PasswordAuthentication no/' /etc/ssh/sshd_config
     - curtin in-target --target=/target -- sed -i 's/#PermitRootLogin prohibit-password/PermitRootLogin no/' /etc/ssh/sshd_config
-    - echo "=== Creating LVM volume group for Incus storage ==="
-    # Force cleanup of any existing volume group and physical volumes
-    - vgremove --force {{ tp_volgroupname }} 2>/dev/null || echo "No existing VG {{ tp_volgroupname }} to remove"
-    {%- for device in tp_diskdata.devices_in_scope %}
-    - pvremove --force /dev/{{ device.device }}* 2>/dev/null || echo "No existing PVs on {{ device.device }} to remove"
-    {%- endfor %}
-    # Create physical volumes and volume group using the partition devices created by autoinstall
-    {%- for device in tp_diskdata.devices_in_scope %}
-    - pvcreate --force $(lsblk -lnp -o NAME /dev/{{ device.device }} | tail -1) || echo "Failed to create PV on {{ device.device }}"
-    {%- endfor %}
-    # Create volume group with all the LVM partition devices
-    - vgcreate {{ tp_volgroupname }} {% for device in tp_diskdata.devices_in_scope %}$(lsblk -lnp -o NAME /dev/{{ device.device }} | tail -1) {% endfor %}|| echo "Failed to create VG {{ tp_volgroupname }}"
-    - echo "=== LVM volume group created, now creating thin pools ==="
-    - vgs {{ tp_volgroupname }}
-    - lvs {{ tp_volgroupname }}
+    - echo "=== Creating thin-pools in VG {{ tp_volgroupname }} ==="
     {% for vol_name, vol_config in tp_diskdata.volume_group_volumes.items() -%}
-    {% if not (vol_config.all_remaining_space is defined and vol_config.all_remaining_space) -%}
-    - echo "Creating {{ vol_name }} thin pool with size {{ vol_config.size_MB }}M"
+    {% if vol_config.all_remaining_space is defined and vol_config.all_remaining_space -%}
+    - lvcreate --type thin-pool -n {{ vol_name }} -l 100%FREE {{ tp_volgroupname }}
+    {% else -%}
     - lvcreate --type thin-pool -n {{ vol_name }} -L {{ vol_config.size_MB }}M {{ tp_volgroupname }}
     {% endif -%}
     {% endfor -%}
-    {% for vol_name, vol_config in tp_diskdata.volume_group_volumes.items() -%}
-    {% if vol_config.all_remaining_space is defined and vol_config.all_remaining_space -%}
-    - echo "Creating {{ vol_name }} thin pool with remaining space"
-    - lvcreate --type thin-pool -n {{ vol_name }} -l 100%FREE {{ tp_volgroupname }}
-    {% endif -%}
-    {% endfor -%}
     - echo "=== Final LVM state ==="
-    - vgs {{ tp_volgroupname }}
-    - lvs {{ tp_volgroupname }}
+    - vgs {{ tp_volgroupname }} || true
+    - lvs {{ tp_volgroupname }} || true
     - echo "=== Incus will manage thin volumes within these pools ==="
     - echo "=== Setting up Incus for first-boot initialization ==="
     - curtin in-target --target=/target -- cp /cdrom/autoinstall/incus-preseed.yaml /usr/local/bin/incus-preseed.yaml
