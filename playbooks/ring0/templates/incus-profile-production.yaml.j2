@@ -1,0 +1,15 @@
+description: "Production profile for VMs with bridged networking and {{ tp_incus_config.profile_disk_sizes.production }} root disk"
+devices:
+  root:
+    path: /
+    pool: incus-instances
+    type: disk
+    size: {{ tp_incus_config.profile_disk_sizes.production }}
+  eth0:
+    name: eth0
+    network: phys-br
+    type: nic
+config:
+  boot.autostart: true
+  security.privileged: false
+  security.protection.delete: true

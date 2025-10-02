@@ -19,8 +19,11 @@ all:
         volume_group: "vg0"
         volume: "instances"
       profile_disk_sizes:
+        production: "50GiB"
         default: "30GiB"
-        production: "128GiB"
+      project_disk_limits:
+        production: "200GB"
+        default: "100GB"
     volume_group_name: "vg0"
     host_configs:
       - name: "msz_single_disk_server"
@@ -37,7 +40,6 @@ all:
               all_remaining_space: true
         network_config:
           physical_network_parent: "eth0"
-          bridged_network_parents: "eth0"
       - name: "msz_dual_disk_server"
         virtual_disk_config:
           devices_in_scope:
@@ -53,7 +55,6 @@ all:
               all_remaining_space: true
         network_config:
           physical_network_parent: "eth0"
-          bridged_network_parents: "eth0"
     minimum_packages:
       - openssh-server
       - curl

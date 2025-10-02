@@ -3,11 +3,11 @@ config:
   images.auto_update_interval: 15
 
 networks:
-- name: incus-prod-bridge
+- name: phys-br
   type: macvlan
   config:
     parent: eth0
-- name: incus-lab-nat
+- name: iso-nat
   type: bridge
   config:
     ipv4.address: 10.100.0.1/24
@@ -36,11 +36,23 @@ projects:
 - name: default
   config:
     features.images: true
-    features.networks: true
+    features.networks: false
     features.profiles: true
     features.storage.volumes: true
-    limits.disk: 350GB
-  description: Default Lab VMs with NAT networking and storage limits
+    limits.disk: 100GB
+    restricted: true
+    restricted.networks.access: iso-nat
+  description: Default project for VMs with global network access and default limits
+- name: production
+  config:
+    features.images: true
+    features.networks: false
+    features.profiles: true
+    features.storage.volumes: true
+    limits.disk: 200GB
+    restricted: true
+    restricted.networks.access: phys-br,iso-nat
+  description: Production VMs with bridged networking and higher storage limits
 
 profiles:
 - name: default
@@ -53,24 +65,25 @@ profiles:
       size: 30GiB
     eth0:
       name: eth0
-      network: incus-lab-nat
+      network: iso-nat
       type: nic
   config:
     boot.autostart: false
     security.privileged: false
-- name: production
-  description: "Profile for production VMs with bridged networking and 128GiB root disk"
+    security.protection.delete: false
+- name: defaultlan
+  description: "LAN profile for VMs with bridged networking and 50GiB root disk"
   devices:
     root:
       path: /
       pool: incus-instances
       type: disk
-      size: 128GiB
+      size: 50GiB
     eth0:
       name: eth0
-      network: incus-prod-bridge
+      network: phys-br
       type: nic
   config:
-    boot.autostart: true
+    boot.autostart: false
     security.privileged: false
     security.protection.delete: false

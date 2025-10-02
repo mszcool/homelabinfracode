@@ -1,0 +1,14 @@
+description: "Dev profile for VMs with NAT networking and {{ tp_incus_config.profile_disk_sizes.dev }} root disk"
+devices:
+  root:
+    path: /
+    pool: incus-instances
+    type: disk
+    size: {{ tp_incus_config.profile_disk_sizes.dev }}
+  eth0:
+    name: eth0
+    network: dev-nat
+    type: nic
+config:
+  boot.autostart: false
+  security.privileged: false

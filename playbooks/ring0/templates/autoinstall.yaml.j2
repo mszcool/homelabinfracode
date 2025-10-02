@@ -49,7 +49,7 @@ autoinstall:
         path: /dev/{{ device.device }}
         ptable: gpt
         grub_device: {{ loop.first }}
-        wipe: superblock
+        wipe: superblock-recursive
         preserve: false
       {%- endfor %}
       
@@ -165,6 +165,10 @@ autoinstall:
     - curtin in-target --target=/target -- cp /cdrom/autoinstall/incus-preseed.yaml /usr/local/bin/incus-preseed.yaml
     - curtin in-target --target=/target -- chown root:root /usr/local/bin/incus-preseed.yaml
     - curtin in-target --target=/target -- chmod 600 /usr/local/bin/incus-preseed.yaml
+    - echo "=== Installing Incus production profile configuration ==="
+    - curtin in-target --target=/target -- cp /cdrom/autoinstall/incus-profile-production.yaml /usr/local/bin/incus-profile-production.yaml
+    - curtin in-target --target=/target -- chown root:root /usr/local/bin/incus-profile-production.yaml
+    - curtin in-target --target=/target -- chmod 600 /usr/local/bin/incus-profile-production.yaml
     - echo "=== Installing Incus first-boot setup script ==="
     - curtin in-target --target=/target -- cp /cdrom/autoinstall/incus-firstboot-setup.sh /usr/local/bin/incus-firstboot-setup.sh
     - curtin in-target --target=/target -- chown root:root /usr/local/bin/incus-firstboot-setup.sh

@@ -15,6 +15,12 @@
   vars:
     tp_root_user: "{{ root_user }}"
 
+- name: Processing per disk config -- Copy Incus production profile to ISO
+  ansible.builtin.copy:
+    src: "{{ param_preseed_output_dir }}/incus.profile-production.{{ host_config_item.name }}.yaml"
+    dest: "{{ param_iso_working_path }}/autoinstall/incus-profile-production.yaml"
+    mode: '0644'
+
 - name: Processing per disk config -- Copy Incus systemd service file to ISO
   ansible.builtin.copy:
     src: "templates/incus-firstboot-setup.service"
@@ -28,6 +34,7 @@
   loop:
     - "{{ param_iso_working_path }}/autoinstall/incus-preseed.yaml"
     - "{{ param_iso_working_path }}/autoinstall/incus-firstboot-setup.sh"
+    - "{{ param_iso_working_path }}/autoinstall/incus-profile-production.yaml"
     - "{{ param_iso_working_path }}/autoinstall/incus-firstboot-setup.service"
 
 - name: Processing per disk config -- Display copy results
