@@ -36,7 +36,7 @@ projects:
 - name: default
   config:
     features.images: true
-    features.networks: false
+    features.networks: true
     features.profiles: true
     features.storage.volumes: true
     limits.disk: 100GB
