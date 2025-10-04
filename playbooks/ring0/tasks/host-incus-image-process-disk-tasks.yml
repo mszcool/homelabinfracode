@@ -9,7 +9,7 @@
 
 - name: Processing per disk config -- Generate and copy Incus first-boot script to ISO
   ansible.builtin.template:
-    src: "templates/incus-firstboot-setup.sh.j2"
+    src: "templates/ubuntu-inst-incus-firstboot-setup.sh.j2"
     dest: "{{ param_iso_working_path }}/autoinstall/incus-firstboot-setup.sh"
     mode: '0755'
   vars:
@@ -23,7 +23,7 @@
 
 - name: Processing per disk config -- Copy Incus systemd service file to ISO
   ansible.builtin.copy:
-    src: "templates/incus-firstboot-setup.service"
+    src: "templates/ubuntu-inst-incus-firstboot-setup.service"
     dest: "{{ param_iso_working_path }}/autoinstall/incus-firstboot-setup.service"
     mode: '0644'
 
@@ -44,7 +44,7 @@
 
 - name: Processing per disk config -- Generate autoinstall configuration
   ansible.builtin.template:
-    src: "templates/autoinstall.yaml.j2"
+    src: "templates/ubuntu-inst-autoinstall.yaml.j2"
     dest: "{{ param_iso_working_path }}/autoinstall.yaml"
     mode: '0644'
   vars:

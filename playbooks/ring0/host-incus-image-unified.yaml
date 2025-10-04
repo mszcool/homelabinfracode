@@ -1,0 +1,209 @@
+---
+# Unified Host setup for bare-metal servers running Incus.
+# This playbook generates a single ISO with multiple server configurations.
+#
+# Usage examples:
+#   # Generate unified ISO with all configurations:
+#   ansible-playbook -i configs/host-incus-cluster.yaml playbooks/ring0/host-incus-image-unified.yaml
+#
+#   # Generate unified ISO in configs.private directory:
+#   ansible-playbook -i configs.private/infra-bootstrap/host-incus-cluster.yaml \
+#                    -e preseed_output_dir=configs.private/infra-bootstrap \
+#                    playbooks/ring0/host-incus-image-unified.yaml
+#
+- name: Unified Host setup for bare-metal servers running Incus.
+  hosts: localhost
+  become: false
+  gather_facts: false
+
+  vars:
+    param_root_user_name: "{{ root_user }}"
+    param_root_user_fullname: "{{ root_user_fullname }}"
+    param_root_user_password_clear: "{{ lookup('env', root_user_password_env) }}"
+    param_root_user_publickey: "{{ root_user_publickey }}"
+    param_iso_source_url: "{{ iso_source_url }}"
+    param_iso_source_path: "{{ lookup('env', 'HOME') }}{{ iso_source_path }}"
+    param_iso_destination_path: "{{ lookup('env', 'HOME') }}{{ iso_destination_path }}"
+    param_iso_working_path: "{{ lookup('env', 'HOME') }}{{ iso_working_path }}"
+    param_volume_group_name: "{{ volume_group_name }}"
+    param_host_configs: "{{ host_configs | default([]) }}"
+    param_minimum_packages: "{{ minimum_packages }}"
+    param_incus_config: "{{ incus_config }}"
+    # Output directory for preseed files - can be overridden with -e preseed_output_dir=path
+    param_preseed_output_dir: "{{ incus_preseed_output_dir | default('configs') }}"
+    # Name of the target ISO file
+    param_iso_target_name: "ubuntu-mszlab-unified-autoinstall.iso"
+
+  tasks:
+    - name: Pre-requisites -- Install required packages
+      become: true
+      ansible.builtin.apt:
+        name:
+          - whois  # Contains mkpasswd utility
+          - xorriso
+          - isolinux
+          - p7zip-full
+          - genisoimage
+        state: present
+        update_cache: true
+
+    - name: Pre-requisites -- Ensure the ~/iso directory exists
+      ansible.builtin.file:
+        path: "{{ param_iso_destination_path | expanduser }}"
+        state: directory
+        mode: '0755'
+
+    - name: Pre-requisites -- Download Ubuntu ISO if not already present
+      ansible.builtin.get_url:
+        url: "{{ param_iso_source_url }}"
+        dest: "{{ param_iso_source_path }}"
+        mode: '0644'
+        timeout: 3600
+      register: download_result
+      changed_when: download_result.changed
+
+    - name: Pre-Processing -- Generate random hostname
+      ansible.builtin.shell: |
+        set -o pipefail &&
+        tr -dc 'a-z0-9' < /dev/urandom | head -c 8
+      args:
+        executable: /bin/bash
+      register: random_hostname
+      changed_when: false
+      failed_when: random_hostname.rc != 0 and random_hostname.rc != 141  # 141 is the exit code for head when it reaches EOF
+
+    - name: Pre-Processing -- Set hostname fact
+      ansible.builtin.set_fact:
+        param_random_hostname: "host-{{ random_hostname.stdout }}"
+
+    - name: Pre-Processing -- Set variable for password generation task.
+      ansible.builtin.set_fact:
+        generate_password_input: "{{ param_root_user_password_clear | default('') }}"
+      no_log: true
+
+    - name: Pre-Processing -- Generate Linux password with input
+      ansible.builtin.include_tasks:
+        file: ../tasks/generate_lx_passwd.yaml
+
+    - name: Pre-Processing -- Set password fact
+      ansible.builtin.set_fact:
+        param_root_user_password: "{{ generated_lx_password }}"
+      no_log: true
+
+    - name: Pre-Processing -- Clean working directory completely
+      become: true
+      ansible.builtin.file:
+        path: "{{ param_iso_working_path }}"
+        state: absent
+
+    - name: Pre-Processing -- Create fresh working directory
+      ansible.builtin.file:
+        path: "{{ param_iso_working_path }}"
+        state: directory
+        mode: '0755'
+
+    - name: Processing -- Extract ISO using xorriso including the boot partition
+      ansible.builtin.command:
+        cmd: >
+          xorriso -osirrox on -indev {{ param_iso_source_path }}
+          -extract_boot_images "{{ param_iso_working_path }}/bootpart" -extract / {{ param_iso_working_path }}
+      args:
+        creates: "{{ param_iso_working_path }}/bootpart"
+      register: extract_result
+
+    - name: Processing -- Create configs directory to avoid root-level autoinstall detection
+      ansible.builtin.file:
+        path: "{{ param_iso_working_path }}/configs"
+        state: directory
+        mode: '0755'
+
+    - name: Processing -- Create common autoinstall directory
+      ansible.builtin.file:
+        path: "{{ param_iso_working_path }}/configs/common"
+        state: directory
+        mode: '0755'
+
+    - name: Processing -- Create server-specific autoinstall directories
+      ansible.builtin.file:
+        path: "{{ param_iso_working_path }}/configs/{{ host_config.name }}"
+        state: directory
+        mode: '0755'
+      loop: "{{ param_host_configs }}"
+      loop_control:
+        loop_var: host_config
+        label: "{{ host_config.name }}"
+
+    - name: Processing -- Ensure preseed output directory exists
+      ansible.builtin.file:
+        path: "{{ param_preseed_output_dir }}"
+        state: directory
+        mode: '0755'
+
+    - name: Processing -- Generate server types configuration file
+      ansible.builtin.template:
+        src: templates/ubuntu-inst-server-types.conf.j2
+        dest: "{{ param_iso_working_path }}/configs/common/server-types.conf"
+        mode: '0644'
+      vars:
+        tp_host_configs: "{{ param_host_configs }}"
+
+    - name: Processing -- Copy common files to configs/common
+      ansible.builtin.copy:
+        src: "templates/ubuntu-inst-incus-firstboot-setup.service"
+        dest: "{{ param_iso_working_path }}/configs/common/incus-firstboot-setup.service"
+        mode: '0644'
+
+    - name: Processing -- Generate server-specific configurations
+      ansible.builtin.include_tasks: ./tasks/host-incus-image-unified-server-tasks.yml
+      loop: "{{ param_host_configs }}"
+      loop_control:
+        loop_var: host_config_item
+        label: "{{ host_config_item.name }}"
+
+    - name: Processing -- Create unified GRUB config with server selection menu
+      become: true
+      ansible.builtin.template:
+        src: templates/ubuntu-inst-grub-unified.cfg.j2
+        dest: "{{ param_iso_working_path }}/boot/grub/grub.cfg"
+        mode: '0644'
+        backup: true
+      vars:
+        tp_host_configs: "{{ param_host_configs }}"
+
+    - name: Processing -- Create unified ISO
+      ansible.builtin.command:
+        cmd: >
+          xorriso -as mkisofs
+          -iso-level 3
+          -full-iso9660-filenames
+          -volid "UBUNTU_UNIFIED"
+          -eltorito-boot bootpart/eltorito_img1_bios.img
+          -no-emul-boot
+          -boot-load-size 4
+          -boot-info-table
+          -eltorito-alt-boot
+          -eltorito-catalog bootpart/eltorito_catalog.img
+          -e bootpart/eltorito_img2_uefi.img
+          -no-emul-boot
+          -append_partition 2 C12A7328-F81F-11D2-BA4B-00A0C93EC93B {{ param_iso_working_path }}/bootpart/gpt_part2_efi.img
+          -appended_part_as_gpt
+          -isohybrid-gpt-basdat
+          -isohybrid-mbr {{ param_iso_working_path }}/bootpart/mbr_code_grub2.img
+          -o {{ param_iso_destination_path }}/{{ param_iso_target_name }}
+          {{ param_iso_working_path }}
+      args:
+        creates: "{{ param_iso_destination_path }}/{{ param_iso_target_name }}"
+
+    - name: Processing -- Verify unified ISO was created
+      ansible.builtin.stat:
+        path: "{{ param_iso_destination_path }}/{{ param_iso_target_name }}"
+      register: unified_iso_stat
+
+    - name: Processing -- Display unified ISO creation result
+      ansible.builtin.debug:
+        msg: "Unified custom ISO created successfully at {{ param_iso_destination_path }}/{{ param_iso_target_name }}"
+      when: unified_iso_stat.stat.exists
+
+    - name: Processing -- Display server configurations included
+      ansible.builtin.debug:
+        msg: "Included server configurations: {{ param_host_configs | map(attribute='name') | list | join(', ') }}"

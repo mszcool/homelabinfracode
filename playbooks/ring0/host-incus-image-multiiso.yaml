@@ -88,6 +88,12 @@
         param_root_user_password: "{{ generated_lx_password }}"
       no_log: true
 
+    - name: Pre-Processing -- Remove existing working directory
+      become: true
+      ansible.builtin.file:
+        path: "{{ param_iso_working_path }}"
+        state: absent
+
     - name: Pre-Processing -- Create working directory
       ansible.builtin.file:
         path: "{{ param_iso_working_path }}"
@@ -117,7 +123,7 @@
 
     - name: Processing -- Generate Incus preseed configuration for each server type
       ansible.builtin.template:
-        src: incus-preseed.yaml.j2
+        src: ubuntu-inst-incus-preseed.yaml.j2
         dest: "{{ param_preseed_output_dir }}/incus.preseed.{{ host_config.name }}.yaml"
         mode: '0600'
       vars:
@@ -130,7 +136,7 @@
 
     - name: Processing -- Generate Incus production profile configuration for each server type
       ansible.builtin.template:
-        src: incus-profile-production.yaml.j2
+        src: ubuntu-inst-incus-profile-production.yaml.j2
         dest: "{{ param_preseed_output_dir }}/incus.profile-production.{{ host_config.name }}.yaml"
         mode: '0600'
       vars:
