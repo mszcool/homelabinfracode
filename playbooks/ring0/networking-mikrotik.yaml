@@ -99,7 +99,7 @@
 
     - name: Create OpenSSL config file for SAN support
       ansible.builtin.template:
-        src: templates/ssl_config.cnf.j2
+        src: templates/mikrotik-ssh-config.cnf.j2
         dest: "{{ ssl_dir }}/ssl_config.cnf"
         mode: "0644"
       vars:
