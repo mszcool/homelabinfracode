@@ -32,7 +32,7 @@
     # Output directory for preseed files - can be overridden with -e preseed_output_dir=path
     param_preseed_output_dir: "{{ incus_preseed_output_dir | default('configs') }}"
     # Name of the target ISO file
-    param_iso_target_name: "ubuntu-mszlab-unified-autoinstall.iso"
+    param_iso_target_name: "{{ incus_iso_target_name | default('ubuntu-mszlab-unified-autoinstall.iso') }}"
 
   tasks:
     - name: Pre-requisites -- Install required packages
