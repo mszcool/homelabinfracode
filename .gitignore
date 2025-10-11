@@ -366,3 +366,9 @@ MigrationBackup/
 # Ignore files which are used for local development, debugging, and co
 configs.private/**
 !configs.private/.gitkeep
+
+# Incus client private keys - NEVER commit these!
+# Public certificates are safe to commit in incus-trusted-clients.yaml
+**/client.key
+**/*.key
+**/incus-cert-backup-*/

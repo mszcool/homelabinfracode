@@ -24,6 +24,18 @@ all:
       project_disk_limits:
         production: "200GB"
         default: "100GB"
+    incus_trusted_clients:
+      - name: "workstation-admin-mszcool"
+        description: "Mario's admin workstation - full admin access"
+        certificate_file: "incus/trusted-client-certs/workstation-admin-mszcool.crt"
+        restricted: false
+        projects: []  # Empty = all projects
+      - name: "ci-pipeline-production"
+        description: "CI/CD pipeline for production deployments"
+        certificate_file: "incus/trusted-client-certs/ci-pipeline-production.crt"
+        restricted: true
+        projects:
+          - "production"
     volume_group_name: "vg0"
     host_configs:
       - name: "msz_single_disk_server"

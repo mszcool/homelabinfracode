@@ -85,5 +85,11 @@
       ansible.builtin.debug:
         msg: "Incus is now accessible at https://{{ param_incus_listen_address }}:{{ param_incus_config.port }}"
 
+    - name: Manage trusted client certificates if configuration exists.
+      ansible.builtin.include_tasks: ../tasks/host-incus-manage-client-cert-tasks.yaml
+      when: 
+        - incus_trusted_clients is defined
+        - incus_trusted_clients | length > 0
+
     - name: Update and upgrade the operating system.
       ansible.builtin.include_tasks: ../../tasks/upgrade_tasks.yaml
