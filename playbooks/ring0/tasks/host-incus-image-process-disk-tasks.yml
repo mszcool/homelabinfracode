@@ -7,6 +7,19 @@
     dest: "{{ param_iso_working_path }}/autoinstall/incus-preseed.yaml"
     mode: '0644'
 
+- name: Processing per disk config -- Create production profiles directory in ISO
+  ansible.builtin.file:
+    path: "{{ param_iso_working_path }}/autoinstall/incus-profiles"
+    state: directory
+    mode: '0755'
+
+- name: Processing per disk config -- Copy Incus production profiles to ISO
+  ansible.builtin.copy:
+    src: "{{ param_preseed_output_dir }}/incus.profile-{{ item }}.{{ host_config_item.name }}.yaml"
+    dest: "{{ param_iso_working_path }}/autoinstall/incus-profiles/profile-{{ item }}.yaml"
+    mode: '0644'
+  loop: "{{ param_incus_config.production_profiles }}"
+
 - name: Processing per disk config -- Generate and copy Incus first-boot script to ISO
   ansible.builtin.template:
     src: "templates/ubuntu-inst-incus-firstboot-setup.sh.j2"
@@ -14,12 +27,7 @@
     mode: '0755'
   vars:
     tp_root_user: "{{ root_user }}"
-
-- name: Processing per disk config -- Copy Incus production profile to ISO
-  ansible.builtin.copy:
-    src: "{{ param_preseed_output_dir }}/incus.profile-production.{{ host_config_item.name }}.yaml"
-    dest: "{{ param_iso_working_path }}/autoinstall/incus-profile-production.yaml"
-    mode: '0644'
+    tp_incus_config: "{{ param_incus_config }}"
 
 - name: Processing per disk config -- Copy Incus systemd service file to ISO
   ansible.builtin.copy:
@@ -34,7 +42,6 @@
   loop:
     - "{{ param_iso_working_path }}/autoinstall/incus-preseed.yaml"
     - "{{ param_iso_working_path }}/autoinstall/incus-firstboot-setup.sh"
-    - "{{ param_iso_working_path }}/autoinstall/incus-profile-production.yaml"
     - "{{ param_iso_working_path }}/autoinstall/incus-firstboot-setup.service"
 
 - name: Processing per disk config -- Display copy results
@@ -57,6 +64,7 @@
     tp_root_user_fullname: "{{ root_user_fullname }}"
     tp_root_user_password: "{{ param_root_user_password }}"  # This is now the encrypted password
     tp_root_user_publickey: "{{ root_user_publickey }}"
+    tp_production_profiles: "{{ param_incus_config.production_profiles }}"
 
 - name: Processing per disk config -- Create custom GRUB config for autoinstall
   become: true

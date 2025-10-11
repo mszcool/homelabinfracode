@@ -151,12 +151,15 @@ autoinstall:
     - curtin in-target --target=/target -- cp /cdrom/configs/{{ host_config_item.name }}/incus-preseed.yaml /usr/local/bin/incus-preseed.yaml
     - curtin in-target --target=/target -- chown root:root /usr/local/bin/incus-preseed.yaml
     - curtin in-target --target=/target -- chmod 600 /usr/local/bin/incus-preseed.yaml
-    - echo "=== Installing Incus production profile configuration ==="
-    - curtin in-target --target=/target -- cp /cdrom/configs/{{ host_config_item.name }}/incus-profile-production.yaml /usr/local/bin/incus-profile-production.yaml
-    - curtin in-target --target=/target -- chown root:root /usr/local/bin/incus-profile-production.yaml
-    - curtin in-target --target=/target -- chmod 600 /usr/local/bin/incus-profile-production.yaml
+    - echo "=== Installing Incus production profile configurations ==="
+    - curtin in-target --target=/target -- mkdir -p /usr/local/bin/incus-profiles
+    {% for profile_name in tp_production_profiles %}
+    - curtin in-target --target=/target -- cp /cdrom/configs/common/incus-profiles/profile-{{ profile_name }}.yaml /usr/local/bin/incus-profiles/profile-{{ profile_name }}.yaml
+    - curtin in-target --target=/target -- chown root:root /usr/local/bin/incus-profiles/profile-{{ profile_name }}.yaml
+    - curtin in-target --target=/target -- chmod 600 /usr/local/bin/incus-profiles/profile-{{ profile_name }}.yaml
+    {% endfor %}
     - echo "=== Installing Incus first-boot setup script ==="
-    - curtin in-target --target=/target -- cp /cdrom/configs/{{ host_config_item.name }}/incus-firstboot-setup.sh /usr/local/bin/incus-firstboot-setup.sh
+    - curtin in-target --target=/target -- cp /cdrom/configs/common/incus-firstboot-setup.sh /usr/local/bin/incus-firstboot-setup.sh
     - curtin in-target --target=/target -- chown root:root /usr/local/bin/incus-firstboot-setup.sh
     - curtin in-target --target=/target -- chmod 755 /usr/local/bin/incus-firstboot-setup.sh
     - echo "=== Installing Incus first-boot systemd service ==="

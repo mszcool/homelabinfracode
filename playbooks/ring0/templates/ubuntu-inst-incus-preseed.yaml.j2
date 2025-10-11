@@ -43,7 +43,8 @@ projects:
     restricted: true
     restricted.networks.access: iso-nat
   description: Default project for VMs with global network access and default limits
-- name: production
+{% for profile_name in tp_incus_config.production_profiles %}
+- name: {{ profile_name }}
   config:
     features.images: true
     features.networks: false
@@ -52,7 +53,8 @@ projects:
     limits.disk: {{ tp_incus_config.project_disk_limits.production }}
     restricted: true
     restricted.networks.access: phys-br,iso-nat
-  description: Production VMs with bridged networking and higher storage limits
+  description: Production VMs ({{ profile_name }}) with bridged networking and higher storage limits
+{% endfor %}
 
 profiles:
 - name: default

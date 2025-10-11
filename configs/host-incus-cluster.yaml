@@ -24,6 +24,9 @@ all:
       project_disk_limits:
         production: "200GB"
         default: "100GB"
+      production_profiles:
+        - "prodlayer0"
+        - "prodlayer1"
     incus_trusted_clients:
       - name: "workstation-admin-mszcool"
         description: "Mario's admin workstation - full admin access"

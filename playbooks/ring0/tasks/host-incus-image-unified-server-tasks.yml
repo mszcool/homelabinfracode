@@ -16,6 +16,7 @@
     tp_root_user_fullname: "{{ root_user_fullname }}"
     tp_root_user_password: "{{ param_root_user_password }}"  # This is now the encrypted password
     tp_root_user_publickey: "{{ root_user_publickey }}"
+    tp_production_profiles: "{{ param_incus_config.production_profiles }}"
 
 - name: Generate Incus preseed configuration for {{ host_config_item.name }}
   ansible.builtin.template:
@@ -26,32 +27,20 @@
     tp_incus_config: "{{ param_incus_config }}"
     tp_incus_netconfig: "{{ host_config_item.network_config }}"
 
-- name: Generate Incus production profile configuration for {{ host_config_item.name }}
-  ansible.builtin.template:
-    src: ubuntu-inst-incus-profile-production.yaml.j2
-    dest: "{{ param_iso_working_path }}/configs/{{ host_config_item.name }}/incus-profile-production.yaml"
-    mode: '0600'
-  vars:
-    tp_incus_config: "{{ param_incus_config }}"
-
-- name: Generate Incus first-boot script for {{ host_config_item.name }}
-  ansible.builtin.template:
-    src: "templates/ubuntu-inst-incus-firstboot-setup.sh.j2"
-    dest: "{{ param_iso_working_path }}/configs/{{ host_config_item.name }}/incus-firstboot-setup.sh"
-    mode: '0755'
-  vars:
-    tp_root_user: "{{ root_user }}"
-
 # Cloud-init files not needed when using subiquity.autoinstallpath
 
-- name: Copy generated preseed files to external configs directory for {{ host_config_item.name }}
+- name: Copy generated preseed file to external configs directory for {{ host_config_item.name }}
   ansible.builtin.copy:
-    src: "{{ param_iso_working_path }}/configs/{{ host_config_item.name }}/{{ item.src }}"
-    dest: "{{ param_preseed_output_dir }}/{{ item.dest }}"
-    mode: "{{ item.mode }}"
-  loop:
-    - { src: "incus-preseed.yaml", dest: "incus.preseed.{{ host_config_item.name }}.yaml", mode: "0600" }
-    - { src: "incus-profile-production.yaml", dest: "incus.profile-production.{{ host_config_item.name }}.yaml", mode: "0600" }
+    src: "{{ param_iso_working_path }}/configs/{{ host_config_item.name }}/incus-preseed.yaml"
+    dest: "{{ param_preseed_output_dir }}/incus.preseed.{{ host_config_item.name }}.yaml"
+    mode: "0600"
+
+- name: Copy production profile configurations to external configs directory for {{ host_config_item.name }}
+  ansible.builtin.copy:
+    src: "{{ param_iso_working_path }}/configs/common/incus-profiles/profile-{{ item }}.yaml"
+    dest: "{{ param_preseed_output_dir }}/incus.profile-{{ item }}.{{ host_config_item.name }}.yaml"
+    mode: "0600"
+  loop: "{{ param_incus_config.production_profiles }}"
 
 - name: Verify server-specific files were created for {{ host_config_item.name }}
   ansible.builtin.stat:
@@ -60,8 +49,6 @@
   loop:
     - "{{ param_iso_working_path }}/configs/{{ host_config_item.name }}/autoinstall.yaml"
     - "{{ param_iso_working_path }}/configs/{{ host_config_item.name }}/incus-preseed.yaml"
-    - "{{ param_iso_working_path }}/configs/{{ host_config_item.name }}/incus-profile-production.yaml"
-    - "{{ param_iso_working_path }}/configs/{{ host_config_item.name }}/incus-firstboot-setup.sh"
 
 - name: Display server configuration result for {{ host_config_item.name }}
   ansible.builtin.debug:

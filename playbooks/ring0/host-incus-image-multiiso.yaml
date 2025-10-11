@@ -134,17 +134,16 @@
         loop_var: host_config
         label: "{{ host_config.name }}"
 
-    - name: Processing -- Generate Incus production profile configuration for each server type
+    - name: Processing -- Generate Incus production profile configurations for each server type and profile
       ansible.builtin.template:
         src: ubuntu-inst-incus-profile-production.yaml.j2
-        dest: "{{ param_preseed_output_dir }}/incus.profile-production.{{ host_config.name }}.yaml"
+        dest: "{{ param_preseed_output_dir }}/incus.profile-{{ item.1 }}.{{ item.0.name }}.yaml"
         mode: '0600'
       vars:
         tp_incus_config: "{{ param_incus_config }}"
-      loop: "{{ param_host_configs }}"
+      loop: "{{ param_host_configs | product(param_incus_config.production_profiles) | list }}"
       loop_control:
-        loop_var: host_config
-        label: "{{ host_config.name }}"
+        label: "{{ item.0.name }} - {{ item.1 }}"
 
     - name: Processing -- Process each disk configuration
       ansible.builtin.include_tasks: ./tasks/host-incus-image-process-disk-tasks.yml

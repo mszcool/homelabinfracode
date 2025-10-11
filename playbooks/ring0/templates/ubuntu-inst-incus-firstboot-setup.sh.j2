@@ -45,7 +45,7 @@ echo "Incus service is ready!"
 
 # Initialize Incus with preseed configuration
 PRESEED_FILE="/usr/local/bin/incus-preseed.yaml"
-PRODUCTION_PROFILE_FILE="/usr/local/bin/incus-profile-production.yaml"
+PRODUCTION_PROFILE_DIR="/usr/local/bin/incus-profiles"
 
 if [ -f "$PRESEED_FILE" ]; then
     echo "Found preseed file at $PRESEED_FILE, showing content for debugging:"
@@ -63,36 +63,44 @@ if [ -f "$PRESEED_FILE" ]; then
         /usr/bin/incus network list || echo "Failed to list networks"
         /usr/bin/incus project list || echo "Failed to list projects"
         
-        # Switch to production project and create production profile
-        if [ -f "$PRODUCTION_PROFILE_FILE" ]; then
-            echo "Found production profile file at $PRODUCTION_PROFILE_FILE"
-            echo "--- Production profile content ---"
-            cat "$PRODUCTION_PROFILE_FILE"
-            echo "--- End of production profile ---"
+        # Create production profiles in their respective projects
+        if [ -d "$PRODUCTION_PROFILE_DIR" ]; then
+            echo "Found production profile directory at $PRODUCTION_PROFILE_DIR"
             
-            echo "Switching to production project..."
-            /usr/bin/incus project switch production
-            
-            echo "Creating production profile in production project..."
-            if /usr/bin/incus profile create production; then
-                echo "Production profile created, now configuring it..."
-                # Parse and apply the production profile configuration
-                if /usr/bin/incus profile edit production < "$PRODUCTION_PROFILE_FILE"; then
-                    echo "Production profile configured successfully!"
-                else
-                    echo "ERROR: Failed to configure production profile!"
-                    exit 1
+            for profile_file in "$PRODUCTION_PROFILE_DIR"/*.yaml; do
+                if [ -f "$profile_file" ]; then
+                    profile_name=$(basename "$profile_file" .yaml)
+                    project_name=$(echo "$profile_name" | sed 's/^profile-//')
+                    
+                    echo "Processing profile: $profile_name for project: $project_name"
+                    echo "--- Profile content ---"
+                    cat "$profile_file"
+                    echo "--- End of profile ---"
+                    
+                    echo "Switching to $project_name project..."
+                    /usr/bin/incus project switch "$project_name"
+                    
+                    echo "Creating production profile in $project_name project..."
+                    if /usr/bin/incus profile create production; then
+                        echo "Production profile created in $project_name, now configuring it..."
+                        if /usr/bin/incus profile edit production < "$profile_file"; then
+                            echo "Production profile configured successfully in $project_name!"
+                        else
+                            echo "ERROR: Failed to configure production profile in $project_name!"
+                            exit 1
+                        fi
+                    else
+                        echo "ERROR: Failed to create production profile in $project_name!"
+                        exit 1
+                    fi
                 fi
-            else
-                echo "ERROR: Failed to create production profile!"
-                exit 1
-            fi
+            done
             
             # Switch back to default project
             echo "Switching back to default project..."
             /usr/bin/incus project switch default
         else
-            echo "WARNING: Production profile file $PRODUCTION_PROFILE_FILE not found!"
+            echo "WARNING: Production profile directory $PRODUCTION_PROFILE_DIR not found!"
             echo "Skipping production profile creation"
         fi
         
@@ -100,7 +108,9 @@ if [ -f "$PRESEED_FILE" ]; then
         echo "Final Incus state:"
         /usr/bin/incus project list || echo "Failed to list projects"
         /usr/bin/incus profile list || echo "Failed to list profiles in default project"
-        /usr/bin/incus project switch production && /usr/bin/incus profile list && /usr/bin/incus project switch default || echo "Failed to check production project profiles"
+        {% for profile_name in tp_incus_config.production_profiles %}
+        /usr/bin/incus project switch {{ profile_name }} && /usr/bin/incus profile list && /usr/bin/incus project switch default || echo "Failed to check {{ profile_name }} project profiles"
+        {% endfor %}
     else
         echo "ERROR: Incus initialization failed!"
         echo "Preseed file content was:"

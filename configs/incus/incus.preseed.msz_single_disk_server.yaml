@@ -43,7 +43,7 @@ projects:
     restricted: true
     restricted.networks.access: iso-nat
   description: Default project for VMs with global network access and default limits
-- name: production
+- name: prodlayer0
   config:
     features.images: true
     features.networks: false
@@ -52,7 +52,17 @@ projects:
     limits.disk: 200GB
     restricted: true
     restricted.networks.access: phys-br,iso-nat
-  description: Production VMs with bridged networking and higher storage limits
+  description: Production VMs (prodlayer0) with bridged networking and higher storage limits
+- name: prodlayer1
+  config:
+    features.images: true
+    features.networks: false
+    features.profiles: true
+    features.storage.volumes: true
+    limits.disk: 200GB
+    restricted: true
+    restricted.networks.access: phys-br,iso-nat
+  description: Production VMs (prodlayer1) with bridged networking and higher storage limits
 
 profiles:
 - name: default
