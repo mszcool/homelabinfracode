@@ -60,6 +60,15 @@
       register: download_result
       changed_when: download_result.changed
 
+    - name: Pre-Processing -- Clean up old custom ISO images for each server config
+      ansible.builtin.file:
+        path: "{{ param_iso_destination_path }}/ubuntu-custom-{{ host_config.name }}.iso"
+        state: absent
+      loop: "{{ param_host_configs }}"
+      loop_control:
+        loop_var: host_config
+        label: "{{ host_config.name }}"
+
     - name: Pre-Processing -- Generate random hostname
       ansible.builtin.shell: |
         set -o pipefail &&
