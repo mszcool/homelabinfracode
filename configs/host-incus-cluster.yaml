@@ -1,14 +1,15 @@
 all:
   vars:
-    localdomain: mszlocal
+    localdomain: mszlocaltest
     root_user: "mszcool"
     root_user_fullname: "mszcool main user"
     root_user_password_env: "ROOT_PASSWORD"
     root_user_publickey: "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQCg0Y6vbXyN0q70R2Wkl6HhrH3GoE8163Uv19xFSmMrLJ2bFtzpGttlJ8tpHFWIh4eIKss0oq5TydCUC0p2c5v48Oj318y4CO9EBTtPafgzHyz6PkvBqL6uFv8NN8TvLZdwMaKdEpdVDLB+WD8dXqf+fPe8atY2YbIkd5XDIE1wjvjrA8Br6iSjNcaIW4jpsUNWKufEM+zkiYyVrTEIn/AMCA2E2eCJCasSq3sj/8R5ujJqTFxjo46XGhbjbsx4QRDzkApJVyKeA5+zv6DoRyBEFOmZ6MQjMqtPPtdtZwflRZ8GMKyRTMqgmnG0N6CFsd5aIHZ2plZljHF82U3LaX1D"
-    iso_source_url: "http://releases.ubuntu.com/noble/ubuntu-24.04.2-live-server-amd64.iso"
+    iso_source_url: "https://releases.ubuntu.com/noble/ubuntu-24.04.3-live-server-amd64.iso"
     iso_source_path: "/iso/ubuntu-24.04.2-live-server-amd64.iso"
     iso_destination_path: "/iso"
     iso_working_path: "/iso/temp"
+    incus_preseed_output_dir: "../../configs/incus"
     incus_config:
       port: 8443
       storage_images:
@@ -17,31 +18,58 @@ all:
       storage_instances:
         volume_group: "vg0"
         volume: "instances"
+      profile_disk_sizes:
+        production: "50GiB"
+        default: "30GiB"
+      project_disk_limits:
+        production: "200GB"
+        default: "100GB"
+      production_profiles:
+        - "prodlayer0"
+        - "prodlayer1"
+    incus_trusted_clients:
+      - name: "test-workstation1"
+        description: "Simulated workstation 1 to test functionality"
+        certificate_file: "../../configs/incus/trusted-client-certs/dev-workstation1.crt"
+        restricted: false
+        projects: []  # Empty = all projects
+      - name: "test-workstation2"
+        description: "Simulated workstation 2 to test functionality"
+        certificate_file: "../../configs/incus/trusted-client-certs/dev-workstation2.crt"
+        restricted: true
+        projects:
+          - "default"
     volume_group_name: "vg0"
-    volume_disk_configs:
+    host_configs:
       - name: "msz_single_disk_server"
-        devices_in_scope:
-          - device: "sda"
-        root_partition:
-          device: "sda"
-          size_MB: "20480"
-        volume_group_volumes:
-          images:
-            size_MB: "51200"
-          instances:
-            all_remaining_space: true
+        virtual_disk_config:
+          devices_in_scope:
+            - device: "sda"
+          root_partition:
+            device: "sda"
+            size_MB: "20480"
+          volume_group_volumes:
+            images:
+              size_MB: "51200"
+            instances:
+              all_remaining_space: true
+        network_config:
+          physical_network_parent: "eth0"
       - name: "msz_dual_disk_server"
-        devices_in_scope:
-          - device: "sda"
-          - device: "sdb"
-        root_partition:
-          device: "sda"
-          size_MB: "20480"
-        volume_group_volumes:
-          images:
-            size_MB: "51200"
-          instances:
-            all_remaining_space: true
+        virtual_disk_config:
+          devices_in_scope:
+            - device: "sda"
+            - device: "sdb"
+          root_partition:
+            device: "sda"
+            size_MB: "20480"
+          volume_group_volumes:
+            images:
+              size_MB: "51200"
+            instances:
+              all_remaining_space: true
+        network_config:
+          physical_network_parent: "eth0"
     minimum_packages:
       - openssh-server
       - curl
@@ -56,18 +84,15 @@ all:
       - gnupg
       - acl
       - bc
+      - incus
+      - qemu-utils
+      - qemu-system-x86
   children:
     incus:
       hosts:
-        10.10.0.2:
-          hostname: mszpvetest1
-          disk_config_name: "msz_single_disk_server"
-          incus_network:
-            physical_network_parent: "eth0"
-            bridged_network_parents: "eth0"
-        10.10.0.3:
-          hostname: mszpvetest2
-          disk_config_name: "msz_dual_disk_server"
-          incus_network:
-            physical_network_parent: "eth0"
-            bridged_network_parents: "eth0"
+        incussingledisk.mszlocaltest:
+          hostname: incussingledisk
+          host_config_name: "msz_single_disk_server"
+        incusdualdisk.mszlocaltest:
+          hostname: incusdualdisk
+          host_config_name: "msz_dual_disk_server"

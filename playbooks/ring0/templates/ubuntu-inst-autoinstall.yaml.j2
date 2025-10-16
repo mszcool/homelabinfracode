@@ -19,17 +19,23 @@ autoinstall:
     authorized-keys:
       - {{ tp_root_user_publickey }}
   
+  early-commands:
+    - echo "=== Letting installer handle native LVM cleanup ==="
+    - echo "=== Available block devices before install ==="
+    - lsblk -o NAME,SIZE,TYPE,FSTYPE,MOUNTPOINT 2>/dev/null || true
+  
   storage:
     config:
       # Define all disk devices from devices_in_scope
       {%- for device in tp_diskdata.devices_in_scope %}
- 
+
       - type: disk
         id: disk-{{ device.device }}
         path: /dev/{{ device.device }}
         ptable: gpt
         grub_device: {{ loop.first }}
         wipe: superblock-recursive
+        preserve: false
       {%- endfor %}
       
       # Create partitions on the root partition device
@@ -42,6 +48,8 @@ autoinstall:
         size: 512M
         flag: boot
         grub_device: true
+        wipe: superblock
+        preserve: false
       
       # Format EFI partition 
       - type: format
@@ -60,6 +68,8 @@ autoinstall:
         id: boot-part
         device: disk-{{ root_device }}
         size: 1024M
+        wipe: superblock
+        preserve: false
         
       # Format boot partition
       - type: format
@@ -78,6 +88,8 @@ autoinstall:
         id: root-part
         device: disk-{{ root_device }}
         size: {{ tp_diskdata.root_partition.size_MB }}M
+        wipe: superblock
+        preserve: false
         
       # Format root partition
       - type: format
@@ -91,18 +103,22 @@ autoinstall:
         device: root-format
         path: /
       
-      # Create LVM partitions on all devices
+      # LVM PV partitions on all disks (use remaining space); give them stable labels
       {%- for device in tp_diskdata.devices_in_scope %}
 
       - type: partition
         id: lvm-{{ device.device }}-part
         device: disk-{{ device.device }}
-        size: -1  # Use remaining space
+        size: -1
+        flag: lvm
+        name: lvm-{{ device.device }}
+        wipe: superblock
+        preserve: false
       {%- endfor %}
-      
-      # Create volume group with all LVM partitions
+
+      # Volume group across all LVM PV partitions
       - type: lvm_volgroup
-        id: {{ tp_volgroupname }}
+        id: vg-{{ tp_volgroupname }}
         name: {{ tp_volgroupname }}
         devices:
           {%- for device in tp_diskdata.devices_in_scope %}
@@ -119,22 +135,34 @@ autoinstall:
     - echo 'APT::Periodic::AutocleanInterval "7";' >> /target/etc/apt/apt.conf.d/20auto-upgrades
     - curtin in-target --target=/target -- sed -i 's/#PasswordAuthentication yes/PasswordAuthentication no/' /etc/ssh/sshd_config
     - curtin in-target --target=/target -- sed -i 's/#PermitRootLogin prohibit-password/PermitRootLogin no/' /etc/ssh/sshd_config
-    - echo "=== Creating LVM thin pools for Incus storage ==="
-    - vgs {{ tp_volgroupname }}
-    - lvs {{ tp_volgroupname }}
+    - echo "=== Creating thin-pools in VG {{ tp_volgroupname }} ==="
     {% for vol_name, vol_config in tp_diskdata.volume_group_volumes.items() -%}
-    {% if not (vol_config.all_remaining_space is defined and vol_config.all_remaining_space) -%}
-    - echo "Creating {{ vol_name }} thin pool with size {{ vol_config.size_MB }}M"
+    {% if vol_config.all_remaining_space is defined and vol_config.all_remaining_space -%}
+    - lvcreate --type thin-pool -n {{ vol_name }} -l 100%FREE {{ tp_volgroupname }}
+    {% else -%}
     - lvcreate --type thin-pool -n {{ vol_name }} -L {{ vol_config.size_MB }}M {{ tp_volgroupname }}
     {% endif -%}
     {% endfor -%}
-    {% for vol_name, vol_config in tp_diskdata.volume_group_volumes.items() -%}
-    {% if vol_config.all_remaining_space is defined and vol_config.all_remaining_space -%}
-    - echo "Creating {{ vol_name }} thin pool with remaining space"
-    - lvcreate --type thin-pool -n {{ vol_name }} -l 100%FREE {{ tp_volgroupname }}
-    {% endif -%}
-    {% endfor -%}
     - echo "=== Final LVM state ==="
-    - vgs {{ tp_volgroupname }}
-    - lvs {{ tp_volgroupname }}
+    - vgs {{ tp_volgroupname }} || true
+    - lvs {{ tp_volgroupname }} || true
     - echo "=== Incus will manage thin volumes within these pools ==="
+    - echo "=== Setting up Incus for first-boot initialization ==="
+    - curtin in-target --target=/target -- cp /cdrom/autoinstall/incus-preseed.yaml /usr/local/bin/incus-preseed.yaml
+    - curtin in-target --target=/target -- chown root:root /usr/local/bin/incus-preseed.yaml
+    - curtin in-target --target=/target -- chmod 600 /usr/local/bin/incus-preseed.yaml
+    - echo "=== Installing Incus production profile configurations ==="
+    - curtin in-target --target=/target -- mkdir -p /usr/local/bin/incus-profiles
+    {% for profile_name in tp_production_profiles %}- curtin in-target --target=/target -- cp /cdrom/autoinstall/incus-profiles/profile-{{ profile_name }}.yaml /usr/local/bin/incus-profiles/profile-{{ profile_name }}.yaml
+    - curtin in-target --target=/target -- chown root:root /usr/local/bin/incus-profiles/profile-{{ profile_name }}.yaml
+    - curtin in-target --target=/target -- chmod 600 /usr/local/bin/incus-profiles/profile-{{ profile_name }}.yaml
+    {% endfor %}- echo "=== Installing Incus first-boot setup script ==="
+    - curtin in-target --target=/target -- cp /cdrom/autoinstall/incus-firstboot-setup.sh /usr/local/bin/incus-firstboot-setup.sh
+    - curtin in-target --target=/target -- chown root:root /usr/local/bin/incus-firstboot-setup.sh
+    - curtin in-target --target=/target -- chmod 755 /usr/local/bin/incus-firstboot-setup.sh
+    - echo "=== Installing Incus first-boot systemd service ==="
+    - curtin in-target --target=/target -- cp /cdrom/autoinstall/incus-firstboot-setup.service /etc/systemd/system/incus-firstboot-setup.service
+    - curtin in-target --target=/target -- chown root:root /etc/systemd/system/incus-firstboot-setup.service
+    - curtin in-target --target=/target -- chmod 644 /etc/systemd/system/incus-firstboot-setup.service
+    - curtin in-target --target=/target -- systemctl enable incus-firstboot-setup.service
+    - echo "=== Incus first-boot setup configured successfully ==="

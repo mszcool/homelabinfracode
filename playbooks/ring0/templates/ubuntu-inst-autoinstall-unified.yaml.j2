@@ -1,0 +1,168 @@
+#cloud-config
+autoinstall:
+  version: 1
+  
+  identity:
+    hostname: {{ tp_hostname }}
+    username: {{ tp_root_user }}
+    password: {{ tp_root_user_password }}
+    realname: {{ tp_root_user_fullname }}
+
+  keyboard:
+    layout: de
+    variant: ""
+    toggle: null
+
+  ssh:
+    install-server: true
+    allow-pw: false
+    authorized-keys:
+      - {{ tp_root_user_publickey }}
+  
+  early-commands:
+    - echo "=== Letting installer handle native LVM cleanup ==="
+    - echo "=== Available block devices before install ==="
+    - lsblk -o NAME,SIZE,TYPE,FSTYPE,MOUNTPOINT 2>/dev/null || true
+  
+  storage:
+    config:
+      # Define all disk devices from devices_in_scope
+      {%- for device in tp_diskdata.devices_in_scope %}
+
+      - type: disk
+        id: disk-{{ device.device }}
+        path: /dev/{{ device.device }}
+        ptable: gpt
+        grub_device: {{ loop.first }}
+        wipe: superblock-recursive
+        preserve: false
+      {%- endfor %}
+      
+      # Create partitions on the root partition device
+      {% set root_device = tp_diskdata.root_partition.device %}
+      
+      # Fixed EFI partition (512MB)
+      - type: partition
+        id: efi-part
+        device: disk-{{ root_device }}
+        size: 512M
+        flag: boot
+        grub_device: true
+        wipe: superblock
+        preserve: false
+      
+      # Format EFI partition 
+      - type: format
+        id: efi-format
+        volume: efi-part
+        fstype: fat32
+        
+      # Mount EFI partition
+      - type: mount
+        id: efi-mount
+        device: efi-format
+        path: /boot/efi
+      
+      # Fixed boot partition (1024MB)
+      - type: partition
+        id: boot-part
+        device: disk-{{ root_device }}
+        size: 1024M
+        wipe: superblock
+        preserve: false
+        
+      # Format boot partition
+      - type: format
+        id: boot-format
+        volume: boot-part
+        fstype: ext4
+        
+      # Mount boot partition
+      - type: mount
+        id: boot-mount
+        device: boot-format
+        path: /boot
+      
+      # Root OS partition with configured size
+      - type: partition
+        id: root-part
+        device: disk-{{ root_device }}
+        size: {{ tp_diskdata.root_partition.size_MB }}M
+        wipe: superblock
+        preserve: false
+        
+      # Format root partition
+      - type: format
+        id: root-format
+        volume: root-part
+        fstype: ext4
+        
+      # Mount root partition
+      - type: mount
+        id: root-mount
+        device: root-format
+        path: /
+      
+      # LVM PV partitions on all disks (use remaining space); give them stable labels
+      {%- for device in tp_diskdata.devices_in_scope %}
+
+      - type: partition
+        id: lvm-{{ device.device }}-part
+        device: disk-{{ device.device }}
+        size: -1
+        flag: lvm
+        name: lvm-{{ device.device }}
+        wipe: superblock
+        preserve: false
+      {%- endfor %}
+
+      # Volume group across all LVM PV partitions
+      - type: lvm_volgroup
+        id: vg-{{ tp_volgroupname }}
+        name: {{ tp_volgroupname }}
+        devices:
+          {%- for device in tp_diskdata.devices_in_scope %}
+
+          - lvm-{{ device.device }}-part
+          {%- endfor %}
+
+  packages:
+    - {{ tp_packages|join('\n    - ') }}
+  
+  late-commands:
+    - echo 'APT::Periodic::Update-Package-Lists "1";' > /target/etc/apt/apt.conf.d/20auto-upgrades
+    - echo 'APT::Periodic::Unattended-Upgrade "1";' >> /target/etc/apt/apt.conf.d/20auto-upgrades
+    - echo 'APT::Periodic::AutocleanInterval "7";' >> /target/etc/apt/apt.conf.d/20auto-upgrades
+    - curtin in-target --target=/target -- sed -i 's/#PasswordAuthentication yes/PasswordAuthentication no/' /etc/ssh/sshd_config
+    - curtin in-target --target=/target -- sed -i 's/#PermitRootLogin prohibit-password/PermitRootLogin no/' /etc/ssh/sshd_config
+    - echo "=== Creating thin-pools in VG {{ tp_volgroupname }} ==="
+    {% for vol_name, vol_config in tp_diskdata.volume_group_volumes.items() -%}
+    {% if vol_config.all_remaining_space is defined and vol_config.all_remaining_space -%}
+    - lvcreate --type thin-pool -n {{ vol_name }} -l 100%FREE {{ tp_volgroupname }}
+    {% else -%}
+    - lvcreate --type thin-pool -n {{ vol_name }} -L {{ vol_config.size_MB }}M {{ tp_volgroupname }}
+    {% endif -%}
+    {% endfor -%}
+    - echo "=== Final LVM state ==="
+    - vgs {{ tp_volgroupname }} || true
+    - lvs {{ tp_volgroupname }} || true
+    - echo "=== Incus will manage thin volumes within these pools ==="
+    - echo "=== Setting up Incus for first-boot initialization ==="
+    - curtin in-target --target=/target -- cp /cdrom/configs/{{ host_config_item.name }}/incus-preseed.yaml /usr/local/bin/incus-preseed.yaml
+    - curtin in-target --target=/target -- chown root:root /usr/local/bin/incus-preseed.yaml
+    - curtin in-target --target=/target -- chmod 600 /usr/local/bin/incus-preseed.yaml
+    - echo "=== Installing Incus production profile configurations ==="
+    - curtin in-target --target=/target -- mkdir -p /usr/local/bin/incus-profiles
+    {% for profile_name in tp_production_profiles %}- curtin in-target --target=/target -- cp /cdrom/configs/common/incus-profiles/profile-{{ profile_name }}.yaml /usr/local/bin/incus-profiles/profile-{{ profile_name }}.yaml
+    - curtin in-target --target=/target -- chown root:root /usr/local/bin/incus-profiles/profile-{{ profile_name }}.yaml
+    - curtin in-target --target=/target -- chmod 600 /usr/local/bin/incus-profiles/profile-{{ profile_name }}.yaml
+    {% endfor %}- echo "=== Installing Incus first-boot setup script ==="
+    - curtin in-target --target=/target -- cp /cdrom/configs/common/incus-firstboot-setup.sh /usr/local/bin/incus-firstboot-setup.sh
+    - curtin in-target --target=/target -- chown root:root /usr/local/bin/incus-firstboot-setup.sh
+    - curtin in-target --target=/target -- chmod 755 /usr/local/bin/incus-firstboot-setup.sh
+    - echo "=== Installing Incus first-boot systemd service ==="
+    - curtin in-target --target=/target -- cp /cdrom/configs/common/incus-firstboot-setup.service /etc/systemd/system/incus-firstboot-setup.service
+    - curtin in-target --target=/target -- chown root:root /etc/systemd/system/incus-firstboot-setup.service
+    - curtin in-target --target=/target -- chmod 644 /etc/systemd/system/incus-firstboot-setup.service
+    - curtin in-target --target=/target -- systemctl enable incus-firstboot-setup.service
+    - echo "=== Incus first-boot setup configured successfully ==="

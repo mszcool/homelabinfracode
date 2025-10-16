@@ -1,0 +1,258 @@
+---
+# Incus Trusted Client Certificate Management Tasks
+# This task file manages trusted client certificates for remote Incus access
+# Certificates are stored as individual files and referenced from inventory
+
+# ============================================================================
+# VALIDATION: Verify all certificate files exist before proceeding
+# ============================================================================
+
+- name: Check if any client certificates are configured.
+  ansible.builtin.set_fact:
+    has_client_certificates: "{{ incus_trusted_clients is defined and incus_trusted_clients | length > 0 }}"
+
+- name: Skip certificate management if no certificates are configured.
+  ansible.builtin.debug:
+    msg: "No client certificates configured (incus_trusted_clients is empty or undefined). Skipping certificate management."
+  when: not has_client_certificates
+
+- name: Display number of certificates to process.
+  ansible.builtin.debug:
+    msg: "Found {{ incus_trusted_clients | length }} client certificate(s) to process"
+  when: has_client_certificates
+
+- name: Validate certificate configuration structure.
+  ansible.builtin.assert:
+    that:
+      - item.name is defined
+      - item.name | length > 0
+      - item.certificate_file is defined
+      - item.certificate_file | length > 0
+    fail_msg: "Certificate entry '{{ item.name | default('unnamed') }}' is missing required fields (name, certificate_file)"
+    success_msg: "Certificate '{{ item.name }}' has valid configuration structure"
+  loop: "{{ incus_trusted_clients }}"
+  loop_control:
+    label: "{{ item.name | default('unnamed entry') }}"
+  when: has_client_certificates
+
+- name: Check if certificate files exist at specified paths.
+  local_action:
+    module: ansible.builtin.stat
+    path: "{{ playbook_dir }}/{{ item.certificate_file }}"
+  register: cert_file_check
+  loop: "{{ incus_trusted_clients }}"
+  loop_control:
+    label: "{{ item.name }}: {{ item.certificate_file }}"
+  failed_when: false
+  when: has_client_certificates
+  become: no
+
+- name: Validate all certificate files are accessible.
+  ansible.builtin.assert:
+    that:
+      - item.stat.exists
+      - item.stat.isreg
+      - item.stat.readable
+    fail_msg: |
+      Certificate file for '{{ item.item.name }}' not found or not accessible:
+      Path: {{ item.item.certificate_file }}
+      Exists: {{ item.stat.exists | default(false) }}
+      Is regular file: {{ item.stat.isreg | default(false) }}
+      Is readable: {{ item.stat.readable | default(false) }}
+    success_msg: "Certificate file for '{{ item.item.name }}' is accessible at {{ item.item.certificate_file }}"
+  loop: "{{ cert_file_check.results }}"
+  loop_control:
+    label: "{{ item.item.name }}"
+  when: has_client_certificates
+
+- name: Validate certificate file format (PEM).
+  local_action:
+    module: ansible.builtin.shell
+    cmd: "grep -q 'BEGIN CERTIFICATE' {{ playbook_dir }}/{{ item.certificate_file }} && grep -q 'END CERTIFICATE' {{ playbook_dir }}/{{ item.certificate_file }}"
+  register: cert_format_check
+  loop: "{{ incus_trusted_clients }}"
+  loop_control:
+    label: "{{ item.name }}: {{ item.certificate_file }}"
+  changed_when: false
+  failed_when: cert_format_check.rc != 0
+  when: has_client_certificates
+  become: no
+
+- name: Display validation summary.
+  ansible.builtin.debug:
+    msg: 
+      - "✅ Validation complete: All {{ incus_trusted_clients | length }} certificate file(s) passed validation"
+      - "Certificates to process: {{ incus_trusted_clients | map(attribute='name') | list | join(', ') }}"
+  when: has_client_certificates
+
+# ============================================================================
+# DEPLOYMENT: Deploy certificates to Incus server
+# ============================================================================
+
+- name: Get list of currently trusted certificates.
+  ansible.builtin.command:
+    cmd: "incus config trust list --format json"
+  register: current_trusted_certs
+  changed_when: false
+  when: has_client_certificates
+
+- name: Parse current trusted certificates.
+  ansible.builtin.set_fact:
+    current_cert_fingerprints: "{{ (current_trusted_certs.stdout | from_json) | map(attribute='fingerprint') | list }}"
+    current_cert_names: "{{ (current_trusted_certs.stdout | from_json) | map(attribute='name') | list }}"
+  when: has_client_certificates
+
+- name: Display current trusted certificates.
+  ansible.builtin.debug:
+    msg: "Currently trusted certificates: {{ current_cert_names }}"
+  when: has_client_certificates
+
+- name: Create temporary directory for certificate files.
+  ansible.builtin.tempfile:
+    state: directory
+    suffix: incus_certs
+  register: cert_temp_dir
+  when: has_client_certificates
+
+- name: Read certificate files using paths from inventory.
+  ansible.builtin.set_fact:
+    cert_contents: "{{ cert_contents | default({}) | combine({item.name: lookup('file', playbook_dir + '/' + item.certificate_file)}) }}"
+  loop: "{{ incus_trusted_clients }}"
+  loop_control:
+    label: "{{ item.name }}"
+  when: has_client_certificates
+
+- name: Write certificate files to temporary directory.
+  ansible.builtin.copy:
+    content: "{{ cert_contents[item.name] }}"
+    dest: "{{ cert_temp_dir.path }}/{{ item.name }}.crt"
+    mode: '0600'
+  loop: "{{ incus_trusted_clients }}"
+  loop_control:
+    label: "{{ item.name }}"
+  when: has_client_certificates
+
+- name: Get fingerprint of each certificate to check if already trusted.
+  ansible.builtin.command:
+    cmd: "openssl x509 -in {{ cert_temp_dir.path }}/{{ item.name }}.crt -fingerprint -noout -sha256"
+  register: cert_fingerprints
+  loop: "{{ incus_trusted_clients }}"
+  loop_control:
+    label: "{{ item.name }}"
+  changed_when: false
+  when: has_client_certificates
+
+- name: Add new trusted client certificates.
+  ansible.builtin.shell:
+    cmd: |
+      incus config trust add-certificate {{ cert_temp_dir.path }}/{{ item.item.name }}.crt \
+        --name "{{ item.item.name }}"{% if item.item.restricted | default(false) %} \
+        --restricted{% endif %}{% if item.item.projects | default([]) | length > 0 %} \
+        --projects "{{ item.item.projects | join(',') }}"{% endif %}
+  loop: "{{ cert_fingerprints.results }}"
+  loop_control:
+    label: "{{ item.item.name }}"
+  register: add_cert_result
+  failed_when: 
+    - add_cert_result.rc != 0
+    - "'Certificate already in trust store' not in add_cert_result.stderr"
+    - "'already exists' not in add_cert_result.stderr"
+  changed_when: 
+    - add_cert_result.rc == 0
+    - "'already in trust store' not in add_cert_result.stderr | lower"
+  when: has_client_certificates
+
+- name: Remove temporary certificate directory.
+  ansible.builtin.file:
+    path: "{{ cert_temp_dir.path }}"
+    state: absent
+  when: has_client_certificates
+
+# ============================================================================
+# CLEANUP: Remove certificates NOT in configuration (security enforcement)
+# ============================================================================
+
+- name: Get updated list of all trusted certificates after additions.
+  ansible.builtin.command:
+    cmd: "incus config trust list --format json"
+  register: all_trusted_certs
+  changed_when: false
+
+- name: Parse all currently trusted certificates.
+  ansible.builtin.set_fact:
+    all_current_certs: "{{ all_trusted_certs.stdout | from_json }}"
+
+- name: Build list of configured certificate names for comparison.
+  ansible.builtin.set_fact:
+    configured_cert_names: "{{ incus_trusted_clients | map(attribute='name') | list }}"
+  when: has_client_certificates
+
+- name: Set empty list if no certificates configured.
+  ansible.builtin.set_fact:
+    configured_cert_names: []
+  when: not has_client_certificates
+
+- name: Identify certificates that should be removed (not in configuration).
+  ansible.builtin.set_fact:
+    certs_to_remove: "{{ all_current_certs | selectattr('name', 'defined') | rejectattr('name', 'in', configured_cert_names) | list }}"
+
+- name: Display certificates that will be removed.
+  ansible.builtin.debug:
+    msg: 
+      - "Found {{ certs_to_remove | length }} certificate(s) not in configuration that will be removed:"
+      - "{{ certs_to_remove | map(attribute='name') | list }}"
+  when: certs_to_remove | length > 0
+
+- name: Confirm no unauthorized certificates will remain.
+  ansible.builtin.debug:
+    msg: "✅ No unauthorized certificates found. All trusted certificates are in configuration."
+  when: certs_to_remove | length == 0
+
+- name: Remove certificates not in configuration.
+  ansible.builtin.command:
+    cmd: "incus config trust remove {{ item.fingerprint }}"
+  loop: "{{ certs_to_remove }}"
+  loop_control:
+    label: "{{ item.name }} (fingerprint: {{ item.fingerprint[:16] }}...)"
+  when: certs_to_remove | length > 0
+  register: remove_cert_result
+
+- name: Display summary of removed certificates.
+  ansible.builtin.debug:
+    msg: "✅ Removed {{ certs_to_remove | length }} unauthorized certificate(s): {{ certs_to_remove | map(attribute='name') | list | join(', ') }}"
+  when: certs_to_remove | length > 0
+
+# ============================================================================
+# FINAL VERIFICATION: Ensure only configured certificates are trusted
+# ============================================================================
+
+- name: Get final list of trusted certificates for verification.
+  ansible.builtin.command:
+    cmd: "incus config trust list --format json"
+  register: final_trusted_certs
+  changed_when: false
+
+- name: Parse final trusted certificates.
+  ansible.builtin.set_fact:
+    final_cert_names: "{{ (final_trusted_certs.stdout | from_json) | map(attribute='name') | list }}"
+
+- name: Verify only configured certificates are trusted.
+  ansible.builtin.assert:
+    that:
+      - final_cert_names | sort == configured_cert_names | sort
+    fail_msg: |
+      ❌ SECURITY ERROR: Certificate mismatch detected!
+      Configured certificates: {{ configured_cert_names | sort }}
+      Currently trusted certificates: {{ final_cert_names | sort }}
+      Difference: {{ final_cert_names | difference(configured_cert_names) }}
+    success_msg: "✅ VERIFIED: Only configured certificates ({{ configured_cert_names | length }}) are trusted on this server"
+
+- name: Display summary of trusted certificates.
+  ansible.builtin.command:
+    cmd: "incus config trust list"
+  register: final_trusted_list
+  changed_when: false
+
+- name: Show final trusted certificates list.
+  ansible.builtin.debug:
+    msg: "{{ final_trusted_list.stdout_lines }}"

@@ -1,0 +1,56 @@
+---
+# Tasks for processing each server configuration in the unified ISO approach
+
+- name: Generate autoinstall configuration for {{ host_config_item.name }}
+  ansible.builtin.template:
+    src: "templates/ubuntu-inst-autoinstall-unified.yaml.j2"
+    dest: "{{ param_iso_working_path }}/configs/{{ host_config_item.name }}/autoinstall.yaml"
+    mode: '0644'
+  vars:
+    tp_hostname: "{{ param_random_hostname }}"
+    tp_volgroupname: "{{ param_volume_group_name }}"
+    tp_diskdata: "{{ host_config_item.virtual_disk_config }}"
+    tp_packages: "{{ param_minimum_packages }}"
+    tp_localdomain: "{{ localdomain }}"
+    tp_root_user: "{{ root_user }}"
+    tp_root_user_fullname: "{{ root_user_fullname }}"
+    tp_root_user_password: "{{ param_root_user_password }}"  # This is now the encrypted password
+    tp_root_user_publickey: "{{ root_user_publickey }}"
+    tp_production_profiles: "{{ param_incus_config.production_profiles }}"
+
+- name: Generate Incus preseed configuration for {{ host_config_item.name }}
+  ansible.builtin.template:
+    src: ubuntu-inst-incus-preseed.yaml.j2
+    dest: "{{ param_iso_working_path }}/configs/{{ host_config_item.name }}/incus-preseed.yaml"
+    mode: '0600'
+  vars:
+    tp_incus_config: "{{ param_incus_config }}"
+    tp_incus_netconfig: "{{ host_config_item.network_config }}"
+
+# Cloud-init files not needed when using subiquity.autoinstallpath
+
+- name: Copy generated preseed file to external configs directory for {{ host_config_item.name }}
+  ansible.builtin.copy:
+    src: "{{ param_iso_working_path }}/configs/{{ host_config_item.name }}/incus-preseed.yaml"
+    dest: "{{ param_preseed_output_dir }}/incus.preseed.{{ host_config_item.name }}.yaml"
+    mode: "0600"
+
+- name: Copy production profile configurations to external configs directory for {{ host_config_item.name }}
+  ansible.builtin.copy:
+    src: "{{ param_iso_working_path }}/configs/common/incus-profiles/profile-{{ item }}.yaml"
+    dest: "{{ param_preseed_output_dir }}/incus.profile-{{ item }}.{{ host_config_item.name }}.yaml"
+    mode: "0600"
+  loop: "{{ param_incus_config.production_profiles }}"
+
+- name: Verify server-specific files were created for {{ host_config_item.name }}
+  ansible.builtin.stat:
+    path: "{{ item }}"
+  register: server_files_stat
+  loop:
+    - "{{ param_iso_working_path }}/configs/{{ host_config_item.name }}/autoinstall.yaml"
+    - "{{ param_iso_working_path }}/configs/{{ host_config_item.name }}/incus-preseed.yaml"
+
+- name: Display server configuration result for {{ host_config_item.name }}
+  ansible.builtin.debug:
+    msg: "Server configuration for {{ host_config_item.name }} generated successfully"
+  when: server_files_stat.results | map(attribute='stat.exists') | list | unique == [true]

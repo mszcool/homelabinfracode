@@ -14,7 +14,7 @@
     param_site_vpn_config: "{{ site_vpn_config }}"
     param_end_marker_text: "{{ end_marker_text }}"
     param_start_marker_text: "{{ start_marker_text }}"
-    param_router_host_config: "{{ hostsConfig[inventory_hostname] }}"
+    param_router_host_config: "{{ mainrouterconfig }}"
 
   tasks:
     - name: Prepare localhost -- install python3-paramiko on host.

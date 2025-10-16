@@ -112,7 +112,7 @@
 
     - name: Device Groups -- Validate IP ranges and create address lists
       ansible.builtin.include_tasks:
-        file: networking-mikrotik-continuous-configure-tasks-device-group-setup.yaml
+        file: ./tasks/networking-mikrotik-continuous-configure-tasks-device-group-setup.yaml
       vars:
         device_group: "{{ item }}"
       loop: "{{ param_devices_mapped }}"
@@ -121,7 +121,7 @@
 
     - name: Devices -- Create or update static DHCP leases and DNS entries for all devices in groups.
       ansible.builtin.include_tasks:
-        file: networking-mikrotik-continuous-configure-tasks-devices.yaml
+        file: ./tasks/networking-mikrotik-continuous-configure-tasks-devices.yaml
       vars:
         device_mapped: "{{ item.1 }}"
         device_group: "{{ item.0 }}"
@@ -133,7 +133,7 @@
 
     - name: Firewall Rules -- Create or update baseline firewall rules (those who are also required for blank setup).
       ansible.builtin.include_tasks:
-        file: networking-mikrotik-continuous-configure-tasks-firewall.yaml
+        file: ./tasks/networking-mikrotik-continuous-configure-tasks-firewall.yaml
       vars:
         firewall_group_name: "{{ item.name }}"
         firewall_group_place_before: "{{ item.place_before if item.place_before is defined else '0' }}"
@@ -152,7 +152,7 @@
 
     - name: Firewall Rules -- Create or update all other firewall rules.
       ansible.builtin.include_tasks:
-        file: networking-mikrotik-continuous-configure-tasks-firewall.yaml
+        file: ./tasks/networking-mikrotik-continuous-configure-tasks-firewall.yaml
       vars:
         firewall_group_name: "{{ item.name }}"
         firewall_group_place_before: "{{ item.place_before if item.place_before is defined else '0' }}"

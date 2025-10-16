@@ -1,0 +1,99 @@
+config:
+  core.https_address: 127.0.0.1:9443
+  images.auto_update_interval: 15
+
+networks:
+- name: phys-br
+  type: macvlan
+  config:
+    parent: eth0
+- name: iso-nat
+  type: bridge
+  config:
+    ipv4.address: 10.100.0.1/24
+    ipv4.dhcp: true
+    ipv4.nat: true
+    ipv6.address: none
+    ipv6.nat: false
+
+storage_pools:
+- name: incus-images
+  driver: lvm
+  config:
+    source: vg0
+    lvm.use_thinpool: true
+    lvm.vg.force_reuse: true
+    lvm.thinpool_name: images
+- name: incus-instances
+  driver: lvm
+  config:
+    source: vg0
+    lvm.use_thinpool: true
+    lvm.vg.force_reuse: true
+    lvm.thinpool_name: instances
+
+projects:
+- name: default
+  config:
+    features.images: true
+    features.networks: true
+    features.profiles: true
+    features.storage.volumes: true
+    limits.disk: 100GB
+    restricted: true
+    restricted.networks.access: iso-nat
+  description: Default project for VMs with global network access and default limits
+- name: prodlayer0
+  config:
+    features.images: true
+    features.networks: false
+    features.profiles: true
+    features.storage.volumes: true
+    limits.disk: 200GB
+    restricted: true
+    restricted.networks.access: phys-br,iso-nat
+  description: Production VMs (prodlayer0) with bridged networking and higher storage limits
+- name: prodlayer1
+  config:
+    features.images: true
+    features.networks: false
+    features.profiles: true
+    features.storage.volumes: true
+    limits.disk: 200GB
+    restricted: true
+    restricted.networks.access: phys-br,iso-nat
+  description: Production VMs (prodlayer1) with bridged networking and higher storage limits
+
+profiles:
+- name: default
+  description: "Default profile for VMs with NAT networking and 30GiB root disk"
+  devices:
+    root:
+      path: /
+      pool: incus-instances
+      type: disk
+      size: 30GiB
+    eth0:
+      name: eth0
+      network: iso-nat
+      type: nic
+  config:
+    boot.autostart: false
+    security.privileged: false
+    security.protection.delete: false
+- name: defaultlan
+  description: "LAN profile for VMs with bridged networking and 50GiB root disk"
+  devices:
+    root:
+      path: /
+      pool: incus-instances
+      type: disk
+      size: 50GiB
+    eth0:
+      name: eth0
+      network: phys-br
+      type: nic
+  config:
+    boot.autostart: false
+    security.privileged: false
+    security.protection.delete: false

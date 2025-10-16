@@ -1,0 +1,135 @@
+#!/bin/bash
+# Incus First Boot Setup Script
+# This script runs once on first boot to configure Incus with preseed
+
+set -euo pipefail
+
+# Setup logging
+LOGFILE="/var/log/incus-firstboot-setup.log"
+exec > >(tee -a "$LOGFILE")
+exec 2>&1
+
+echo "=== Incus First Boot Setup Starting at $(date) ==="
+
+# Add user to incus group (try different group names)
+echo "Adding user {{ tp_root_user }} to incus group..."
+if getent group incus-admin >/dev/null 2>&1; then
+    echo "Found incus-admin group, adding user..."
+    usermod -a -G incus-admin {{ tp_root_user }}
+elif getent group incus >/dev/null 2>&1; then
+    echo "Found incus group, adding user..."
+    usermod -a -G incus {{ tp_root_user }}
+else
+    echo "Creating incus group and adding user..."
+    groupadd incus
+    usermod -a -G incus {{ tp_root_user }}
+fi
+
+# Start Incus service and wait for it to be ready
+echo "Starting Incus service..."
+systemctl start incus
+
+echo "Waiting for Incus service to be ready..."
+timeout=60
+counter=0
+while ! systemctl is-active --quiet incus; do
+    sleep 2
+    counter=$((counter + 2))
+    if [ $counter -ge $timeout ]; then
+        echo "ERROR: Incus service did not start within $timeout seconds"
+        exit 1
+    fi
+done
+
+echo "Incus service is ready!"
+
+# Initialize Incus with preseed configuration
+PRESEED_FILE="/usr/local/bin/incus-preseed.yaml"
+PRODUCTION_PROFILE_DIR="/usr/local/bin/incus-profiles"
+
+if [ -f "$PRESEED_FILE" ]; then
+    echo "Found preseed file at $PRESEED_FILE, showing content for debugging:"
+    echo "--- Preseed file content ---"
+    cat "$PRESEED_FILE"
+    echo "--- End of preseed file ---"
+    
+    echo "Initializing Incus with preseed configuration (default project and profile only)..."
+    if /usr/bin/incus admin init --preseed < "$PRESEED_FILE"; then
+        echo "Incus basic initialization completed successfully!"
+        
+        # Show initial state
+        echo "Current Incus state after preseed:"
+        /usr/bin/incus storage list || echo "Failed to list storage"
+        /usr/bin/incus network list || echo "Failed to list networks"
+        /usr/bin/incus project list || echo "Failed to list projects"
+        
+        # Create production profiles in their respective projects
+        if [ -d "$PRODUCTION_PROFILE_DIR" ]; then
+            echo "Found production profile directory at $PRODUCTION_PROFILE_DIR"
+            
+            for profile_file in "$PRODUCTION_PROFILE_DIR"/*.yaml; do
+                if [ -f "$profile_file" ]; then
+                    profile_name=$(basename "$profile_file" .yaml)
+                    project_name=$(echo "$profile_name" | sed 's/^profile-//')
+                    
+                    echo "Processing profile: $profile_name for project: $project_name"
+                    echo "--- Profile content ---"
+                    cat "$profile_file"
+                    echo "--- End of profile ---"
+                    
+                    echo "Switching to $project_name project..."
+                    /usr/bin/incus project switch "$project_name"
+                    
+                    echo "Creating production profile in $project_name project..."
+                    if /usr/bin/incus profile create production; then
+                        echo "Production profile created in $project_name, now configuring it..."
+                        if /usr/bin/incus profile edit production < "$profile_file"; then
+                            echo "Production profile configured successfully in $project_name!"
+                        else
+                            echo "ERROR: Failed to configure production profile in $project_name!"
+                            exit 1
+                        fi
+                    else
+                        echo "ERROR: Failed to create production profile in $project_name!"
+                        exit 1
+                    fi
+                fi
+            done
+            
+            # Switch back to default project
+            echo "Switching back to default project..."
+            /usr/bin/incus project switch default
+        else
+            echo "WARNING: Production profile directory $PRODUCTION_PROFILE_DIR not found!"
+            echo "Skipping production profile creation"
+        fi
+        
+        # Show final state
+        echo "Final Incus state:"
+        /usr/bin/incus project list || echo "Failed to list projects"
+        /usr/bin/incus profile list || echo "Failed to list profiles in default project"
+        {% for profile_name in tp_incus_config.production_profiles %}
+        /usr/bin/incus project switch {{ profile_name }} && /usr/bin/incus profile list && /usr/bin/incus project switch default || echo "Failed to check {{ profile_name }} project profiles"
+        {% endfor %}
+    else
+        echo "ERROR: Incus initialization failed!"
+        echo "Preseed file content was:"
+        cat "$PRESEED_FILE"
+        exit 1
+    fi
+else
+    echo "ERROR: Preseed file $PRESEED_FILE not found!"
+    echo "Available files in /usr/local/bin/:"
+    ls -la /usr/local/bin/ || true
+    echo "Available files in /tmp:"
+    ls -la /tmp/ || true
+    exit 1
+fi
+
+# Disable this service so it doesn't run again
+echo "Disabling first-boot setup service..."
+systemctl disable incus-firstboot-setup.service
+
+echo "=== Incus First Boot Setup Completed Successfully at $(date) ==="
+echo "Check 'sudo incus info' to verify Incus is working"
+echo "Log file location: $LOGFILE"

@@ -1,0 +1,230 @@
+---
+# Playbook: Configure TrueNAS SCALE idempotently truenas-config.yaml
+# Notes:
+# - Requires the arensb.truenas Ansible collection (ansible-galaxy collection install arensb.truenas)
+# - Run against hosts in the 'truenas' inventory group (inventory in use should match hosts in the provided config)
+# - This playbook avoids destructive operations: it will NOT create or destroy ZFS pools. Datasets are created only when their pool already exists.
+# - User passwords in truenas-config.yaml are expected to be crypt(3) hashed strings. If you supply plain-text passwords in env vars, the playbook will skip setting them and print a warning.
+# - Password environment variables referenced in the config should be present on the control node (or in a vault) before running.
+
+- name: Configure TrueNAS SCALE from provided vars
+  hosts: truenas
+  gather_facts: false
+  become: yes
+  collections:
+    - arensb.truenas
+
+  pre_tasks:
+    - name: Ensure arensb.truenas facts are available
+      arensb.truenas.truenas_facts:
+
+    - name: Get list of zpools on host so we don't attempt to create pools
+      ansible.builtin.command:
+        cmd: zpool list -H -o name
+      register: zpool_list
+      changed_when: false
+      failed_when: false
+
+    - name: Set list of pools fact
+      ansible.builtin.set_fact:
+        truenas_pools: "{{ zpool_list.stdout_lines | default([]) }}"
+
+  tasks:
+    - name: Set host hostname
+      arensb.truenas.hostname:
+        name: "{{ truenas_hostname }}"
+      when: truenas_hostname is defined
+
+    - name: Configure system dataset pool if requested and pool exists
+      arensb.truenas.systemdataset:
+        pool: "{{ system_settings.system_dataset_pool | default(storage_pools.primaryPool.name if storage_pools is defined and storage_pools.primaryPool is defined else omit) }}"
+      when:
+        - system_settings.system_dataset_pool is defined or (storage_pools is defined and storage_pools.primaryPool is defined)
+        - (system_settings.system_dataset_pool | default(storage_pools.primaryPool.name | default(''))) in truenas_pools
+      ignore_errors: true
+
+    - name: Ensure groups exist
+      arensb.truenas.group:
+        name: "{{ item.key }}"
+        gid: "{{ item.value.gid | default(omit) }}"
+        state: present
+      loop: "{{ family_groups | dict2items if family_groups is defined else [] }}"
+      loop_control:
+        label: "{{ item.key }}"
+
+    - name: Ensure users exist and are configured
+      vars:
+        user_name: "{{ item.key }}"
+        user: "{{ item.value }}"
+        provided_password: "{{ lookup('env', user.password_env) | default('') }}"
+        pass_is_crypted: "{{ (provided_password | length) > 0 and (provided_password.startswith('$') or provided_password.startswith('!') or provided_password.startswith('*')) }}"
+      arensb.truenas.user:
+        name: "{{ user.username | default(user_name) }}"
+        comment: "{{ user.full_name | default('') }}"
+        group: "{{ user.primary_group | default(omit) }}"
+        groups: "{{ user.additional_groups | default([]) }}"
+        append: yes
+        home: "{{ user.home_directory | default(omit) }}"
+        shell: "{{ user.shell | default(omit) }}"
+        smb: "{{ user.smb_enabled | default(omit) }}"
+        ssh_authorized_keys: "{{ [ user.ssh_public_key ] if (user.ssh_public_key is defined and user.ssh_public_key | length > 0) else omit }}"
+        ssh_authorized_keys_append: yes
+        # Only set password if the env var contains a crypt-style hash (best-effort check)
+        password: "{{ provided_password if pass_is_crypted else omit }}"
+        append_pubkeys: yes
+        sudo: "{{ user.sudo_enabled | default(false) }}"
+        state: present
+      loop: "{{ family_users | dict2items if family_users is defined else [] }}"
+      loop_control:
+        label: "{{ item.key }}"
+
+    - name: Create datasets (only when pool exists)
+      vars:
+        ds: "{{ item.value }}"
+        pool_name: "{{ ds.name.split('/')[0] }}"
+      arensb.truenas.filesystem:
+        name: "{{ ds.name }}"
+        type: "{{ ds.type | default('filesystem') }}"
+        comment: "{{ ds.description | default(omit) }}"
+        quota: "{{ (ds.quota_gb * 1024 * 1024 * 1024) | int if (ds.quota_gb is defined) else omit }}"
+        recordsize: "{{ ds.record_size | default(omit) }}"
+        sync: "{{ ds.sync | default(omit) }}"
+        compression: "{{ ds.compression | default(omit) }}"
+        atime: "{{ ds.atime | default(omit) }}"
+        case_sensitivity: "{{ ds.case_sensitivity | default(omit) }}"
+        acltype: "{{ ds.acl_type | default(omit) }}"
+        owner: "{{ ds.owner | default(omit) }}"
+        group: "{{ ds.group | default(omit) }}"
+        mode: "{{ ds.permissions | default(omit) }}"
+        create_ancestors: true
+        state: present
+      loop: "{{ datasets | dict2items if datasets is defined else [] }}"
+      when: "pool_name in truenas_pools"
+      loop_control:
+        label: "{{ item.value.name }}"
+
+    - name: Configure SMB shares
+      arensb.truenas.sharing_smb:
+        name: "{{ item.key }}"
+        path: "{{ item.value.path }}"
+        comment: "{{ item.value.description | default(omit) }}"
+        enabled: "{{ item.value.smb.enabled | default(true) }}"
+        browsable: "{{ item.value.smb.browsable | default(omit) }}"
+        guestok: "{{ item.value.smb.guest_ok | default(omit) }}"
+        hostsallow: "{{ item.value.smb.hostsallow | default(omit) }}"
+        hostsdeny: "{{ item.value.smb.hostsdeny | default(omit) }}"
+        ro: "{{ item.value.smb.read_only | default(omit) }}"
+        create_mask: "{{ item.value.smb.create_mask | default(omit) }}"
+        directory_mask: "{{ item.value.smb.directory_mask | default(omit) }}"
+        veto_files: "{{ item.value.smb.veto_files | default(omit) }}"
+        delete_veto_files: "{{ item.value.smb.delete_veto_files | default(omit) }}"
+        valid_users: "{{ item.value.smb.valid_users | default(omit) }}"
+        write_list: "{{ item.value.smb.write_list | default(omit) }}"
+        state: present
+      loop: "{{ shares | dict2items if shares is defined else [] }}"
+      loop_control:
+        label: "{{ item.key }}"
+
+    - name: Configure NFS service global settings
+      arensb.truenas.nfs:
+        bindip: "{{ services.nfs.bind_addresses | default(omit) }}"
+        mountd_port: "{{ services.nfs.mountd_port | default(omit) }}"
+        rpcstatd_port: "{{ services.nfs.rpcstatd_port | default(omit) }}"
+        rpclockd_port: "{{ services.nfs.rpclockd_port | default(omit) }}"
+        protocols: "{{ ['NFSv4'] if services.nfs.v4 | default(false) else omit }}"
+      when: services is defined and services.nfs is defined
+
+    - name: Configure NFS shares
+      arensb.truenas.sharing_nfs:
+        name: "{{ item.key }}"
+        path: "{{ item.value.path }}"
+        networks: "{{ item.value.nfs.allowed_networks | default(omit) }}"
+        readonly: "{{ item.value.nfs.read_only | default(omit) }}"
+        quiet: "{{ item.value.nfs.quiet | default(omit) }}"
+        alldirs: "{{ item.value.nfs.all_dirs | default(omit) }}"
+        options: "{{ item.value.nfs.options | default(omit) }}"
+        state: present
+      loop: "{{ shares | dict2items if shares is defined else [] }}"
+      when: "item.value.nfs is defined and item.value.nfs.enabled | default(false)"
+      loop_control:
+        label: "{{ item.key }}"
+
+    - name: Ensure TrueNAS services are in the desired state
+      arensb.truenas.service:
+        name: "{{ item.key }}"
+        enabled: "{{ item.value.enabled | default(omit) }}"
+        state: "{{ (item.value.state | default(omit)) }}"
+      loop: "{{ services | dict2items if services is defined else [] }}"
+      loop_control:
+        label: "{{ item.key }}"
+
+    - name: Schedule pool snapshot tasks
+      arensb.truenas.pool_snapshot_task:
+        match:
+          dataset: "{{ item.value.dataset }}"
+          name_format: "{{ item.key }}"
+        dataset: "{{ item.value.dataset }}"
+        recursive: "{{ item.value.recursive | default(false) }}"
+        lifetime_value: "{{ (item.value.lifetime | default(omit)) | int if (item.value.lifetime is defined) else omit }}"
+        lifetime_unit: "hours"
+        minute: "{{ item.value.schedule.minute | default(omit) }}"
+        hour: "{{ item.value.schedule.hour | default(omit) }}"
+        day: "{{ item.value.schedule.day_month | default(omit) }}"
+        month: "{{ item.value.schedule.month | default(omit) }}"
+        weekday: "{{ item.value.schedule.day_week | default(omit) }}"
+        enabled: "{{ item.value.enabled | default(true) }}"
+        state: present
+      loop: "{{ snapshot_tasks | dict2items if snapshot_tasks is defined else [] }}"
+      loop_control:
+        label: "{{ item.key }}"
+
+    - name: Schedule pool scrub tasks
+      arensb.truenas.pool_scrub_task:
+        pool: "{{ item.value.pool }}"
+        threshold: "{{ item.value.threshold | default(omit) }}"
+        description: "{{ item.value.description | default(omit) }}"
+        minute: "{{ item.value.schedule.minute | default(omit) }}"
+        hour: "{{ item.value.schedule.hour | default(omit) }}"
+        day: "{{ item.value.schedule.day_month | default(omit) }}"
+        month: "{{ item.value.schedule.month | default(omit) }}"
+        weekday: "{{ item.value.schedule.day_week | default(omit) }}"
+        enabled: "{{ item.value.enabled | default(true) }}"
+        state: present
+      loop: "{{ scrub_tasks | dict2items if scrub_tasks is defined else [] }}"
+      loop_control:
+        label: "{{ item.key }}"
+
+    - name: Configure S.M.A.R.T. service
+      arensb.truenas.smart:
+        interval: "{{ smart.interval | default(omit) }}"
+        power_mode: "{{ smart.power_mode | default(omit) }}"
+        temp_crit: "{{ smart.critical_temperature | default(omit) }}"
+        temp_info: "{{ smart.informational_temperature | default(omit) }}"
+        temp_difference: "{{ smart.difference_temperature | default(omit) }}"
+      when: smart is defined
+
+    - name: Schedule S.M.A.R.T. test tasks
+      arensb.truenas.smart_test_task:
+        name: "{{ item.key }}"
+        disks: "{{ item.value.disks }}"
+        test: "{{ item.value.type }}"
+        minute: "{{ item.value.schedule.minute | default(omit) }}"
+        hour: "{{ item.value.schedule.hour | default(omit) }}"
+        day: "{{ item.value.schedule.day_month | default(omit) }}"
+        month: "{{ item.value.schedule.month | default(omit) }}"
+        weekday: "{{ item.value.schedule.day_week | default(omit) }}"
+        enabled: "{{ item.value.enabled | default(true) }}"
+        state: present
+      loop: "{{ smart_tests | dict2items if smart_tests is defined else [] }}"
+      loop_control:
+        label: "{{ item.key }}"
+
+  post_tasks:
+    - name: Display note about any skipped password settings
+      ansible.builtin.debug:
+        msg: |
+          If you provided any plain-text passwords via the environment (not crypt-style hashes), the playbook intentionally skipped setting them. Either provide crypt(3) hashes in those env vars, or set passwords manually through the TrueNAS UI/API.
+
+    - name: Reminder - install collection if missing
+      ansible.builtin.debug:
+        msg: "Ensure 'arensb.truenas' collection is installed on control node: ansible-galaxy collection install arensb.truenas"

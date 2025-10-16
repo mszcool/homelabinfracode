@@ -1,0 +1,105 @@
+---
+- name: Baseline for each Incus node
+  hosts: incus
+  become: true
+  gather_facts: true
+  remote_user: "{{ root_user }}"
+
+  vars:
+    param_incus_config: "{{ incus_config }}"
+
+  tasks:
+    - name: Set the SSH user name and hostname in case it is not the default.
+      ansible.builtin.set_fact:
+        ansible_user: "{{ root_user }}"
+        param_hostname: "{{ hostvars[inventory_hostname]['hostname'] }}"
+
+    - name: Set the hostname to the value from inventory.
+      ansible.builtin.hostname:
+        name: "{{ param_hostname }}"
+
+    - name: If the environment variable for the password is set, set input variable for the password generation tasks.
+      ansible.builtin.set_fact:
+        generate_password_input: "{{ lookup('env', root_user_password_env) | default('') }}"
+      when: lookup('env', root_user_password_env) | default('') | length > 0
+      no_log: true
+
+    - name: If the environment variable in root_user_password_env is set, update the password.
+      ansible.builtin.user:
+        name: "{{ root_user }}"
+        password: "{{ generate_password_input | password_hash('sha512') }}"
+      when: generate_password_input is defined and generate_password_input | length > 0
+
+    - name: Set the Incus server admin SSH Key exclusively.
+      ansible.posix.authorized_key:
+        user: "{{ root_user }}"
+        state: present
+        key: "{{ root_user_publickey }}"
+        exclusive: true
+
+    - name: Allow inbound SSH on port 22.
+      community.general.ufw:
+        rule: allow
+        port: "22"
+        proto: tcp
+
+    - name: Allow inbound HTTPS on the Incus port.
+      community.general.ufw:
+        rule: allow
+        port: "{{ param_incus_config.port }}"
+        proto: tcp
+
+    - name: Set default policy to deny inbound traffic.
+      community.general.ufw:
+        direction: incoming
+        policy: deny
+
+    - name: Set default policy to allow outbound traffic.
+      community.general.ufw:
+        direction: outgoing
+        policy: allow
+
+    - name: Enable UFW firewall.
+      community.general.ufw:
+        state: enabled
+
+    - name: Get the host configuration for this server.
+      ansible.builtin.set_fact:
+        param_host_config: "{{ host_configs | selectattr('name', 'equalto', hostvars[inventory_hostname]['host_config_name']) | first }}"
+
+    - name: Get the network adapter name from host configuration.
+      ansible.builtin.set_fact:
+        param_network_adapter: "{{ param_host_config.network_config.physical_network_parent }}"
+
+    - name: Gather IP address of the physical network adapter.
+      ansible.builtin.set_fact:
+        param_incus_listen_address: "{{ hostvars[inventory_hostname]['ansible_' + param_network_adapter]['ipv4']['address'] }}"
+
+    - name: Configure Incus to listen on the network address and port.
+      ansible.builtin.command:
+        cmd: "incus config set core.https_address {{ param_incus_listen_address }}:{{ param_incus_config.port }}"
+      register: incus_config_result
+      changed_when: incus_config_result.rc == 0
+
+    - name: Display Incus network configuration.
+      ansible.builtin.debug:
+        msg: "Incus is now accessible at https://{{ param_incus_listen_address }}:{{ param_incus_config.port }}"
+
+    - name: Validate and rotate Incus server certificate if needed.
+      ansible.builtin.include_tasks: ./tasks/host-incus-validate-server-cert-tasks.yaml
+      tags:
+        - cert-validation
+        - server-cert
+
+    - name: Manage trusted client certificates if configuration exists.
+      ansible.builtin.include_tasks: ./tasks/host-incus-manage-client-cert-tasks.yaml
+      when: 
+        - incus_trusted_clients is defined
+        - incus_trusted_clients | length > 0
+      tags:
+        - client-certs
+
+    - name: Update and upgrade the operating system.
+      ansible.builtin.include_tasks: ../tasks/upgrade_tasks.yaml
+      tags:
+        - upgrade
