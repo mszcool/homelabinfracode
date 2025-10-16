@@ -36,15 +36,16 @@
   when: has_client_certificates
 
 - name: Check if certificate files exist at specified paths.
-  ansible.builtin.stat:
-    path: "{{ item.certificate_file }}"
-  delegate_to: localhost
+  local_action:
+    module: ansible.builtin.stat
+    path: "{{ playbook_dir }}/{{ item.certificate_file }}"
   register: cert_file_check
   loop: "{{ incus_trusted_clients }}"
   loop_control:
     label: "{{ item.name }}: {{ item.certificate_file }}"
   failed_when: false
   when: has_client_certificates
+  become: no
 
 - name: Validate all certificate files are accessible.
   ansible.builtin.assert:
@@ -65,9 +66,9 @@
   when: has_client_certificates
 
 - name: Validate certificate file format (PEM).
-  ansible.builtin.shell:
-    cmd: "grep -q 'BEGIN CERTIFICATE' {{ item.certificate_file }} && grep -q 'END CERTIFICATE' {{ item.certificate_file }}"
-  delegate_to: localhost
+  local_action:
+    module: ansible.builtin.shell
+    cmd: "grep -q 'BEGIN CERTIFICATE' {{ playbook_dir }}/{{ item.certificate_file }} && grep -q 'END CERTIFICATE' {{ playbook_dir }}/{{ item.certificate_file }}"
   register: cert_format_check
   loop: "{{ incus_trusted_clients }}"
   loop_control:
@@ -75,6 +76,7 @@
   changed_when: false
   failed_when: cert_format_check.rc != 0
   when: has_client_certificates
+  become: no
 
 - name: Display validation summary.
   ansible.builtin.debug:
@@ -114,7 +116,7 @@
 
 - name: Read certificate files using paths from inventory.
   ansible.builtin.set_fact:
-    cert_contents: "{{ cert_contents | default({}) | combine({item.name: lookup('file', item.certificate_file)}) }}"
+    cert_contents: "{{ cert_contents | default({}) | combine({item.name: lookup('file', playbook_dir + '/' + item.certificate_file)}) }}"
   loop: "{{ incus_trusted_clients }}"
   loop_control:
     label: "{{ item.name }}"
@@ -144,9 +146,9 @@
   ansible.builtin.shell:
     cmd: |
       incus config trust add-certificate {{ cert_temp_dir.path }}/{{ item.item.name }}.crt \
-        --name "{{ item.item.name }}" \
-        {% if item.item.restricted | default(false) %}--restricted \{% endif %}
-        {% if item.item.projects | default([]) | length > 0 %}--projects "{{ item.item.projects | join(',') }}"{% endif %}
+        --name "{{ item.item.name }}"{% if item.item.restricted | default(false) %} \
+        --restricted{% endif %}{% if item.item.projects | default([]) | length > 0 %} \
+        --projects "{{ item.item.projects | join(',') }}"{% endif %}
   loop: "{{ cert_fingerprints.results }}"
   loop_control:
     label: "{{ item.item.name }}"

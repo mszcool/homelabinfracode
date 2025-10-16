@@ -1,6 +1,6 @@
 all:
   vars:
-    localdomain: mszlocal
+    localdomain: mszlocaltest
     routername: mszrouter
     timezone: "Etc/UTC"
     language: "en_US"
@@ -79,17 +79,17 @@ all:
         start_ip: "10.10.0.2"
         end_ip: "10.10.0.3"
         members:
-          - alias: "IncusSrv1"
+          - alias: "inussingledisk"
             dns_names:
-              - "mszincus1"
-              - "mszincus1.{{ localdomain}}"
+              - "incussingledisk"
+              - "inussingledisk.{{ localdomain}}"
             static_dhcp:
               mac: "00:15:5D:63:A6:06"
               ip: "10.10.0.2"
-          - alias: "IncusSrv2"
+          - alias: "incusdualdisk"
             dns_names:
-              - "mszincus2"
-              - "mszincus2.{{ localdomain}}"
+              - "incusdualdisk"
+              - "incusdualdisk.{{ localdomain}}"
             static_dhcp:
               mac: "00:15:5D:63:A6:07"
               ip: "10.10.0.3"

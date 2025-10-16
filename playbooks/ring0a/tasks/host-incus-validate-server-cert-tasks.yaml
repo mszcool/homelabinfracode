@@ -1,0 +1,365 @@
+---
+# Incus Server Certificate Validation and Rotation Tasks
+# This task file validates the Incus server certificate and rotates it if:
+# 1. The certificate SAN doesn't match the current IP address or hostname
+# 2. The certificate expires in less than 6 months (180 days)
+#
+# When rotating, creates a certificate with:
+# - Subject Alternative Names for both IP and hostname
+# - 2-year (730 days) validity period
+
+# ============================================================================
+# GATHER INFORMATION: Collect current server configuration
+# ============================================================================
+
+- name: Get the host configuration for this server.
+  ansible.builtin.set_fact:
+    param_host_config: "{{ host_configs | selectattr('name', 'equalto', hostvars[inventory_hostname]['host_config_name']) | first }}"
+
+- name: Get the network adapter name from host configuration.
+  ansible.builtin.set_fact:
+    param_network_adapter: "{{ param_host_config.network_config.physical_network_parent }}"
+
+- name: Gather IP address of the physical network adapter.
+  ansible.builtin.set_fact:
+    param_incus_listen_address: "{{ hostvars[inventory_hostname]['ansible_' + param_network_adapter]['ipv4']['address'] }}"
+
+- name: Get hostname from inventory.
+  ansible.builtin.set_fact:
+    param_hostname: "{{ hostvars[inventory_hostname]['hostname'] }}"
+    param_fqdn: "{{ hostvars[inventory_hostname]['hostname'] }}.{{ localdomain }}"
+
+- name: Display server identity information.
+  ansible.builtin.debug:
+    msg:
+      - "Server hostname: {{ param_hostname }}"
+      - "Server FQDN: {{ param_fqdn }}"
+      - "Server IP address: {{ param_incus_listen_address }}"
+      - "Network adapter: {{ param_network_adapter }}"
+
+# ============================================================================
+# CERTIFICATE VALIDATION: Check existing certificate
+# ============================================================================
+
+- name: Check if Incus server certificate exists.
+  ansible.builtin.stat:
+    path: /var/lib/incus/server.crt
+  register: server_cert_stat
+
+- name: Fail if server certificate does not exist.
+  ansible.builtin.fail:
+    msg: "Incus server certificate not found at /var/lib/incus/server.crt. Run initial Incus setup first."
+  when: not server_cert_stat.stat.exists
+
+- name: Get certificate expiration date.
+  ansible.builtin.command:
+    cmd: "openssl x509 -in /var/lib/incus/server.crt -noout -enddate"
+  register: cert_enddate_raw
+  changed_when: false
+
+- name: Parse certificate expiration date.
+  ansible.builtin.set_fact:
+    cert_enddate_string: "{{ cert_enddate_raw.stdout | regex_replace('^notAfter=', '') }}"
+
+- name: Calculate days until certificate expiration.
+  ansible.builtin.shell:
+    cmd: |
+      end_epoch=$(date -d "{{ cert_enddate_string }}" +%s)
+      now_epoch=$(date +%s)
+      days_remaining=$(( (end_epoch - now_epoch) / 86400 ))
+      echo "$days_remaining"
+  register: cert_days_remaining_raw
+  changed_when: false
+
+- name: Set certificate days remaining as integer.
+  ansible.builtin.set_fact:
+    cert_days_remaining: "{{ cert_days_remaining_raw.stdout | int }}"
+
+- name: Display certificate expiration information.
+  ansible.builtin.debug:
+    msg:
+      - "Certificate expires: {{ cert_enddate_string }}"
+      - "Days remaining: {{ cert_days_remaining }}"
+
+- name: Get certificate Subject Alternative Names (SANs).
+  ansible.builtin.shell:
+    cmd: |
+      openssl x509 -in /var/lib/incus/server.crt -noout -text | \
+      grep -A 1 "Subject Alternative Name" | tail -1 || echo "No SANs found"
+  register: cert_san_raw
+  changed_when: false
+
+- name: Parse certificate SANs.
+  ansible.builtin.set_fact:
+    cert_san_string: "{{ cert_san_raw.stdout | trim }}"
+
+- name: Display certificate SANs.
+  ansible.builtin.debug:
+    msg: "Certificate SANs: {{ cert_san_string }}"
+
+# ============================================================================
+# DECISION LOGIC: Determine if certificate rotation is needed
+# ============================================================================
+
+- name: Check if certificate contains required IP address in SANs.
+  ansible.builtin.set_fact:
+    cert_has_ip: "{{ 'IP Address:' + param_incus_listen_address in cert_san_string or 'IP:' + param_incus_listen_address in cert_san_string }}"
+
+- name: Check if certificate contains required hostname in SANs.
+  ansible.builtin.set_fact:
+    cert_has_hostname: "{{ param_hostname in cert_san_string }}"
+
+- name: Check if certificate contains required FQDN in SANs.
+  ansible.builtin.set_fact:
+    cert_has_fqdn: "{{ param_fqdn in cert_san_string }}"
+
+- name: Check if certificate is expiring soon (less than 180 days).
+  ansible.builtin.set_fact:
+    cert_expiring_soon: "{{ cert_days_remaining | int < 180 }}"
+
+- name: Determine if certificate rotation is required.
+  ansible.builtin.set_fact:
+    cert_rotation_required: "{{ not cert_has_ip or not cert_has_hostname or not cert_has_fqdn or cert_expiring_soon }}"
+
+- name: Display certificate validation results.
+  ansible.builtin.debug:
+    msg:
+      - "✓ Certificate validation results:"
+      - "  - Has required IP ({{ param_incus_listen_address }}): {{ cert_has_ip }}"
+      - "  - Has required hostname ({{ param_hostname }}): {{ cert_has_hostname }}"
+      - "  - Has required FQDN ({{ param_fqdn }}): {{ cert_has_fqdn }}"
+      - "  - Expiring in < 180 days: {{ cert_expiring_soon }}"
+      - "  - Rotation required: {{ cert_rotation_required }}"
+
+- name: Display rotation reason summary.
+  ansible.builtin.debug:
+    msg: "{{ rotation_reasons }}"
+  vars:
+    rotation_reasons: "{{ ['Certificate rotation required because:'] + 
+      (['  - Missing IP address ' + param_incus_listen_address + ' in SANs'] if not cert_has_ip else []) +
+      (['  - Missing hostname ' + param_hostname + ' in SANs'] if not cert_has_hostname else []) +
+      (['  - Missing FQDN ' + param_fqdn + ' in SANs'] if not cert_has_fqdn else []) +
+      (['  - Certificate expires in ' + (cert_days_remaining | string) + ' days (< 180 day threshold)'] if cert_expiring_soon else []) }}"
+  when: cert_rotation_required
+
+- name: Confirm certificate is valid - no rotation needed.
+  ansible.builtin.debug:
+    msg: "✅ Certificate is valid and current. No rotation required."
+  when: not cert_rotation_required
+
+# ============================================================================
+# CERTIFICATE GENERATION: Create new certificate if rotation required
+# ============================================================================
+
+- name: Create temporary directory for certificate generation.
+  ansible.builtin.tempfile:
+    state: directory
+    suffix: incus_cert_rotation
+  register: cert_temp_dir
+  when: cert_rotation_required
+
+- name: Create OpenSSL configuration file with proper SANs.
+  ansible.builtin.copy:
+    dest: "{{ cert_temp_dir.path }}/openssl.conf"
+    mode: '0600'
+    content: |
+      [req]
+      distinguished_name = req_distinguished_name
+      x509_extensions = v3_req
+      prompt = no
+
+      [req_distinguished_name]
+      CN = {{ param_hostname }}
+      O = Incus Server
+
+      [v3_req]
+      keyUsage = critical, digitalSignature, keyEncipherment
+      extendedKeyUsage = serverAuth, clientAuth
+      subjectAltName = @alt_names
+
+      [alt_names]
+      DNS.1 = {{ param_hostname }}
+      DNS.2 = {{ param_fqdn }}
+      DNS.3 = localhost
+      IP.1 = {{ param_incus_listen_address }}
+      IP.2 = 127.0.0.1
+      IP.3 = ::1
+  when: cert_rotation_required
+
+- name: Generate new server certificate with 2-year validity.
+  ansible.builtin.command:
+    cmd: >
+      openssl req -x509 -newkey rsa:4096
+      -keyout {{ cert_temp_dir.path }}/server.key
+      -out {{ cert_temp_dir.path }}/server.crt
+      -days 730
+      -nodes
+      -config {{ cert_temp_dir.path }}/openssl.conf
+    creates: "{{ cert_temp_dir.path }}/server.crt"
+  register: cert_generation_result
+  when: cert_rotation_required
+
+- name: Display certificate generation result.
+  ansible.builtin.debug:
+    msg: "✅ New certificate generated successfully with 2-year validity"
+  when: cert_rotation_required and cert_generation_result.rc == 0
+
+- name: Verify new certificate contains required SANs.
+  ansible.builtin.shell:
+    cmd: |
+      openssl x509 -in {{ cert_temp_dir.path }}/server.crt -noout -text | \
+      grep -A 1 "Subject Alternative Name"
+  register: new_cert_san_verify
+  changed_when: false
+  when: cert_rotation_required
+
+- name: Display new certificate SANs.
+  ansible.builtin.debug:
+    msg: "New certificate SANs: {{ new_cert_san_verify.stdout_lines }}"
+  when: cert_rotation_required
+
+# ============================================================================
+# CERTIFICATE BACKUP: Backup existing certificate before replacement
+# ============================================================================
+
+- name: Create backup directory for old certificates.
+  ansible.builtin.file:
+    path: /var/lib/incus/cert-backups
+    state: directory
+    mode: '0700'
+    owner: root
+    group: root
+  when: cert_rotation_required
+
+- name: Backup existing server certificate.
+  ansible.builtin.copy:
+    src: /var/lib/incus/server.crt
+    dest: "/var/lib/incus/cert-backups/server.crt.{{ ansible_date_time.iso8601_basic_short }}"
+    remote_src: true
+    mode: '0600'
+  when: cert_rotation_required
+
+- name: Backup existing server private key.
+  ansible.builtin.copy:
+    src: /var/lib/incus/server.key
+    dest: "/var/lib/incus/cert-backups/server.key.{{ ansible_date_time.iso8601_basic_short }}"
+    remote_src: true
+    mode: '0600'
+  when: cert_rotation_required
+
+- name: Display backup location.
+  ansible.builtin.debug:
+    msg: "✅ Old certificate backed up to /var/lib/incus/cert-backups/server.{crt,key}.{{ ansible_date_time.iso8601_basic_short }}"
+  when: cert_rotation_required
+
+# ============================================================================
+# CERTIFICATE INSTALLATION: Install new certificate and restart Incus
+# ============================================================================
+
+- name: Stop Incus service before certificate replacement.
+  ansible.builtin.systemd:
+    name: incus
+    state: stopped
+  when: cert_rotation_required
+
+- name: Install new server certificate.
+  ansible.builtin.copy:
+    src: "{{ cert_temp_dir.path }}/server.crt"
+    dest: /var/lib/incus/server.crt
+    remote_src: true
+    mode: '0644'
+    owner: root
+    group: root
+  when: cert_rotation_required
+
+- name: Install new server private key.
+  ansible.builtin.copy:
+    src: "{{ cert_temp_dir.path }}/server.key"
+    dest: /var/lib/incus/server.key
+    remote_src: true
+    mode: '0600'
+    owner: root
+    group: root
+  when: cert_rotation_required
+
+- name: Start Incus service with new certificate.
+  ansible.builtin.systemd:
+    name: incus
+    state: started
+  when: cert_rotation_required
+
+- name: Wait for Incus to be ready after restart.
+  ansible.builtin.wait_for:
+    port: "{{ param_incus_config.port }}"
+    host: "{{ param_incus_listen_address }}"
+    delay: 2
+    timeout: 30
+  when: cert_rotation_required
+
+- name: Verify Incus is responding.
+  ansible.builtin.command:
+    cmd: incus info
+  register: incus_verify
+  changed_when: false
+  when: cert_rotation_required
+
+- name: Display Incus service status.
+  ansible.builtin.debug:
+    msg: "✅ Incus service restarted successfully with new certificate"
+  when: cert_rotation_required
+
+# ============================================================================
+# CLEANUP: Remove temporary files
+# ============================================================================
+
+- name: Remove temporary certificate directory.
+  ansible.builtin.file:
+    path: "{{ cert_temp_dir.path }}"
+    state: absent
+  when: cert_rotation_required
+
+# ============================================================================
+# FINAL VERIFICATION: Validate new certificate
+# ============================================================================
+
+- name: Get new certificate details.
+  ansible.builtin.command:
+    cmd: "openssl x509 -in /var/lib/incus/server.crt -noout -text"
+  register: final_cert_details
+  changed_when: false
+  when: cert_rotation_required
+
+- name: Verify new certificate expiration (should be ~730 days).
+  ansible.builtin.shell:
+    cmd: |
+      end_epoch=$(openssl x509 -in /var/lib/incus/server.crt -noout -enddate | sed 's/notAfter=//' | xargs -I {} date -d "{}" +%s)
+      now_epoch=$(date +%s)
+      days_remaining=$(( (end_epoch - now_epoch) / 86400 ))
+      echo "$days_remaining"
+  register: final_cert_days
+  changed_when: false
+  when: cert_rotation_required
+
+- name: Display certificate rotation summary.
+  ansible.builtin.debug:
+    msg:
+      - "🔄 Certificate Rotation Complete!"
+      - "  - New certificate valid for: {{ final_cert_days.stdout }} days (~2 years)"
+      - "  - Hostname: {{ param_hostname }}"
+      - "  - FQDN: {{ param_fqdn }}"
+      - "  - IP Address: {{ param_incus_listen_address }}"
+      - "  - Backup location: /var/lib/incus/cert-backups/"
+      - ""
+      - "⚠️  IMPORTANT: Clients must update their server certificate trust!"
+      - "  Run this on each client:"
+      - "    incus remote remove {{ param_hostname }}"
+      - "    incus remote add {{ param_hostname }} {{ param_incus_listen_address }}:{{ param_incus_config.port }}"
+  when: cert_rotation_required
+
+- name: Certificate validation complete - summary.
+  ansible.builtin.debug:
+    msg:
+      - "📋 Certificate Validation Summary:"
+      - "  - Rotation performed: {{ cert_rotation_required }}"
+      - "  - Certificate valid for: {{ cert_days_remaining if not cert_rotation_required else final_cert_days.stdout }} days"
+      - "  - Next check recommended: {{ 'After major network changes' if not cert_rotation_required else '1.5 years (before expiration)' }}"

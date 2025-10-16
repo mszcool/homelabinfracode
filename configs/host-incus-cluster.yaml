@@ -1,6 +1,6 @@
 all:
   vars:
-    localdomain: mszlocal
+    localdomain: mszlocaltest
     root_user: "mszcool"
     root_user_fullname: "mszcool main user"
     root_user_password_env: "ROOT_PASSWORD"
@@ -28,17 +28,17 @@ all:
         - "prodlayer0"
         - "prodlayer1"
     incus_trusted_clients:
-      - name: "workstation-admin-mszcool"
-        description: "Mario's admin workstation - full admin access"
-        certificate_file: "incus/trusted-client-certs/workstation-admin-mszcool.crt"
+      - name: "test-workstation1"
+        description: "Simulated workstation 1 to test functionality"
+        certificate_file: "../../configs/incus/trusted-client-certs/dev-workstation1.crt"
         restricted: false
         projects: []  # Empty = all projects
-      - name: "ci-pipeline-production"
-        description: "CI/CD pipeline for production deployments"
-        certificate_file: "incus/trusted-client-certs/ci-pipeline-production.crt"
+      - name: "test-workstation2"
+        description: "Simulated workstation 2 to test functionality"
+        certificate_file: "../../configs/incus/trusted-client-certs/dev-workstation2.crt"
         restricted: true
         projects:
-          - "production"
+          - "default"
     volume_group_name: "vg0"
     host_configs:
       - name: "msz_single_disk_server"
@@ -90,9 +90,9 @@ all:
   children:
     incus:
       hosts:
-        192.168.0.31:
-          hostname: mszpvetest1
+        incussingledisk.mszlocaltest:
+          hostname: incussingledisk
           host_config_name: "msz_single_disk_server"
-        192.168.0.32:
-          hostname: mszpvetest2
+        incusdualdisk.mszlocaltest:
+          hostname: incusdualdisk
           host_config_name: "msz_dual_disk_server"
