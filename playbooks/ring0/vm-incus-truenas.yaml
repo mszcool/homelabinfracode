@@ -41,7 +41,7 @@
 
     - name: Create TrueNAS VM configuration template
       ansible.builtin.template:
-        src: vm-incus-truenas-template.yaml.j2
+        src: templates/vm-incus-truenas-template.yaml.j2
         dest: "/tmp/{{ truenas_vm_name }}-config.yaml"
         mode: '0644'
 
@@ -111,7 +111,7 @@
 
     - name: Create VM management script
       ansible.builtin.template:
-        src: vm-incus-truenas-manage.sh.j2
+        src: templates/vm-incus-truenas-manage.sh.j2
         dest: "/usr/local/bin/manage-{{ truenas_vm_name }}.sh"
         mode: '0755'
 
