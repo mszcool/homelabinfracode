@@ -1,0 +1,48 @@
+---
+# Find disk-to-PCI controller mapping on target hosts
+# Usage: ansible-playbook -i <inventory> playbooks/ring0/find-disk-pci.yaml
+- name: Map disks to PCI controllers and ATA ports
+  hosts: all
+  gather_facts: no
+  become: true
+  tasks:
+    - name: Set the SSH user name and hostname in case it is not the default.
+      ansible.builtin.set_fact:
+        ansible_user: "{{ root_user }}"
+        param_hostname: "{{ hostvars[inventory_hostname]['hostname'] }}"
+      
+    - name: List block devices as JSON
+      command: lsblk -J -o NAME,TYPE,HCTL
+      register: lsblk_json
+
+    - name: Map each block device to PCI, ATA, HCTL, and ID_PATH
+      shell: |
+        for d in $(lsblk -ndo NAME); do
+          dev="/dev/$d"
+          dtype="other"
+          [[ "$d" =~ ^nvme ]] && dtype="nvme"
+          [[ "$d" =~ ^sd ]] && dtype="ata"
+          hctl=$(lsblk -ndo HCTL "$dev" 2>/dev/null || echo "-")
+          devpath=$(readlink -f "/sys/block/$d/device" 2>/dev/null || echo "-")
+          pci=$(echo "$devpath" | grep -o '0000:[0-9a-fA-F:.]\+' | tail -n1 || echo "-")
+          ata=$(echo "$devpath" | sed -n 's@.*/\(ata[0-9]\+\)/.*@\1@p' || echo "-")
+          idpath=$(udevadm info -q property -n "$dev" 2>/dev/null | awk -F= '/^ID_PATH=/{print $2}' || echo "-")
+          printf '%-13s %-6s %-13s %-13s %-9s %s\n' "$dev" "$dtype" "$hctl" "$pci" "$ata" "$idpath"
+        done
+      register: disk_pci_map
+
+    - name: Display disk-to-PCI mapping table
+      shell: |
+        cat << 'EOF'
+        
+        DEVICE        TYPE   HCTL          PCI           ATA       ID_PATH
+        ------        ----   ----          ---           ---       -------
+        {{ disk_pci_map.stdout }}
+        EOF
+      args:
+        executable: /bin/bash
+      register: table_output
+
+    - name: Show the table
+      debug:
+        var: table_output.stdout_lines
