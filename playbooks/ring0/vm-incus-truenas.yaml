@@ -36,10 +36,6 @@
     # Storage pool configuration (from inventory)
     storage_pool: "{{ vm_config.incus_storage_pool }}"
     
-    # VM Security settings (from inventory)
-    vm_security_nesting: "{{ vm_config.security_nesting }}"
-    vm_security_privileged: "{{ vm_config.security_privileged }}"
-    
     # VM definition file path (from inventory)
     vm_definition_file_path: "{{ truenas.vm_definition_output_dir }}/{{ truenas_vm_name }}-config.yaml"
     
@@ -293,34 +289,70 @@
           You can download TrueNAS SCALE from: https://www.truenas.com/download-truenas-scale/
       when: not local_iso_stat.stat.exists
 
-    - name: Check if ISO already exists on Incus host
+    - name: Check if ISO storage volume already exists in Incus pool
+      ansible.builtin.shell: |
+        incus storage volume list {{ storage_pool }} --format=csv --project={{ truenas_incus_project }} | grep -q "^custom,truenas-install-iso,"
+      register: iso_volume_exists
+      failed_when: false
+      changed_when: false
+      delegate_to: localhost
+      become: false
+
+    - name: Delete existing ISO volume if it exists (cleanup from previous failed runs)
+      ansible.builtin.shell: |
+        incus storage volume delete {{ storage_pool }} truenas-install-iso --project={{ truenas_incus_project }}
+      when: iso_volume_exists.rc == 0
+      delegate_to: localhost
+      become: false
+      register: iso_volume_deleted
+
+    - name: Display ISO volume cleanup status
+      ansible.builtin.debug:
+        msg: "Existing ISO volume deleted - will create fresh import"
+      when: iso_volume_exists.rc == 0
+
+    - name: Get ISO file size for volume creation
       ansible.builtin.stat:
-        path: "{{ truenas_iso_path }}"
-      register: remote_iso_exists
+        path: "{{ iso_source_local }}"
+      register: iso_file_stat
+      delegate_to: localhost
+      become: false
 
-    - name: Ensure ISO destination directory exists on Incus host
-      ansible.builtin.file:
-        path: "{{ truenas_iso_path | dirname }}"
-        state: directory
-        mode: '0755'
-      when: not remote_iso_exists.stat.exists
+    - name: Calculate ISO volume size (round up to nearest GB + 1GB buffer)
+      ansible.builtin.set_fact:
+        iso_volume_size_gb: "{{ ((iso_file_stat.stat.size / 1024 / 1024 / 1024) | round(0, 'ceil') | int) + 1 }}"
+      delegate_to: localhost
+      become: false
 
-    - name: Copy TrueNAS Scale ISO from local machine to Incus host
+    - name: Copy TrueNAS ISO to Incus host temporarily for import
       ansible.builtin.copy:
         src: "{{ iso_source_local }}"
-        dest: "{{ truenas_iso_path }}"
+        dest: "/tmp/truenas-install.iso"
         mode: '0644'
-      when: not remote_iso_exists.stat.exists
+
+    - name: Import ISO file into Incus storage volume (creates and imports in one step)
+      ansible.builtin.shell: |
+        incus storage volume import {{ storage_pool }} /tmp/truenas-install.iso truenas-install-iso \
+          --project={{ truenas_incus_project }}
+      register: iso_import_result
+
+    - name: Clean up temporary ISO file from Incus host
+      ansible.builtin.file:
+        path: "/tmp/truenas-install.iso"
+        state: absent
 
     - name: Display ISO management information
       ansible.builtin.debug:
         msg: |
           ISO Management:
           Local Source: {{ iso_source_local }}
-          Remote Destination: {{ truenas_iso_path }} (on {{ incus_remote_name }})
-          {% if remote_iso_exists.stat.exists %}Status: Using existing ISO on target host{% else %}Status: Copied from local machine to target host{% endif %}
+          Storage Pool: {{ storage_pool }}
+          Volume Name: truenas-install-iso
+          Project: {{ truenas_incus_project }}
+          Status: ISO volume imported successfully ({{ iso_volume_size_gb }}GB)
           
           VM management will use local Incus client with remote '{{ incus_remote_name }}'
+          ISO is now stored as a pool-backed custom volume (compatible with restricted projects)
 
     - name: Generate VM definition from template
       ansible.builtin.template:
@@ -465,9 +497,6 @@
           VM Definition File: {{ vm_definition_file_path }}
           {% if vm_ip_result.stdout != "" %}IP Address: {{ vm_ip_result.stdout }}{% endif %}
           {% if pcie_passthrough_enabled %}PCIe Controller: {{ pcie_controller_id }}{% endif %}
-          Security Settings:
-            - Nesting: {{ vm_security_nesting }}
-            - Privileged: {{ vm_security_privileged }}
           
           Next Steps:
           1. Connect to the VM console: incus console {{ truenas_vm_name }}

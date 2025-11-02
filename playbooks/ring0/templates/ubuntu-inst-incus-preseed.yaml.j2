@@ -53,6 +53,7 @@ projects:
     limits.disk: {{ tp_incus_config.project_disk_limits.production }}
     restricted: true
     restricted.networks.access: phys-br,iso-nat
+    restricted.devices.pci: allow
   description: Production VMs ({{ profile_name }}) with bridged networking and higher storage limits
 {% endfor %}
 
