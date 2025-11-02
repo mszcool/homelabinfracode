@@ -294,6 +294,13 @@
         path: "{{ truenas_iso_path }}"
       register: remote_iso_exists
 
+    - name: Ensure ISO destination directory exists on Incus host
+      ansible.builtin.file:
+        path: "{{ truenas_iso_path | dirname }}"
+        state: directory
+        mode: '0755'
+      when: not remote_iso_exists.stat.exists
+
     - name: Copy TrueNAS Scale ISO from local machine to Incus host
       ansible.builtin.copy:
         src: "{{ iso_source_local }}"
