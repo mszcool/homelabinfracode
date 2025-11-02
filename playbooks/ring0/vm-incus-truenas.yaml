@@ -407,18 +407,32 @@
           {% endfor %}
       when: not pcie_passthrough_enabled and data_disk_creation is defined
 
-    - name: Create or update TrueNAS VM from template
-      ansible.builtin.shell: |
-        if incus info {{ truenas_vm_name }} >/dev/null 2>&1; then
-          echo "VM already exists - updating configuration"
-          incus config edit {{ truenas_vm_name }} < {{ vm_definition_file_path }}
-        else
-          echo "Creating new VM from template"
-          incus init {{ truenas_vm_name }} --empty --vm --profile {{ truenas_incus_profile }}
-          incus config edit {{ truenas_vm_name }} < {{ vm_definition_file_path }}
-        fi
+    - name: Create TrueNAS VM from template (Fail if already exists) ⚠️
+      ansible.builtin.shell:
+        cmd: |
+          set -e
+          VM_NAME="{{ truenas_vm_name }}"
+          DEFINITION_PATH="{{ vm_definition_file_path }}"
+
+          # Check if the VM exists. 'incus info' returns 0 if found.
+          if incus info $VM_NAME >/dev/null 2>&1; then
+            # If it exists, print an error and use 'exit 1' to fail the task
+            echo "FATAL: VM '$VM_NAME' already exists. This task is for creation only." >&2
+            exit 1
+          else
+            echo "Creating new VM '$VM_NAME' from template"
+            
+            # The Incus init command:
+            # 1. Uses '--empty' and '--vm'.
+            # 2. Pipes the configuration file content directly into the command using '<'.
+            incus init $VM_NAME --vm --empty --profile {{ truenas_incus_profile }} < $DEFINITION_PATH
+            
+            echo "VM created successfully."
+          fi
+        executable: /bin/bash
       register: vm_create_result
-      changed_when: "'Creating new VM' in vm_create_result.stdout"
+      # Only report a change if the VM was actually created
+      changed_when: "'VM created successfully.' in vm_create_result.stdout"
       delegate_to: localhost
       become: false
 
@@ -462,22 +476,11 @@
 
     - name: Wait for VM to be running
       ansible.builtin.shell: |
-        incus info {{ truenas_vm_name }} | grep -q "Status: Running"
+        incus info {{ truenas_vm_name }} | grep -q "Status: RUNNING"
       register: vm_running_check
       retries: 30
       delay: 10
       until: vm_running_check.rc == 0
-      delegate_to: localhost
-      become: false
-
-    - name: Get VM IP address
-      ansible.builtin.shell: |
-        incus info {{ truenas_vm_name }} | grep -E "eth0.*inet" | awk '{print $3}' | head -1
-      register: vm_ip_result
-      retries: 10
-      delay: 30
-      until: vm_ip_result.stdout != ""
-      failed_when: false
       delegate_to: localhost
       become: false
 
@@ -516,8 +519,10 @@
     - name: Create VM management script
       ansible.builtin.template:
         src: templates/vm-incus-truenas-manage.sh.j2
-        dest: "/usr/local/bin/manage-{{ truenas_vm_name }}.sh"
+        dest: "$HOME/manage-{{ truenas_vm_name }}.sh"
         mode: '0755'
+      delegate_to: localhost
+      become: false
 
     - name: Display VM definition file location
       ansible.builtin.debug:
