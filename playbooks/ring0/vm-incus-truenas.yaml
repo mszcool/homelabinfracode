@@ -20,6 +20,8 @@
     vm_config: "{{ truenas.vm_configs[target_type] }}"
     
     # TrueNAS VM Configuration Parameters (from inventory)
+    truenas_incus_project: "{{ vm_config.incus_project }}"
+    truenas_incus_profile: "{{ vm_config.incus_profile }}"
     truenas_vm_name: "{{ vm_config.vm_name }}"
     truenas_cpu_cores: "{{ vm_config.cpu_cores }}"
     truenas_memory_gb: "{{ vm_config.memory_gb }}"
@@ -131,6 +133,8 @@
           Target type: {{ target_type }}
           Incus remote: {{ incus_remote_name }}
           VM Configuration:
+            Project: {{ truenas_incus_project }}
+            Profile: {{ truenas_incus_profile }}
             VM Name: {{ truenas_vm_name }}
             CPU Cores: {{ truenas_cpu_cores }}
             Memory: {{ truenas_memory_gb }}GB
@@ -322,6 +326,7 @@
       ansible.builtin.template:
         src: "templates/vm-incus-truenas-template.yaml.j2"
         dest: "{{ vm_definition_file_path }}"
+        force: true
       vars:
         vm_name: "{{ truenas_vm_name }}"
         vm_memory: "{{ vm_config.memory }}"
@@ -331,6 +336,15 @@
         vm_network: "{{ vm_config.network }}"
         vm_pcie_passthrough: "{{ vm_config.enable_pcie_passthrough | default(false) }}"
         vm_pcie_controller_id: "{{ vm_config.pcie_controller_id | default('') }}"
+      delegate_to: localhost
+      become: false
+
+    - name: Set Incus project for TrueNAS VM
+      ansible.builtin.shell: |
+        incus project switch {{ truenas_incus_project }}
+      register: project_check
+      failed_when: project_check.rc != 0
+      changed_when: false
       delegate_to: localhost
       become: false
 
@@ -346,6 +360,7 @@
       loop: "{{ data_disks_config }}"
       when: not pcie_passthrough_enabled
       delegate_to: localhost
+      become: false
       register: data_disk_creation
       failed_when: 
         - data_disk_creation.rc != 0
@@ -367,7 +382,7 @@
           incus config edit {{ truenas_vm_name }} < {{ vm_definition_file_path }}
         else
           echo "Creating new VM from template"
-          incus init {{ truenas_vm_name }} --empty --vm
+          incus init {{ truenas_vm_name }} --empty --vm --profile {{ truenas_incus_profile }}
           incus config edit {{ truenas_vm_name }} < {{ vm_definition_file_path }}
         fi
       register: vm_create_result
@@ -387,6 +402,7 @@
       loop: "{{ data_disks_config }}"
       when: not pcie_passthrough_enabled
       delegate_to: localhost
+      become: false
       register: disk_attachment
       failed_when: 
         - disk_attachment.rc != 0

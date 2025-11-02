@@ -11,19 +11,6 @@ config:
   # Boot configuration
   boot.autostart: "true"
   boot.priority: "1"
-  
-  # VM-specific configuration
-  raw.qemu: "-device virtio-vga"
-  
-{% if not pcie_passthrough_enabled %}
-  # Virtual SATA controller when not using PCIe passthrough
-  raw.qemu.conf: |
-    [device "sata-controller"]
-    driver = "ich9-ahci"
-    
-    [device "virtio-scsi-pci"]
-    id = "scsi0"
-{% endif %}
 
 devices:
   # Root filesystem disk
