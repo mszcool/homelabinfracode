@@ -41,7 +41,7 @@ projects:
     features.storage.volumes: true
     limits.disk: {{ tp_incus_config.project_disk_limits.default }}
     restricted: true
-    restricted.networks.access: iso-nat
+    restricted.networks.access: iso-nat,phys-br
   description: Default project for VMs with global network access and default limits
 {% for profile_name in tp_incus_config.production_profiles %}
 - name: {{ profile_name }}
