@@ -498,14 +498,12 @@
           Storage Pool: {{ storage_pool }}
           Network Bridge: {{ truenas_network_bridge }}
           VM Definition File: {{ vm_definition_file_path }}
-          {% if vm_ip_result.stdout != "" %}IP Address: {{ vm_ip_result.stdout }}{% endif %}
           {% if pcie_passthrough_enabled %}PCIe Controller: {{ pcie_controller_id }}{% endif %}
           
           Next Steps:
           1. Connect to the VM console: incus console {{ truenas_vm_name }}
           2. Follow the TrueNAS Scale installation wizard
           3. Configure your storage pools using the passed-through SATA controller
-          4. Access TrueNAS web interface at: {% if vm_ip_result.stdout != "" %}http://{{ vm_ip_result.stdout }}{% else %}[VM IP]{% endif %}
           
           Useful Local Commands (using remote '{{ incus_remote_name }}'):
           - View VM status: incus info {{ truenas_vm_name }}

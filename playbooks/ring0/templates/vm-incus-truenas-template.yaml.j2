@@ -3,6 +3,10 @@ config:
   # CPU and Memory limits
   limits.cpu: "{{ truenas_cpu_cores }}"
   limits.memory: "{{ truenas_memory_gb }}GB"
+  user.vendor-data: |
+    #cloud-config
+    datasource:
+      None: {}
   
   # Boot configuration
   boot.autostart: "true"
@@ -21,6 +25,7 @@ devices:
     type: disk
     pool: {{ storage_pool }}
     source: truenas-install-iso
+    boot.priority: 10
   
   # Primary network interface
   eth0:
