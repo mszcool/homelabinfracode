@@ -13,12 +13,20 @@
     state: directory
     mode: '0755'
 
+- name: Discover production project files
+  ansible.builtin.find:
+    paths: "{{ playbook_dir }}/projects"
+    patterns: "*.yaml"
+    file_type: file
+  register: discovered_project_files
+  delegate_to: localhost
+
 - name: Processing per disk config -- Copy Incus production profiles to ISO
   ansible.builtin.copy:
     src: "{{ param_preseed_output_dir }}/incus.profile-{{ item }}.{{ host_config_item.name }}.yaml"
     dest: "{{ param_iso_working_path }}/autoinstall/incus-profiles/profile-{{ item }}.yaml"
     mode: '0644'
-  loop: "{{ param_incus_config.production_profiles }}"
+  loop: "{{ discovered_project_files.files | map(attribute='path') | map('basename') | map('regex_replace', '\\.yaml$', '') | list }}"
 
 - name: Processing per disk config -- Generate and copy Incus first-boot script to ISO
   ansible.builtin.template:
@@ -28,6 +36,7 @@
   vars:
     tp_root_user: "{{ root_user }}"
     tp_incus_config: "{{ param_incus_config }}"
+    tp_production_projects: "{{ discovered_project_files.files | map(attribute='path') | map('basename') | map('regex_replace', '\\.yaml$', '') | list }}"
 
 - name: Processing per disk config -- Copy Incus systemd service file to ISO
   ansible.builtin.copy:
@@ -64,7 +73,7 @@
     tp_root_user_fullname: "{{ root_user_fullname }}"
     tp_root_user_password: "{{ param_root_user_password }}"  # This is now the encrypted password
     tp_root_user_publickey: "{{ root_user_publickey }}"
-    tp_production_profiles: "{{ param_incus_config.production_profiles }}"
+    tp_production_projects: "{{ discovered_project_files.files | map(attribute='path') | map('basename') | map('regex_replace', '\\.yaml$', '') | list }}"
 
 - name: Processing per disk config -- Create custom GRUB config for autoinstall
   become: true

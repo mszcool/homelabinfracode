@@ -3,27 +3,15 @@ config:
   # CPU and Memory limits
   limits.cpu: "{{ truenas_cpu_cores }}"
   limits.memory: "{{ truenas_memory_gb }}GB"
-  
-  # Security settings
-  security.nesting: "{{ vm_security_nesting | lower }}"
-  security.privileged: "{{ vm_security_privileged | lower }}"
+  security.secureboot: "false"
+  user.vendor-data: |
+    #cloud-config
+    datasource:
+      None: {}
   
   # Boot configuration
   boot.autostart: "true"
-  boot.priority: "1"
-  
-  # VM-specific configuration
-  raw.qemu: "-device virtio-vga"
-  
-{% if not pcie_passthrough_enabled %}
-  # Virtual SATA controller when not using PCIe passthrough
-  raw.qemu.conf: |
-    [device "sata-controller"]
-    driver = "ich9-ahci"
-    
-    [device "virtio-scsi-pci"]
-    id = "scsi0"
-{% endif %}
+  boot.autostart.priority: "10"
 
 devices:
   # Root filesystem disk
@@ -32,20 +20,22 @@ devices:
     path: /
     pool: {{ storage_pool }}
     size: {{ truenas_system_disk_gb }}GB
-    boot.priority: "1"
   
-  # Installation media (TrueNAS ISO)
+  # Installation media (TrueNAS ISO from storage pool)
   install-media:
     type: disk
-    source: {{ truenas_iso_path }}
-    boot.priority: "10"
-    readonly: "true"
+    pool: {{ storage_pool }}
+    source: truenas-install-iso
+    boot.priority: 10
   
   # Primary network interface
   eth0:
     type: nic
     network: {{ truenas_network_bridge }}
     name: eth0
+{% if truenas_mac_address is defined and truenas_mac_address != "" %}
+    hwaddr: "{{ truenas_mac_address }}"
+{% endif %}
 
 {% if pcie_passthrough_enabled and pcie_controller_id != "" %}
   # PCIe passthrough for SATA controller

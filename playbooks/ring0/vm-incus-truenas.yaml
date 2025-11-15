@@ -1,0 +1,530 @@
+---
+- name: Create TrueNAS Scale VM on Incus
+  hosts: incus
+  become: true
+  gather_facts: true
+  remote_user: "{{ root_user }}"
+
+  vars:
+    # Determine if this is primary or secondary target
+    target_type: >-
+      {%- if inventory_hostname == truenas.primaryTarget -%}
+      primary
+      {%- elif inventory_hostname == truenas.secondaryTarget -%}
+      secondary
+      {%- else -%}
+      unknown
+      {%- endif -%}
+    
+    # Get VM configuration from inventory based on target type
+    vm_config: "{{ truenas.vm_configs[target_type] }}"
+    
+    # TrueNAS VM Configuration Parameters (from inventory)
+    truenas_incus_project: "{{ vm_config.incus_project }}"
+    truenas_incus_profile: "{{ vm_config.incus_profile }}"
+    truenas_vm_name: "{{ vm_config.vm_name }}"
+    truenas_cpu_cores: "{{ vm_config.cpu_cores }}"
+    truenas_memory_gb: "{{ vm_config.memory_gb }}"
+    truenas_system_disk_gb: "{{ vm_config.system_disk_gb }}"
+    truenas_network_bridge: "{{ vm_config.network_bridge }}"
+    truenas_mac_address: "{{ vm_config.mac_address | default('') }}"
+    truenas_iso_path: "{{ vm_config.iso_path }}"
+    
+    # PCIe/SATA Controller Passthrough Configuration (from inventory)
+    pcie_passthrough_enabled: "{{ vm_config.enable_pcie_passthrough }}"
+    pcie_controller_id: "{{ vm_config.pcie_controller }}"
+    
+    # Storage pool configuration (from inventory)
+    storage_pool: "{{ vm_config.incus_storage_pool }}"
+    
+    # VM definition file path (from inventory)
+    vm_definition_file_path: "{{ truenas.vm_definition_output_dir }}/{{ truenas_vm_name }}-config.yaml"
+    
+    # ISO source handling (required local ISO)
+    iso_source_local: "{{ vm_config.iso_source_local | default(iso_source_local_override | default('')) }}"
+    
+    # Data disks configuration (from inventory)
+    data_disks_config: "{{ vm_config.data_disks | default([]) }}"
+    
+    # Incus remote configuration (using target hostnames as remote names)
+    incus_remote_name: >-
+      {%- if target_type == 'primary' -%}
+      {{ truenas.primaryTarget }}
+      {%- elif target_type == 'secondary' -%}
+      {{ truenas.secondaryTarget }}
+      {%- else -%}
+      unknown
+      {%- endif -%}
+
+  tasks:
+    - name: Validate execution against single host only
+      ansible.builtin.fail:
+        msg: |
+          SAFETY ERROR: This playbook MUST be executed against exactly ONE host using --limit parameter.
+          
+          Current execution targets: {{ ansible_play_hosts | length }} host(s)
+          Targeted hosts: {{ ansible_play_hosts | join(', ') }}
+          
+          CORRECT Usage (choose one):
+            ansible-playbook -i /path/to/inventory vm-incus-truenas.yaml --limit {{ truenas.primaryTarget }}
+            ansible-playbook -i /path/to/inventory vm-incus-truenas.yaml --limit {{ truenas.secondaryTarget }}
+          
+          This ensures the playbook NEVER runs against multiple Incus hosts simultaneously.
+      when: ansible_play_hosts | length != 1
+
+    - name: Validate target host is an approved TrueNAS host
+      ansible.builtin.fail:
+        msg: |
+          SAFETY ERROR: Target host '{{ inventory_hostname }}' is not an approved TrueNAS target.
+          
+          Current target: {{ inventory_hostname }}
+          Approved TrueNAS targets:
+            Primary: {{ truenas.primaryTarget | default('NOT DEFINED') }}
+            Secondary: {{ truenas.secondaryTarget | default('NOT DEFINED') }}
+          
+          CORRECT Usage (choose one):
+            ansible-playbook -i /path/to/inventory vm-incus-truenas.yaml --limit {{ truenas.primaryTarget }}
+            ansible-playbook -i /path/to/inventory vm-incus-truenas.yaml --limit {{ truenas.secondaryTarget }}
+      when: 
+        - truenas is defined
+        - truenas.primaryTarget is defined 
+        - truenas.secondaryTarget is defined
+        - inventory_hostname not in [truenas.primaryTarget, truenas.secondaryTarget]
+
+    - name: Validate truenas configuration exists
+      ansible.builtin.fail:
+        msg: |
+          CONFIGURATION ERROR: TrueNAS configuration is missing from inventory.
+          
+          Required variables:
+            truenas.primaryTarget: {{ truenas.primaryTarget | default('NOT DEFINED') }}
+            truenas.secondaryTarget: {{ truenas.secondaryTarget | default('NOT DEFINED') }}
+          
+          Please ensure both truenas.primaryTarget and truenas.secondaryTarget are defined in your inventory file.
+      when: truenas is not defined or truenas.primaryTarget is not defined or truenas.secondaryTarget is not defined
+
+    - name: Validate VM configuration exists for target type
+      ansible.builtin.fail:
+        msg: |
+          CONFIGURATION ERROR: VM configuration missing for target type '{{ target_type }}'.
+          
+          Current target: {{ inventory_hostname }} ({{ target_type }})
+          Expected configuration path: truenas.vm_configs.{{ target_type }}
+          
+          Available VM configurations: {{ truenas.vm_configs.keys() | list | join(', ') }}
+          
+          Please ensure VM configuration is defined in your inventory file under:
+          truenas:
+            vm_configs:
+              {{ target_type }}:
+                vm_name: "..."
+                cpu_cores: N
+                # ... other VM parameters
+      when: 
+        - target_type == "unknown" or truenas.vm_configs[target_type] is not defined
+
+    - name: Display target host and VM configuration information
+      ansible.builtin.debug:
+        msg: |
+          TrueNAS VM will be created on target host: {{ inventory_hostname }}
+          Target type: {{ target_type }}
+          Incus remote: {{ incus_remote_name }}
+          VM Configuration:
+            Project: {{ truenas_incus_project }}
+            Profile: {{ truenas_incus_profile }}
+            VM Name: {{ truenas_vm_name }}
+            CPU Cores: {{ truenas_cpu_cores }}
+            Memory: {{ truenas_memory_gb }}GB
+            System Disk: {{ truenas_system_disk_gb }}GB
+            Network Bridge: {{ truenas_network_bridge }}
+            PCIe Passthrough: {{ pcie_passthrough_enabled }}
+            {% if pcie_controller_id %}PCIe Controller: {{ pcie_controller_id }}{% endif %}
+          
+          Available TrueNAS targets:
+            Primary: {{ truenas.primaryTarget }} (remote: {{ truenas.primaryTarget }})
+            Secondary: {{ truenas.secondaryTarget }} (remote: {{ truenas.secondaryTarget }})
+
+    - name: Validate Incus remote name resolution
+      ansible.builtin.fail:
+        msg: |
+          CONFIGURATION ERROR: Cannot determine Incus remote name for target type '{{ target_type }}'.
+          
+          Target type: {{ target_type }}
+          Expected remote name: {{ incus_remote_name }}
+          
+          This should correspond to:
+            Primary target: {{ truenas.primaryTarget | default('NOT DEFINED') }}
+            Secondary target: {{ truenas.secondaryTarget | default('NOT DEFINED') }}
+          
+          Please ensure both primaryTarget and secondaryTarget are defined in your inventory.
+      when: incus_remote_name == "unknown" or incus_remote_name == ""
+
+    - name: Validate local Incus client is available
+      ansible.builtin.shell: which incus
+      register: incus_client_check
+      delegate_to: localhost
+      become: false
+      failed_when: incus_client_check.rc != 0
+      changed_when: false
+
+    - name: Get current Incus remote list
+      ansible.builtin.shell: incus remote list --format=csv
+      register: incus_remotes_list
+      delegate_to: localhost
+      become: false
+      changed_when: false
+
+    - name: Validate required Incus remote exists locally
+      ansible.builtin.fail:
+        msg: |
+          INCUS REMOTE ERROR: Required remote '{{ incus_remote_name }}' not found in local Incus client.
+          
+          Expected remote: {{ incus_remote_name }}
+          Target type: {{ target_type }}
+          Target host: {{ inventory_hostname }}
+          
+          Available remotes:
+          {{ incus_remotes_list.stdout | indent(4, True) }}
+          
+          Please add the remote using:
+          incus remote add {{ incus_remote_name }} {{ inventory_hostname }}:8443
+      when: incus_remote_name not in incus_remotes_list.stdout
+
+    - name: Validate current Incus remote matches target
+      ansible.builtin.shell: incus remote get-default
+      register: current_incus_remote
+      delegate_to: localhost
+      become: false
+      changed_when: false
+
+    - name: Fail if current remote doesn't match target
+      ansible.builtin.fail:
+        msg: |
+          INCUS REMOTE MISMATCH ERROR: Current Incus remote does not match the target.
+          
+          Current remote: {{ current_incus_remote.stdout }}
+          Required remote: {{ incus_remote_name }}
+          Target: {{ inventory_hostname }} ({{ target_type }})
+          
+          Please switch to the correct remote:
+          incus remote switch {{ incus_remote_name }}
+          
+          Or set it as default temporarily:
+          incus remote set-url {{ incus_remote_name }} {{ inventory_hostname }}:8443
+      when: current_incus_remote.stdout != incus_remote_name
+
+    - name: Validate PCIe controller configuration
+      ansible.builtin.fail:
+        msg: "PCIe controller ID is required when PCIe passthrough is enabled"
+      when: pcie_passthrough_enabled and pcie_controller_id == ""
+
+    - name: Validate data disks configuration
+      ansible.builtin.fail:
+        msg: |
+          CONFIGURATION ERROR: Data disks must be configured when PCIe passthrough is disabled.
+          
+          Current configuration:
+            PCIe Passthrough: {{ pcie_passthrough_enabled }}
+            Data Disks Defined: {{ data_disks_config | length }}
+          
+          Please ensure data_disks are defined in your VM configuration when enable_pcie_passthrough=false:
+          data_disks:
+            - name: "data-disk-1"
+              size_gb: 500
+              pool: "default"
+            - name: "data-disk-2"
+              size_gb: 500
+              pool: "default"
+      when: not pcie_passthrough_enabled and (data_disks_config | length == 0)
+
+    - name: Display storage configuration
+      ansible.builtin.debug:
+        msg: |
+          Storage Configuration:
+          PCIe Passthrough: {{ pcie_passthrough_enabled }}
+          {% if pcie_passthrough_enabled %}
+          PCIe Controller: {{ pcie_controller_id | default('To be configured') }}
+          {% else %}
+          Data Disks:
+          {% for disk in data_disks_config %}
+            - {{ disk.name }}: {{ disk.size_gb }}GB (pool: {{ disk.pool }})
+          {% endfor %}
+          {% endif %}
+
+    - name: Ensure VM definition output directory exists
+      ansible.builtin.file:
+        path: "{{ truenas.vm_definition_output_dir }}"
+        state: directory
+        mode: '0755'
+      delegate_to: localhost
+      become: false
+
+    - name: Validate local ISO source is provided
+      ansible.builtin.fail:
+        msg: |
+          ERROR: Local ISO source is required but not provided.
+          
+          Please ensure 'iso_source_local' is defined in your VM configuration:
+          
+          vm_configs:
+            primary:
+              iso_source_local: "/path/to/local/TrueNAS-SCALE.iso"
+          
+          Or provide it as a runtime parameter:
+          ansible-playbook ... -e iso_source_local="/path/to/TrueNAS-SCALE.iso"
+      when: iso_source_local is not defined
+
+    - name: Validate local ISO file exists
+      ansible.builtin.stat:
+        path: "{{ iso_source_local }}"
+      register: local_iso_stat
+      delegate_to: localhost
+      become: false
+
+    - name: Fail if local ISO file doesn't exist
+      ansible.builtin.fail:
+        msg: |
+          ERROR: Local ISO file not found: {{ iso_source_local }}
+          
+          Please ensure the ISO file exists on your local machine.
+          You can download TrueNAS SCALE from: https://www.truenas.com/download-truenas-scale/
+      when: not local_iso_stat.stat.exists
+
+    - name: Check if ISO storage volume already exists in Incus pool
+      ansible.builtin.shell: |
+        incus storage volume list {{ storage_pool }} --format=csv --project={{ truenas_incus_project }} | grep -q "^custom,truenas-install-iso,"
+      register: iso_volume_exists
+      failed_when: false
+      changed_when: false
+      delegate_to: localhost
+      become: false
+
+    - name: Delete existing ISO volume if it exists (cleanup from previous failed runs)
+      ansible.builtin.shell: |
+        incus storage volume delete {{ storage_pool }} truenas-install-iso --project={{ truenas_incus_project }}
+      when: iso_volume_exists.rc == 0
+      delegate_to: localhost
+      become: false
+      register: iso_volume_deleted
+
+    - name: Display ISO volume cleanup status
+      ansible.builtin.debug:
+        msg: "Existing ISO volume deleted - will create fresh import"
+      when: iso_volume_exists.rc == 0
+
+    - name: Get ISO file size for volume creation
+      ansible.builtin.stat:
+        path: "{{ iso_source_local }}"
+      register: iso_file_stat
+      delegate_to: localhost
+      become: false
+
+    - name: Calculate ISO volume size (round up to nearest GB + 1GB buffer)
+      ansible.builtin.set_fact:
+        iso_volume_size_gb: "{{ ((iso_file_stat.stat.size / 1024 / 1024 / 1024) | round(0, 'ceil') | int) + 1 }}"
+      delegate_to: localhost
+      become: false
+
+    - name: Copy TrueNAS ISO to Incus host temporarily for import
+      ansible.builtin.copy:
+        src: "{{ iso_source_local }}"
+        dest: "/tmp/truenas-install.iso"
+        mode: '0644'
+
+    - name: Import ISO file into Incus storage volume (creates and imports in one step)
+      ansible.builtin.shell: |
+        incus storage volume import {{ storage_pool }} /tmp/truenas-install.iso truenas-install-iso \
+          --project={{ truenas_incus_project }}
+      register: iso_import_result
+
+    - name: Clean up temporary ISO file from Incus host
+      ansible.builtin.file:
+        path: "/tmp/truenas-install.iso"
+        state: absent
+
+    - name: Display ISO management information
+      ansible.builtin.debug:
+        msg: |
+          ISO Management:
+          Local Source: {{ iso_source_local }}
+          Storage Pool: {{ storage_pool }}
+          Volume Name: truenas-install-iso
+          Project: {{ truenas_incus_project }}
+          Status: ISO volume imported successfully ({{ iso_volume_size_gb }}GB)
+          
+          VM management will use local Incus client with remote '{{ incus_remote_name }}'
+          ISO is now stored as a pool-backed custom volume (compatible with restricted projects)
+
+    - name: Generate VM definition from template
+      ansible.builtin.template:
+        src: "templates/vm-incus-truenas-template.yaml.j2"
+        dest: "{{ vm_definition_file_path }}"
+        force: true
+      vars:
+        vm_name: "{{ truenas_vm_name }}"
+        vm_memory: "{{ vm_config.memory }}"
+        vm_vcpus: "{{ vm_config.vcpus }}"
+        vm_disk_size: "{{ vm_config.disk_size }}"
+        vm_disk_pool: "{{ vm_config.disk_pool }}"
+        vm_network: "{{ vm_config.network }}"
+        vm_pcie_passthrough: "{{ vm_config.enable_pcie_passthrough | default(false) }}"
+        vm_pcie_controller_id: "{{ vm_config.pcie_controller_id | default('') }}"
+      delegate_to: localhost
+      become: false
+
+    - name: Set Incus project for TrueNAS VM
+      ansible.builtin.shell: |
+        incus project switch {{ truenas_incus_project }}
+      register: project_check
+      failed_when: project_check.rc != 0
+      changed_when: false
+      delegate_to: localhost
+      become: false
+
+    - name: Create data disks for TrueNAS VM
+      ansible.builtin.command:
+        cmd: >
+          incus storage volume create
+          {{ item.pool }}
+          {{ truenas_vm_name }}-{{ item.name }}
+          --size {{ item.size_gb }}GB
+          --type block
+        creates: false
+      loop: "{{ data_disks_config }}"
+      when: not pcie_passthrough_enabled
+      delegate_to: localhost
+      become: false
+      register: data_disk_creation
+      failed_when: 
+        - data_disk_creation.rc != 0
+        - "'already exists' not in data_disk_creation.stderr"
+
+    - name: Display data disk creation results
+      ansible.builtin.debug:
+        msg: |
+          Data Disk Creation Results:
+          {% for result in data_disk_creation.results | default([]) %}
+          {{ result.item.name }}: {{ 'Created' if result.rc == 0 else ('Already exists' if 'already exists' in result.stderr else 'Failed') }}
+          {% endfor %}
+      when: not pcie_passthrough_enabled and data_disk_creation is defined
+
+    - name: Create TrueNAS VM from template (Fail if already exists) ⚠️
+      ansible.builtin.shell:
+        cmd: |
+          set -e
+          VM_NAME="{{ truenas_vm_name }}"
+          DEFINITION_PATH="{{ vm_definition_file_path }}"
+
+          # Check if the VM exists. 'incus info' returns 0 if found.
+          if incus info $VM_NAME >/dev/null 2>&1; then
+            # If it exists, print an error and use 'exit 1' to fail the task
+            echo "FATAL: VM '$VM_NAME' already exists. This task is for creation only." >&2
+            exit 1
+          else
+            echo "Creating new VM '$VM_NAME' from template"
+            
+            # The Incus init command:
+            # 1. Uses '--empty' and '--vm'.
+            # 2. Pipes the configuration file content directly into the command using '<'.
+            incus init $VM_NAME --vm --empty --profile {{ truenas_incus_profile }} < $DEFINITION_PATH
+            
+            echo "VM created successfully."
+          fi
+        executable: /bin/bash
+      register: vm_create_result
+      # Only report a change if the VM was actually created
+      changed_when: "'VM created successfully.' in vm_create_result.stdout"
+      delegate_to: localhost
+      become: false
+
+    - name: Attach data disks to TrueNAS VM
+      ansible.builtin.command:
+        cmd: >
+          incus config device add
+          {{ truenas_vm_name }}
+          {{ item.name }}
+          disk
+          source={{ item.pool }}/{{ truenas_vm_name }}-{{ item.name }}
+        creates: false
+      loop: "{{ data_disks_config }}"
+      when: not pcie_passthrough_enabled
+      delegate_to: localhost
+      become: false
+      register: disk_attachment
+      failed_when: 
+        - disk_attachment.rc != 0
+        - "'already exists' not in disk_attachment.stderr"
+
+    - name: Display data disk attachment results
+      ansible.builtin.debug:
+        msg: |
+          Data Disk Attachment Results:
+          {% for result in disk_attachment.results | default([]) %}
+          {{ result.item.name }}: {{ 'Attached' if result.rc == 0 else ('Already attached' if 'already exists' in result.stderr else 'Failed') }}
+          {% endfor %}
+      when: not pcie_passthrough_enabled and disk_attachment is defined
+
+    - name: Start TrueNAS VM
+      ansible.builtin.shell: |
+        incus start {{ truenas_vm_name }}
+      register: vm_start_result
+      failed_when: 
+        - vm_start_result.rc != 0
+        - "'Instance is already running' not in vm_start_result.stderr"
+      changed_when: vm_start_result.rc == 0
+      delegate_to: localhost
+      become: false
+
+    - name: Wait for VM to be running
+      ansible.builtin.shell: |
+        incus info {{ truenas_vm_name }} | grep -q "Status: RUNNING"
+      register: vm_running_check
+      retries: 30
+      delay: 10
+      until: vm_running_check.rc == 0
+      delegate_to: localhost
+      become: false
+
+    - name: Display VM information
+      ansible.builtin.debug:
+        msg: |
+          TrueNAS Scale VM configuration complete!
+          
+          Target Host: {{ inventory_hostname }} ({{ target_type }})
+          Incus Remote: {{ incus_remote_name }}
+          VM Name: {{ truenas_vm_name }}
+          CPU Cores: {{ truenas_cpu_cores }}
+          Memory: {{ truenas_memory_gb }}GB
+          System Disk: {{ truenas_system_disk_gb }}GB
+          Storage Pool: {{ storage_pool }}
+          Network Bridge: {{ truenas_network_bridge }}
+          VM Definition File: {{ vm_definition_file_path }}
+          {% if pcie_passthrough_enabled %}PCIe Controller: {{ pcie_controller_id }}{% endif %}
+          
+          Next Steps:
+          1. Connect to the VM console: incus console {{ truenas_vm_name }}
+          2. Follow the TrueNAS Scale installation wizard
+          3. Configure your storage pools using the passed-through SATA controller
+          
+          Useful Local Commands (using remote '{{ incus_remote_name }}'):
+          - View VM status: incus info {{ truenas_vm_name }}
+          - Stop VM: incus stop {{ truenas_vm_name }}
+          - Start VM: incus start {{ truenas_vm_name }}
+          - Access console: incus console {{ truenas_vm_name }}
+          - Remove ISO after installation: incus config device remove {{ truenas_vm_name }} install-media
+          - List all instances: incus list
+          - Switch remotes: incus remote switch [remote-name]
+
+    - name: Create VM management script
+      ansible.builtin.template:
+        src: templates/vm-incus-truenas-manage.sh.j2
+        dest: "$HOME/manage-{{ truenas_vm_name }}.sh"
+        mode: '0755'
+      delegate_to: localhost
+      become: false
+
+    - name: Display VM definition file location
+      ansible.builtin.debug:
+        msg: |
+          VM definition file saved to: {{ vm_definition_file_path }}
+          This file can be used for future VM management and version control.

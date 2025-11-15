@@ -108,7 +108,7 @@ if [ -f "$PRESEED_FILE" ]; then
         echo "Final Incus state:"
         /usr/bin/incus project list || echo "Failed to list projects"
         /usr/bin/incus profile list || echo "Failed to list profiles in default project"
-        {% for profile_name in tp_incus_config.production_profiles %}
+        {% for profile_name in tp_production_projects %}
         /usr/bin/incus project switch {{ profile_name }} && /usr/bin/incus profile list && /usr/bin/incus project switch default || echo "Failed to check {{ profile_name }} project profiles"
         {% endfor %}
     else
