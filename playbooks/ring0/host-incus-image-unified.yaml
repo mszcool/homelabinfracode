@@ -165,7 +165,7 @@
         mode: '0600'
       vars:
         tp_incus_config: "{{ param_incus_config }}"
-      loop: "{{ param_incus_config.production_profiles }}"
+      loop: "{{ param_incus_config.production_projects }}"
       loop_control:
         label: "{{ item }}"
 

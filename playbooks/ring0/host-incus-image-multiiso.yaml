@@ -150,7 +150,7 @@
         mode: '0600'
       vars:
         tp_incus_config: "{{ param_incus_config }}"
-      loop: "{{ param_host_configs | product(param_incus_config.production_profiles) | list }}"
+      loop: "{{ param_host_configs | product(param_incus_config.production_projects) | list }}"
       loop_control:
         label: "{{ item.0.name }} - {{ item.1 }}"
 

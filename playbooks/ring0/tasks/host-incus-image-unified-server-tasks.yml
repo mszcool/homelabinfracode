@@ -16,7 +16,7 @@
     tp_root_user_fullname: "{{ root_user_fullname }}"
     tp_root_user_password: "{{ param_root_user_password }}"  # This is now the encrypted password
     tp_root_user_publickey: "{{ root_user_publickey }}"
-    tp_production_profiles: "{{ param_incus_config.production_profiles }}"
+    tp_production_projects: "{{ param_incus_config.production_projects }}"
 
 - name: Generate Incus preseed configuration for {{ host_config_item.name }}
   ansible.builtin.template:
@@ -40,7 +40,7 @@
     src: "{{ param_iso_working_path }}/configs/common/incus-profiles/profile-{{ item }}.yaml"
     dest: "{{ param_preseed_output_dir }}/incus.profile-{{ item }}.{{ host_config_item.name }}.yaml"
     mode: "0600"
-  loop: "{{ param_incus_config.production_profiles }}"
+  loop: "{{ param_incus_config.production_projects }}"
 
 - name: Verify server-specific files were created for {{ host_config_item.name }}
   ansible.builtin.stat:

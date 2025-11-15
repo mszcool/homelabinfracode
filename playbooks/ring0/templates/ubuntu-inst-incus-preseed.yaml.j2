@@ -43,7 +43,7 @@ projects:
     restricted: true
     restricted.networks.access: iso-nat,phys-br
   description: Default project for VMs with global network access and default limits
-{% for profile_name in tp_incus_config.production_profiles %}
+{% for profile_name in tp_incus_config.production_projects %}
 - name: {{ profile_name }}
   config:
     features.images: true
