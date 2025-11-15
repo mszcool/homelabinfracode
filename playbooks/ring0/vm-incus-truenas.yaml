@@ -27,6 +27,7 @@
     truenas_memory_gb: "{{ vm_config.memory_gb }}"
     truenas_system_disk_gb: "{{ vm_config.system_disk_gb }}"
     truenas_network_bridge: "{{ vm_config.network_bridge }}"
+    truenas_mac_address: "{{ vm_config.mac_address | default('') }}"
     truenas_iso_path: "{{ vm_config.iso_path }}"
     
     # PCIe/SATA Controller Passthrough Configuration (from inventory)

@@ -33,6 +33,9 @@ devices:
     type: nic
     network: {{ truenas_network_bridge }}
     name: eth0
+{% if truenas_mac_address is defined and truenas_mac_address != "" %}
+    hwaddr: "{{ truenas_mac_address }}"
+{% endif %}
 
 {% if pcie_passthrough_enabled and pcie_controller_id != "" %}
   # PCIe passthrough for SATA controller
