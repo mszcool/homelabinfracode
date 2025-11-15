@@ -158,6 +158,14 @@
       vars:
         tp_host_configs: "{{ param_host_configs }}"
 
+    - name: Processing -- Discover production project files
+      ansible.builtin.find:
+        paths: "{{ playbook_dir }}/projects"
+        patterns: "*.yaml"
+        file_type: file
+      register: discovered_project_files
+      delegate_to: localhost
+
     - name: Processing -- Generate production profile configurations
       ansible.builtin.template:
         src: ubuntu-inst-incus-profile-production.yaml.j2
@@ -165,7 +173,7 @@
         mode: '0600'
       vars:
         tp_incus_config: "{{ param_incus_config }}"
-      loop: "{{ param_incus_config.production_projects }}"
+      loop: "{{ discovered_project_files.files | map(attribute='path') | map('basename') | map('regex_replace', '\\.yaml$', '') | list }}"
       loop_control:
         label: "{{ item }}"
 
@@ -183,6 +191,7 @@
       vars:
         tp_root_user: "{{ root_user }}"
         tp_incus_config: "{{ param_incus_config }}"
+        tp_production_projects: "{{ discovered_project_files.files | map(attribute='path') | map('basename') | map('regex_replace', '\\.yaml$', '') | list }}"
 
     - name: Processing -- Generate server-specific configurations
       ansible.builtin.include_tasks: ./tasks/host-incus-image-unified-server-tasks.yml
