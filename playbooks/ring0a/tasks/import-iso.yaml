@@ -1,0 +1,110 @@
+---
+- name: Determine target project and storage pool for ISO
+  ansible.builtin.set_fact:
+    iso_target_project: "{{ iso.project | default(default_incus_project) }}"
+    iso_target_storage_pool: "{{ iso.storage_pool | default(default_storage_pool) }}"
+  delegate_to: localhost
+  become: false
+
+- name: Switch to target Incus project
+  ansible.builtin.shell: |
+    incus project switch {{ incus_remote_name }}:{{ iso_target_project }}
+  register: project_switch
+  failed_when: project_switch.rc != 0
+  changed_when: false
+  delegate_to: localhost
+  become: false
+
+- name: Validate local ISO source is provided
+  ansible.builtin.fail:
+    msg: |
+      ERROR: Local ISO source is required but not provided for ISO '{{ iso.name }}'.
+      
+      ISO configuration: {{ iso }}
+      
+      Please ensure 'iso_source_local' is defined in your iso_images configuration.
+  when: iso.iso_source_local is not defined or iso.iso_source_local == ""
+  delegate_to: localhost
+  become: false
+
+- name: Validate local ISO file exists
+  ansible.builtin.stat:
+    path: "{{ iso.iso_source_local }}"
+  register: local_iso_stat
+  delegate_to: localhost
+  become: false
+
+- name: Fail if local ISO file doesn't exist
+  ansible.builtin.fail:
+    msg: |
+      ERROR: Local ISO file not found: {{ iso.iso_source_local }}
+      
+      Please ensure the ISO file exists on your local machine.
+  when: not local_iso_stat.stat.exists
+  delegate_to: localhost
+  become: false
+
+- name: Get ISO file size for volume creation
+  ansible.builtin.stat:
+    path: "{{ iso.iso_source_local }}"
+  register: iso_file_stat
+  delegate_to: localhost
+  become: false
+
+- name: Calculate ISO volume size (round up to nearest GB + 1GB buffer)
+  ansible.builtin.set_fact:
+    iso_volume_size_gb: "{{ ((iso_file_stat.stat.size / 1024 / 1024 / 1024) | round(0, 'ceil') | int) + 1 }}"
+  delegate_to: localhost
+  become: false
+
+- name: Extract volume name from ISO path
+  ansible.builtin.set_fact:
+    iso_volume_name: "{{ iso.iso_path | basename | regex_replace('\\.iso$', '') }}"
+  delegate_to: localhost
+  become: false
+
+- name: Check if ISO storage volume already exists in Incus pool
+  ansible.builtin.shell: |
+    incus storage volume list {{ incus_remote_name }}:{{ iso_target_storage_pool }} --format=csv --project={{ iso_target_project }} | grep -q "^custom,{{ iso_volume_name }},"
+  register: iso_volume_exists
+  failed_when: false
+  changed_when: false
+  delegate_to: localhost
+  become: false
+
+- name: Delete existing ISO volume if it exists (cleanup from previous failed runs)
+  ansible.builtin.shell: |
+    incus storage volume delete {{ incus_remote_name }}:{{ iso_target_storage_pool }} {{ iso_volume_name }} --project={{ iso_target_project }}
+  when: iso_volume_exists.rc == 0
+  delegate_to: localhost
+  become: false
+  register: iso_volume_deleted
+
+- name: Display ISO volume cleanup status
+  ansible.builtin.debug:
+    msg: "Existing ISO volume '{{ iso_volume_name }}' deleted - will create fresh import"
+  when: iso_volume_exists.rc == 0
+  delegate_to: localhost
+  become: false
+
+- name: Import ISO file into Incus storage volume (creates and imports in one step)
+  ansible.builtin.shell: |
+    incus storage volume import {{ incus_remote_name }}:{{ iso_target_storage_pool }} {{ iso.iso_source_local }} {{ iso_volume_name }} \
+      --project={{ iso_target_project }}
+  delegate_to: localhost
+  become: false
+  register: iso_import_result
+
+- name: Display ISO import information
+  ansible.builtin.debug:
+    msg: |
+      ISO Import Successful:
+      ISO Name: {{ iso.name }}
+      Local Source: {{ iso.iso_source_local }}
+      Storage Pool: {{ iso_target_storage_pool }}
+      Volume Name: {{ iso_volume_name }}
+      Project: {{ iso_target_project }}
+      Size: {{ iso_volume_size_gb }}GB
+      Destination: {{ iso.iso_path }}
+  delegate_to: localhost
+  become: false

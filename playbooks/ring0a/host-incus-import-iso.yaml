@@ -1,0 +1,102 @@
+---
+- name: Import ISOs to Incus clusters
+  hosts: incus
+  gather_facts: true
+  remote_user: "{{ root_user }}"
+
+  vars:
+    # Default storage pool name
+    default_storage_pool: "default"
+    
+    # Default Incus project
+    default_incus_project: "default"
+
+  tasks:
+    - name: Validate ISO images are defined in inventory
+      ansible.builtin.fail:
+        msg: |
+          CONFIGURATION ERROR: No ISO images defined in inventory.
+          
+          Please ensure iso_images is defined in your inventory file:
+          
+          all:
+            vars:
+              iso_images:
+                - name: "ubuntu-24.04"
+                  iso_path: "/srv/iso/ubuntu-24.04.iso"
+                  iso_source_local: "/path/to/local/ubuntu-24.04.iso"
+                  storage_pool: "default"  # Optional: defaults to 'default' if not specified
+                  project: "default"  # Optional: defaults to 'default' if not specified
+                - name: "truenas-25.04"
+                  iso_path: "/srv/iso/truenas-25.04.iso"
+                  iso_source_local: "/path/to/local/truenas-25.04.iso"
+                  storage_pool: "custom-iso-pool"  # Optional: specify different storage pool
+                  project: "production"  # Optional: specify different project
+      delegate_to: localhost
+      become: false
+      when: iso_images is not defined or iso_images | length == 0
+
+    - name: Validate local Incus client is available
+      ansible.builtin.shell: which incus
+      register: incus_client_check
+      delegate_to: localhost
+      become: false
+      failed_when: incus_client_check.rc != 0
+      changed_when: false
+      run_once: true
+
+    - name: Get Incus remote list
+      ansible.builtin.shell: incus remote list --format=csv
+      register: incus_remotes_output
+      delegate_to: localhost
+      become: false
+      changed_when: false
+      run_once: true
+
+    - name: Check if current host is available as Incus remote
+      ansible.builtin.set_fact:
+        host_incus_remote_name: "{{ inventory_hostname }}"
+        host_is_available_remote: "{{ inventory_hostname in incus_remotes_output.stdout }}"
+      delegate_to: localhost
+      become: false
+
+    - name: Display warning if host is not available as Incus remote
+      ansible.builtin.debug:
+        msg: |
+          WARNING: Incus host '{{ inventory_hostname }}' is not registered as a remote on the local Incus client.
+          
+          Available remotes:
+          {{ incus_remotes_output.stdout | indent(4, True) }}
+          
+          To add this remote, set the INCUS_CONF environment variable to a configuration target directory and run:
+          incus remote add {{ inventory_hostname }} {{ inventory_hostname }}:8443 --accept-certificate --auth-type tls
+          
+          Skipping ISO import for this host.
+      delegate_to: localhost
+      become: false
+      when: not host_is_available_remote
+
+    - name: Display ISO images to import
+      ansible.builtin.debug:
+        msg: |
+          ISO Import Configuration:
+          Target Incus Host: {{ inventory_hostname }}
+          Incus Remote: {{ host_incus_remote_name }}
+          ISO Images to Import:
+          {% for iso in iso_images %}
+            - Name: {{ iso.name }}
+              Local Path: {{ iso.iso_source_local | default('NOT DEFINED') }}
+              Destination: {{ iso.iso_path }}
+          {% endfor %}
+      delegate_to: localhost
+      become: false
+      when: host_is_available_remote
+
+    - name: Import ISOs to Incus host
+      ansible.builtin.include_tasks:
+        file: tasks/import-iso.yaml
+      vars:
+        iso: "{{ item }}"
+        incus_remote_name: "{{ host_incus_remote_name }}"
+      loop: "{{ iso_images }}"
+      when: host_is_available_remote
