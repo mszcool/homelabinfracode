@@ -40,10 +40,21 @@ locals {
   # It supports both plaintext and hashed passwords (automatically detected by format)
   # This will be passed directly to cloud-init via cloud-init.user-data
   cloud_init_user_data = (var.image != "") ? yamlencode(merge(
-    # Base configuration (users and SSH password auth)
+    # Base configuration (package updates, SSH setup, users, and SSH password auth)
     {
-      ssh_pwauth = true
-      users      = local.cloud_init_users
+      package_update  = true
+      package_upgrade = true
+      packages        = ["openssh-server"]
+      ssh_pwauth      = true
+      users           = local.cloud_init_users
+      # SSH configuration: disable password-based authentication
+      ssh = {
+        enabled = true
+        # Disable password-based authentication while keeping key-based auth
+        Port                   = 22
+        PasswordAuthentication = false
+        PubkeyAuthentication   = true
+      }
     },
     # Add chpasswd section for password authentication if password is provided
     local.hashed_password != "" ? {
