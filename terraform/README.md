@@ -2,6 +2,40 @@
 
 This directory contains the Terraform code for managing Incus infrastructure.
 
+## ⚙️ Prerequisites
+
+### System Requirements
+- Terraform >= 1.0
+- Incus CLI configured with remotes
+
+### Cloud-Init User Configuration (Optional)
+
+If using cloud-init to create users with passwords on image-based VMs, you need to pre-hash passwords before running Terraform:
+
+**⚠️ Important:** Ubuntu 24.04 uses **yescrypt** hashing (not SHA-512). Use `mkpasswd -m yescrypt`.
+
+**Generate and pass hashed password via environment variable:**
+```bash
+# Generate hash (choose one method)
+HASH=$(mkpasswd -m yescrypt)  # Recommended for Ubuntu 24.04
+# or: HASH=$(python3 -c "from passlib.hash import yescrypt; print(yescrypt.hash('YourPassword'))")
+
+# IMPORTANT: Make sure ring0.tfvars has root_password = "" (empty default)
+# This allows the environment variable to take precedence
+
+# Set environment variable and deploy
+export TF_VAR_root_password="$HASH"
+terraform apply -var-file="../configs.private/ring0/ring0.tfvars"
+```
+
+**⚠️ Important:** 
+- Terraform tfvars files **always take precedence** over environment variables
+- Set `root_password = ""` in tfvars to allow environment variable to work
+- Never commit actual password hashes to tfvars—use the environment variable approach instead
+- Use **yescrypt** hashing, not SHA-512 (see `/etc/pam.d/common-password`)
+
+See the [VM module README](./modules/vm/README.md#cloud-init-and-user-configuration) for detailed instructions.
+
 ## 📚 Documentation
 
 All documentation has been moved to the [../docs/](../docs) directory for better organization.

@@ -128,6 +128,54 @@ variable "enable_boot_autostart" {
   default     = false
 }
 
+variable "root_username" {
+  description = "Username for the privileged user (e.g., 'admin', 'sysadmin'). Only used with image-based VMs. Will be created with full sudo access."
+  type        = string
+  default     = "admin"
+  
+  validation {
+    condition     = can(regex("^[a-z_]([a-z0-9_-]{0,31}|[a-z0-9_-]{0,30}\\$)$", var.root_username))
+    error_message = "root_username must be a valid Linux username (lowercase letters, numbers, underscore, hyphen)."
+  }
+}
+
+variable "ssh_public_key" {
+  description = "SSH public key to add to the instance for passwordless access (optional). Only used with image-based VMs."
+  type        = string
+  default     = ""
+  sensitive   = true
+}
+
+variable "root_password" {
+  description = <<-EOT
+    Yescrypt hashed password for the root_username user. Must be pre-hashed - do NOT pass plaintext.
+    
+    Ubuntu 24.04 uses yescrypt hashing by default (see /etc/pam.d/common-password). The hash format starts with $y$.
+    
+    Generate the hash before running Terraform using one of these methods:
+    
+    Using mkpasswd (Ubuntu/Debian):
+      mkpasswd -m yescrypt
+      # Paste your password, press Enter twice, copy the output
+    
+    Using Python passlib:
+      python3 << 'EOF'
+      from passlib.hash import yescrypt
+      print(yescrypt.hash('YourPassword'))
+      EOF
+    
+    Then pass it to Terraform:
+      export TF_VAR_root_password='$y$j9T$....(hashed_password)....'
+      terraform apply --var-file="../configs.private/ring0/ring0.tfvars"
+    
+    Leave empty ("") to skip password-based authentication for this user.
+    Only used with image-based VMs (cloud-init).
+  EOT
+  type        = string
+  default     = ""
+  sensitive   = true
+}
+
 variable "tags" {
   description = "Map of tags to apply to all resources"
   type        = map(string)

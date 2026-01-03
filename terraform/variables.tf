@@ -29,6 +29,9 @@ variable "vms" {
     enable_pcie_passthrough  = optional(bool, false)
     pcie_controller          = optional(string, "")
     enable_boot_autostart    = optional(bool, false)
+    root_username            = optional(string, "admin")
+    ssh_public_key           = optional(string, "")
+    root_password            = optional(string, "")
     data_disks = optional(list(object({
       name  = string
       size  = optional(number, 100) # in GB

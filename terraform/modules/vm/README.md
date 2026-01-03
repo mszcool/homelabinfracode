@@ -69,6 +69,83 @@ When `enable_pcie_passthrough` is true:
 - Data disks are disabled when PCIe passthrough is enabled
 - Requires hardware support and appropriate kernel configuration
 
+### Cloud-Init and User Configuration
+
+This module supports automated user creation and SSH key configuration for image-based VMs:
+
+### Cloud-Init and User Configuration
+
+This module supports automated user creation and SSH key configuration for image-based VMs:
+
+**Requirements:**
+- Must use `/cloud` variant images (e.g., `images:ubuntu/24.04/cloud`) that have cloud-init pre-installed
+- `root_password` must be pre-hashed in yescrypt format (`$y$...`), not plaintext
+- Ubuntu 24.04 uses yescrypt by default (see `/etc/pam.d/common-password`)
+- Only works with image-based VMs (not ISO-based)
+
+**Features:**
+- Custom privileged user creation (configurable username via `root_username`)
+- SSH public key setup for passwordless access
+- Password-based authentication using cloud-init's `chpasswd` module (handles yescrypt hashes)
+- Full sudo access for the created user
+
+**Important:** Cloud-init detects the password hash format and applies it correctly. Yescrypt hashes (starting with `$y$`) are supported and recommended for Ubuntu 24.04.
+
+**Generating the Hashed Password:**
+
+Before running Terraform, generate a yescrypt hashed password using one of these methods:
+
+**Option 1: Using `mkpasswd` with yescrypt (Ubuntu/Debian) - Recommended**
+```bash
+mkpasswd -m yescrypt
+# This will prompt you to enter your password twice
+# Copy the resulting hash (starts with $y$)
+```
+
+**Option 2: Using Python `passlib`**
+```bash
+python3 << 'EOF'
+from passlib.hash import yescrypt
+import getpass
+pwd = getpass.getpass("Enter password: ")
+print(yescrypt.hash(pwd))
+EOF
+```
+
+**Note on SHA-512:** Ubuntu 24.04 uses yescrypt by default (see `/etc/pam.d/common-password`). SHA-512 hashes ($6$) won't work for authentication even though they're valid crypt hashes. Always use yescrypt ($y$) for this image.
+
+**Usage with Terraform:**
+
+⚠️ **Important:** Make sure `root_password = ""` (empty) in your `.tfvars` file so the environment variable takes precedence.
+
+```bash
+# Generate the yescrypt hash first
+HASH=$(mkpasswd -m yescrypt)
+# Enter your password when prompted, copy the resulting hash (should start with $y$)
+
+# Export as environment variable
+export TF_VAR_root_password="$HASH"
+
+# Run Terraform
+export TF_VAR_ssh_public_key="$(cat ~/.ssh/id_ed25519.pub)"
+terraform apply --var-file="../configs.private/ring0/ring0.tfvars"
+```
+
+**Example Configuration:**
+```hcl
+module "samba4" {
+  source = "./modules/vm"
+
+  instance_name      = "samba4-addc"
+  image              = "images:ubuntu/24.04/cloud"  # Must use /cloud variant
+  root_username      = "sysadmin"
+  ssh_public_key     = file("~/.ssh/id_ed25519.pub")
+  root_password      = var.sysadmin_password_hashed  # Must be pre-hashed
+
+  # ... other configuration
+}
+```
+
 ## Usage
 
 ```hcl

@@ -1,3 +1,13 @@
+# Validate that SSH key and root password are only used with image-based VMs
+resource "null_resource" "cloud_init_validation" {
+  lifecycle {
+    precondition {
+      condition     = (var.ssh_public_key == "" && var.root_password == "") || var.image != ""
+      error_message = "ssh_public_key and root_password can only be used with image-based VMs (when 'image' is specified). They are not compatible with ISO-based installations (when 'iso_volume_name' is specified)."
+    }
+  }
+}
+
 # Data Disks Storage Volumes
 # Creates separate storage volumes for each data disk
 resource "incus_storage_volume" "data_disks" {
@@ -43,17 +53,24 @@ resource "incus_instance" "vm" {
   profiles = [var.incus_profile]
 
   # Instance-specific configuration
-  config = {
-    # CPU and Memory
-    "limits.cpu"    = var.cpu_cores
-    "limits.memory" = "${var.memory_gb}GB"
-    
-    # Boot settings
-    "boot.autostart" = var.enable_boot_autostart ? "true" : "false"
-    
-    # Disable secure boot for ISO-based installations
-    "security.secureboot" = "false"
-  }
+  config = merge(
+    {
+      # CPU and Memory
+      "limits.cpu"    = var.cpu_cores
+      "limits.memory" = "${var.memory_gb}GB"
+      
+      # Boot settings
+      "boot.autostart" = var.enable_boot_autostart ? "true" : "false"
+      
+      # Disable secure boot for ISO-based installations
+      "security.secureboot" = "false"
+    },
+    # Add cloud-init user-data if SSH key or root password is provided
+    # Using cloud-init.user-data (not user.user-data) for newer images
+    (var.ssh_public_key != "" || var.root_password != "") ? {
+      "cloud-init.user-data" = "#cloud-config\n${local.cloud_init_user_data}"
+    } : {}
+  )
 
   # Root disk device (primary boot device)
   device {
