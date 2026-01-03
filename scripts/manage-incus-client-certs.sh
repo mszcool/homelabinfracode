@@ -119,8 +119,8 @@ add_incus_remote() {
     print_success "Adding remote $remote_name at $server_ip:$server_port"
     
     # Add the remote
-    incus remote add "$remote_name" "$server_ip:$server_port" \
-        --accept-certificate --protocol simplestreams || true
+    incus remote add "$remote_name" "https://$server_ip:$server_port" \
+        --accept-certificate --auth-type tls || true
     
     print_success "Remote added successfully!"
     echo
@@ -202,7 +202,7 @@ Usage:
 Commands:
   generate <client-name>              Generate new client certificate pair
   extract                             Extract public certificate for Git storage
-  add-remote <name> <ip> [port]       Add Incus remote with authentication
+  add-remote <name> <ip/dns> [port]       Add Incus remote with authentication
   list-remotes                        List configured remotes
   info                                Show current certificate information
   backup                              Backup certificate for password manager
