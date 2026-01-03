@@ -25,7 +25,7 @@ module "vm" {
   enable_boot_autostart    = each.value.enable_boot_autostart
   root_username            = each.value.root_username
   ssh_public_key           = each.value.ssh_public_key
-  root_password            = each.value.root_password
+  root_password            = each.value.root_password != "" ? each.value.root_password : lookup(var.root_passwords, each.key, "")
   tags                     = var.tags
 }
 

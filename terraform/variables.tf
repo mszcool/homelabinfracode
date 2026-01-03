@@ -65,3 +65,26 @@ variable "tags" {
     environment = "homelab"
   }
 }
+
+variable "root_passwords" {
+  description = <<-EOT
+    Map of yescrypt hashed passwords by VM name. Allows per-VM password management.
+    
+    Can be set via:
+    1. Direct entry in tfvars (easiest for homelab):
+       root_passwords = {
+         samba4-addc = "$y$j9T$...(hash1)..."
+         truenas-primary = "$y$j9T$...(hash2)..."
+       }
+    
+    2. Environment variable (for CI/CD):
+       export TF_VAR_root_passwords='{"samba4-addc":"$y$j9T$hash1...","truenas-primary":"$y$j9T$hash2..."}'
+    
+    3. Per-VM override in vms map takes precedence over this map.
+    
+    Leave empty to disable password-based authentication.
+  EOT
+  type        = map(string)
+  default     = {}
+  sensitive   = true
+}
