@@ -10,8 +10,6 @@
 #
 # Required environment variables:
 #   SAMBA4_ADMIN_PASSWORD: Domain administrator password (min 8 chars, must include uppercase, number, special)
-#   SAMBA4_DNS_FORWARDER_1: Primary DNS forwarder IP (your Mikrotik router IP)
-#   SAMBA4_DNS_FORWARDER_2: (Optional) Secondary DNS forwarder IP
 #
 # Usage:
 #   # Set environment variables
@@ -31,11 +29,9 @@
       ansible.builtin.assert:
         that:
           - lookup('env', 'SAMBA4_ADMIN_PASSWORD') != ""
-          - lookup('env', 'SAMBA4_DNS_FORWARDER_1') != ""
         fail_msg: |
           Required environment variables are missing:
           - SAMBA4_ADMIN_PASSWORD: Domain administrator password
-          - SAMBA4_DNS_FORWARDER_1: Primary DNS forwarder (usually your router IP)
     
     - name: Validate admin password complexity
       ansible.builtin.assert:
@@ -67,6 +63,10 @@
     # ============================================================================
     # STEP 1: System Preparation
     # ============================================================================
+    
+    - name: System Preparation -- Set timezone
+      community.general.timezone:
+        name: "{{ samba4_addc.timezone }}"
     
     - name: System Preparation -- Update system packages
       ansible.builtin.apt:
@@ -276,12 +276,6 @@
     # STEP 5: Service Configuration
     # ============================================================================
     
-    - name: Service Configuration -- Enable Samba service
-      ansible.builtin.systemd:
-        name: samba
-        enabled: true
-        state: started
-    
     - name: Service Configuration -- Configure systemd service for Samba
       block:
         - name: Create Samba systemd service unit file
@@ -311,6 +305,17 @@
           ansible.builtin.systemd:
             daemon_reload: true
           when: samba_service_updated.changed
+    
+    - name: Service Configuration -- Enable and start Samba service
+      ansible.builtin.systemd:
+        name: samba
+        enabled: true
+        state: started
+        daemon_reload: true
+      register: samba_service_start
+      failed_when:
+        - samba_service_start.failed
+        - "'already exists' not in samba_service_start.msg | default('')"
     
     # ============================================================================
     # STEP 6: DNS Verification (Optional)
