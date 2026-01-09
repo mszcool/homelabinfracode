@@ -94,6 +94,29 @@
         name: "{{ samba4_packages }}"
         state: present
     
+    - name: System Preparation -- Disable individual Samba services to prevent conflicts
+      block:
+        - name: Disable smbd and nmbd services
+          ansible.builtin.systemd:
+            name: "{{ item }}"
+            enabled: false
+            state: stopped
+          loop:
+            - smbd
+            - nmbd
+            - winbind
+          ignore_errors: true
+        
+        - name: Mask smbd and nmbd services to prevent re-enablement
+          ansible.builtin.systemd:
+            name: "{{ item }}"
+            masked: true
+          loop:
+            - smbd
+            - nmbd
+            - winbind
+          ignore_errors: true
+    
     - name: System Preparation -- Configure time synchronization with NTP
       block:
         - name: Stop timedatectl if running
@@ -194,6 +217,18 @@
     # STEP 4: Post-provisioning Configuration
     # ============================================================================
     
+    - name: Stop any running Samba processes
+      block:
+        - name: Kill any running samba processes
+          ansible.builtin.shell: |
+            pkill -9 samba || true
+          changed_when: false
+        
+        - name: Wait for Samba processes to terminate
+          ansible.builtin.wait_for:
+            timeout: 2
+          changed_when: false
+    
     - name: Post-provisioning -- Copy Kerberos configuration
       ansible.builtin.copy:
         src: /var/lib/samba/private/krb5.conf
@@ -241,7 +276,6 @@
             regexp: '^#?DNS='
             line: 'DNS=127.0.0.1'
             create: true
-          notify: restart systemd-resolved
       when: configure_resolver
     
     - name: Post-provisioning -- Configure Samba smb.conf for DNS forwarders
@@ -251,30 +285,43 @@
             path: /etc/samba/smb.conf
           register: smb_conf_stat
         
-        - name: Add DNS forwarder configuration to smb.conf
-          ansible.builtin.blockinfile:
+        - name: Remove any existing dns forwarder lines to avoid duplicates
+          ansible.builtin.lineinfile:
             path: /etc/samba/smb.conf
-            block: |
-              # DNS Forwarder Configuration
-              # Forward unresolved queries to upstream DNS servers
-              {% for forwarder in samba4_addc.dns_forwarders %}
-              dns forwarder = {{ forwarder }}
-              {% endfor %}
-            insertafter: '\[global\]'
-            create: true
+            regexp: '^\s*dns forwarder\s*='
+            state: absent
           when: smb_conf_stat.stat.exists
-          register: smb_conf_updated
+          register: dns_forwarder_removed
         
-        - name: Restart Samba if smb.conf was modified
-          ansible.builtin.systemd:
-            name: samba
-            state: restarted
-          when: smb_conf_updated.changed
+        - name: Add DNS forwarder configuration to smb.conf
+          ansible.builtin.lineinfile:
+            path: /etc/samba/smb.conf
+            regexp: '^\s*dns forwarder\s*='
+            insertafter: '\[global\]'
+            line: "dns forwarder = {{ item }}"
+            state: present
+          loop: "{{ samba4_addc.dns_forwarders }}"
+          when: smb_conf_stat.stat.exists
+          register: dns_forwarder_added
       when: samba4_addc.dns_forwarders | length > 0
     
     # ============================================================================
     # STEP 5: Service Configuration
     # ============================================================================
+    
+    - name: Service Configuration -- Disable systemd-resolved before starting Samba
+      block:
+        - name: Stop systemd-resolved service
+          ansible.builtin.systemd:
+            name: systemd-resolved
+            state: stopped
+          ignore_errors: true
+        
+        - name: Disable systemd-resolved to prevent auto-start
+          ansible.builtin.systemd:
+            name: systemd-resolved
+            enabled: false
+          ignore_errors: true
     
     - name: Service Configuration -- Configure systemd service for Samba
       block:
@@ -288,7 +335,8 @@
               
               [Service]
               Type=notify
-              ExecStart=/usr/sbin/samba -D
+              NotifyAccess=all
+              ExecStart=/usr/sbin/samba --foreground --no-process-group
               ExecReload=/bin/kill -HUP $MAINPID
               Restart=on-failure
               RestartSec=10
@@ -340,13 +388,7 @@
         msg: |
           DNS SRV Records:
           {{ dns_ldap_test.stdout }}
-
-  handlers:
-    - name: restart systemd-resolved
-      ansible.builtin.systemd:
-        name: systemd-resolved
-        state: restarted
-
+  handlers: []
   post_tasks:
     - name: Display summary and next steps
       ansible.builtin.debug:
