@@ -296,11 +296,9 @@
         - name: Add DNS forwarder configuration to smb.conf
           ansible.builtin.lineinfile:
             path: /etc/samba/smb.conf
-            regexp: '^\s*dns forwarder\s*='
             insertafter: '\[global\]'
-            line: "dns forwarder = {{ item }}"
+            line: "dns forwarder = {{ samba4_addc.dns_forwarders | join(' ') }}"
             state: present
-          loop: "{{ samba4_addc.dns_forwarders }}"
           when: smb_conf_stat.stat.exists
           register: dns_forwarder_added
       when: samba4_addc.dns_forwarders | length > 0
