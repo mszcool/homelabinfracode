@@ -418,6 +418,7 @@
           3. VERIFY SAMBA SERVICE:
              systemctl status samba
              smbclient -L localhost -N
+             samba-tool dns query 127.0.0.1 mszlocal _ldap._tcp SRV -U Administrator
           
           4. CONFIGURE DOMAIN MEMBERS:
              - Set the AD DC's IP ({{ samba4_addc.ip_address }}) as the DNS server
