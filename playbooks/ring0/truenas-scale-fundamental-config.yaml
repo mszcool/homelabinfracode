@@ -1,0 +1,189 @@
+---
+# Playbook: TrueNAS SCALE Fundamental Configuration
+# Purpose: Perform fundamental security and localization configuration on TrueNAS SCALE
+# 
+# Notes:
+# - Requires the arensb.truenas Ansible collection
+# - Environment variables required:
+#   - TRUENAS_ADMIN_PASSWORD: Active Directory admin password
+# 
+# Usage:
+#   ansible-playbook -i configs.private/ring0/truenas-scale-inventory.yaml playbooks/ring0/truenas-scale-fundamental-config.yaml
+#
+
+- name: TrueNAS SCALE Fundamental Configuration
+  hosts: truenas-scale
+  gather_facts: false
+
+  pre_tasks:
+    - name: Validate required environment variables
+      assert:
+        that:
+          - lookup('env', truenas_admin_pwd_env, default='') | length > 0
+        fail_msg: |
+          Required environment variable not set:
+          - {{ truenas_admin_pwd_env }}
+        success_msg: "Required environment variable is set"
+
+    - name: Display configuration summary
+      debug:
+        msg: |
+          TrueNAS Configuration Summary:
+          - Hostname: {{ truenas_hostname }}
+          - Admin Username: {{ truenas_admin_username }}
+          - Timezone: {{ truenas_timezone }}
+          - Country: {{ truenas_country }}, State: {{ truenas_state }}, City: {{ truenas_city }}
+          - AD DC and DNS Server: {{ truenas_ad.truenas_ad_dc_ip }}
+          - Domain: {{ truenas_ad.dns_domain }}
+          - 2FA: {{ truenas_global_2fa_enabled }}
+
+  tasks:
+    # ==================== System Configuration ====================
+    
+    - name: Set hostname
+      arensb.truenas.hostname:
+        name: "{{ truenas_hostname }}"
+
+    - name: Disable text console without password prompt
+      ansible.builtin.command:
+        cmd: >
+          midclt call system.advanced.update '{"consolemenu": false}'
+      changed_when: false
+      register: console_result
+      ignore_errors: yes
+
+    - name: Lock the built-in root account (root is always id=1)
+      ansible.builtin.command:
+        cmd: >
+          midclt call user.update 1 '{"locked": true}'
+      changed_when: false
+      register: root_lock_result
+      ignore_errors: yes
+
+    - name: Enable and start SSH service
+      arensb.truenas.service:
+        name: ssh
+        enabled: yes
+        state: started
+
+    # ==================== Admin User SSH Key Configuration ====================
+    
+    - name: Query admin user to get ID
+      ansible.builtin.command:
+        cmd: >
+          midclt call user.query
+          '[["username", "=", "{{ truenas_admin_username }}"]]'
+      register: admin_user_query
+      changed_when: false
+    
+    - name: Configure SSH key for admin account
+      ansible.builtin.command:
+        cmd: >
+          midclt call user.update {{ admin_user_query.stdout | from_json | first | json_query('id') }}
+          '{"sshpubkey": "{{ truenas_admin_ssh_pubkey }}\n"}'
+      when: (admin_user_query.stdout | from_json | length) > 0
+
+    # ==================== Localization Configuration ====================
+    
+    - name: Configure timezone, keyboard, and locales
+      ansible.builtin.command:
+        cmd: >
+          midclt call system.general.update 
+          '{ "timezone": "{{ truenas_timezone }}", "kbdmap": "{{ truenas_keyboard_layout }}" }'
+      changed_when: false
+      register: timezone_result
+      ignore_errors: yes
+
+    # ==================== DNS Configuration ====================
+    
+    - name: Configure DNS server to AD Domain Controller
+      ansible.builtin.command:
+        cmd: >
+          midclt call network.configuration.update
+          '{ "nameserver1": "{{ truenas_ad.truenas_ad_dc_ip }}", "nameserver2": "", "nameserver3": "" }'
+      changed_when: false
+      register: dns_result
+      ignore_errors: yes
+
+    # ==================== Security Configuration ====================
+    
+    - name: Enable global two-factor authentication
+      ansible.builtin.command:
+        cmd: >
+          midclt call auth.twofactor.update '{{ {"enabled": truenas_global_2fa_enabled | bool} | to_json }}'
+      changed_when: false
+      register: twofa_result
+      ignore_errors: yes
+
+    # ==================== Active Directory Configuration ====================
+
+    - name: Join Active Directory domain and enable LDAP
+      ansible.builtin.shell: >
+        midclt call directoryservices.update '{{ ad_payload | to_json }}'
+      args:
+        executable: /bin/zsh
+      vars:
+        ad_payload:
+          service_type: "ACTIVEDIRECTORY"
+          credential:
+            credential_type: "KERBEROS_USER"
+            username: "{{ truenas_ad.admin_username }}"
+            password: "{{ truenas_ad.admin_password }}"
+          enable: true
+          enable_account_cache: true
+          enable_dns_updates: true
+          timeout: 15
+          configuration:
+            hostname: "{{ truenas_hostname }}"
+            domain: "{{ truenas_ad.dns_domain }}"
+            idmap:
+              builtin:
+                name: null
+                range_high: 100000000
+                range_low: 90000001
+              idmap_domain:
+                idmap_backend: "RID"
+                name: "{{ truenas_ad.domain }}"
+                range_high: 2000000
+                range_low: 20000
+                sssd_compat: false
+      register: ad_join_result
+
+    - name: Update Active Directory Cache using midclt
+      ansible.builtin.command:
+        cmd: >
+          midclt call directoryservices.cache_refresh
+      changed_when: false
+      register: ad_cache_result
+      ignore_errors: yes
+
+  post_tasks:
+    - name: Display configuration results
+      debug:
+        msg: |
+          TrueNAS Configuration Complete
+          ================================
+          
+          System Configuration:
+          - Console disabled: {{ console_result is succeeded or console_result is skipped }}
+          - Root account locked: {{ root_lock_result is succeeded or root_lock_result is skipped }}
+          
+          Localization:
+          - Timezone configured: {{ timezone_result is succeeded or timezone_result is skipped }}
+          
+          Security:
+          - DNS configured to AD DC: {{ dns_result is succeeded or dns_result is skipped }}
+          - 2FA enabled: {{ twofa_result is succeeded or twofa_result is skipped }}
+          - SSH key configured: SSH key has been added to {{ truenas_admin_username }} account
+          
+          Active Directory:
+          - AD domain joined and LDAP enabled: {{ ad_join_result is succeeded or ad_join_result is skipped }}
+
+    - name: Configuration notes
+      debug:
+        msg: |
+          Important Notes:
+          1. After running this playbook, verify settings in the TrueNAS web UI
+          2. You may need to restart SMB service for IDMAP changes to take effect
+          3. LDAP authentication setup may require additional configuration in the web UI
+          4. For production use, test AD authentication before critical operations
