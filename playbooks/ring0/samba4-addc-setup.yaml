@@ -28,18 +28,23 @@
     - name: Validate required environment variables
       ansible.builtin.assert:
         that:
-          - lookup('env', 'SAMBA4_ADMIN_PASSWORD') != ""
+          - lookup('env', samba4_addc.admin_pwd_env) != ""
         fail_msg: |
-          Required environment variables are missing:
-          - SAMBA4_ADMIN_PASSWORD: Domain administrator password
+          Required environment variable is missing:
+          - {{ samba4_addc.admin_pwd_env }}: Domain administrator password
+    
+    - name: Set admin password from environment variable
+      ansible.builtin.set_fact:
+        samba4_admin_password: "{{ lookup('env', samba4_addc.admin_pwd_env) }}"
+      no_log: yes
     
     - name: Validate admin password complexity
       ansible.builtin.assert:
         that:
-          - samba4_addc.admin_password | length >= 8
-          - samba4_addc.admin_password | regex_search('[A-Z]')
-          - samba4_addc.admin_password | regex_search('[0-9]')
-          - samba4_addc.admin_password | regex_search('[!@#$%^&*()_+\-=\[\]{};:,.<>?]')
+          - samba4_admin_password | length >= 8
+          - samba4_admin_password | regex_search('[A-Z]')
+          - samba4_admin_password | regex_search('[0-9]')
+          - samba4_admin_password | regex_search('[!@#$%^&*()_+\-=\[\]{};:,.<>?]')
         fail_msg: |
           Password does not meet complexity requirements:
           - Minimum 8 characters
@@ -195,11 +200,12 @@
           --realm={{ samba4_addc.realm }} \
           --domain={{ samba4_addc.domain }} \
           --dns-backend={{ samba4_addc.dns_backend }} \
-          --adminpass='{{ samba4_addc.admin_password }}'
+          --adminpass='{{ samba4_admin_password }}'
       register: samba_provision_result
       when: not sam_ldb_stat.stat.exists
       failed_when: samba_provision_result.rc != 0
       changed_when: samba_provision_result.rc == 0
+      no_log: yes
     
     - name: Samba Provisioning -- Display provisioning output
       ansible.builtin.debug:
