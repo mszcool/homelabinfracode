@@ -7,6 +7,9 @@
 # - Environment variables required:
 #   - TRUENAS_ADMIN_PASSWORD: Active Directory admin password
 # 
+# IMPORTANT: SSH must be enabled on TrueNAS before running this playbook.
+# This playbook will NOT enable or modify SSH settings to prevent accidental lockout.
+#
 # Usage:
 #   ansible-playbook -i configs.private/ring0/truenas-scale-inventory.yaml playbooks/ring0/truenas-scale-fundamental-config.yaml
 #
@@ -50,12 +53,6 @@
       changed_when: false
       register: root_lock_result
       ignore_errors: yes
-
-    - name: Enable and start SSH service
-      arensb.truenas.service:
-        name: ssh
-        enabled: yes
-        state: started
 
     # ==================== Admin User SSH Key Configuration ====================
     
