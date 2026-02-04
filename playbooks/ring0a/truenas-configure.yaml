@@ -33,6 +33,42 @@
         truenas_pools: "{{ zpool_list.stdout_lines | default([]) }}"
 
   tasks:
+    # ==================== HDD Sleep/Standby Configuration ====================
+    # Configure HDD standby time for specified disks to save energy.
+    # Uses midclt directly since arensb.truenas collection doesn't support disk.update.
+    # Valid values: 'ALWAYS ON', '5', '10', '20', '30', '60', '120', '180', '240', '300', '330'
+    # Note: disk.update requires the disk identifier (e.g. {serial}XXX), not device name (sdb)
+    
+    - name: Query disk identifiers for HDD standby configuration
+      ansible.builtin.command:
+        cmd: >
+          midclt call disk.query
+          '[["devname", "=", "{{ item }}"]]'
+      loop: "{{ system_settings.hdd_sleep_scope | default([]) }}"
+      when: system_settings is defined and system_settings.hdd_sleep_scope is defined
+      register: disk_query_results
+      changed_when: false
+
+    - name: Configure HDD standby time for energy savings
+      ansible.builtin.shell: >
+        midclt call disk.update "{{ (item.stdout | from_json | first).identifier }}" '{{ hdd_payload | to_json }}'
+      args:
+        executable: /bin/zsh
+      vars:
+        hdd_payload:
+          hddstandby: "{{ system_settings.hdd_sleep | default(20) | string }}"
+      loop: "{{ disk_query_results.results | default([]) }}"
+      when:
+        - system_settings is defined
+        - system_settings.hdd_sleep_scope is defined
+        - item.stdout is defined
+        - (item.stdout | from_json | length) > 0
+      register: hdd_standby_result
+      changed_when: false
+      loop_control:
+        label: "{{ (item.stdout | from_json | first).devname | default('unknown') }} -> {{ system_settings.hdd_sleep | default(20) }} minutes"
+
+    # ==================== Dataset Configuration ====================
     - name: Create datasets (only when pool exists)
       vars:
         ds: "{{ item.value }}"
@@ -58,15 +94,21 @@
     # Note: The arensb.truenas.sharing_smb module has compatibility issues with
     # TrueNAS SCALE API. Only minimal parameters are used here.
     # Access control is enforced by filesystem ACLs on the datasets.
-    - name: Configure SMB shares
+    # Share configuration is embedded in dataset definitions.
+    # When smb.enabled=false, the share is removed (state: absent).
+    - name: Configure SMB shares from dataset definitions
+      vars:
+        ds: "{{ item.value }}"
+        smb_enabled: "{{ ds.smb.enabled | default(false) }}"
       arensb.truenas.sharing_smb:
         name: "{{ item.key }}"
-        path: "{{ item.value.path }}"
-        comment: "{{ item.value.description | default(omit) }}"
-        enabled: "{{ item.value.smb.enabled | default(true) }}"
-        browsable: "{{ item.value.smb.browsable | default(omit) }}"
-        state: present
-      loop: "{{ shares | dict2items if shares is defined else [] }}"
+        path: "/mnt/{{ ds.name }}"
+        comment: "{{ ds.description | default(omit) }}"
+        enabled: "{{ smb_enabled }}"
+        browsable: "{{ ds.smb.browsable | default(omit) }}"
+        state: "{{ 'present' if smb_enabled else 'absent' }}"
+      loop: "{{ datasets | dict2items if datasets is defined else [] }}"
+      when: "ds.smb is defined"
       loop_control:
         label: "{{ item.key }}"
 
@@ -79,18 +121,23 @@
         protocols: "{{ ['NFSv4'] if services.nfs.v4 | default(false) else omit }}"
       when: services is defined and services.nfs is defined
 
-    - name: Configure NFS shares
+    # NFS share configuration is embedded in dataset definitions.
+    # When nfs.enabled=false, the share is removed (state: absent).
+    - name: Configure NFS shares from dataset definitions
+      vars:
+        ds: "{{ item.value }}"
+        nfs_enabled: "{{ ds.nfs.enabled | default(false) }}"
       arensb.truenas.sharing_nfs:
         name: "{{ item.key }}"
-        path: "{{ item.value.path }}"
-        networks: "{{ item.value.nfs.allowed_networks | default(omit) }}"
-        readonly: "{{ item.value.nfs.read_only | default(omit) }}"
-        quiet: "{{ item.value.nfs.quiet | default(omit) }}"
-        alldirs: "{{ item.value.nfs.all_dirs | default(omit) }}"
-        options: "{{ item.value.nfs.options | default(omit) }}"
-        state: present
-      loop: "{{ shares | dict2items if shares is defined else [] }}"
-      when: "item.value.nfs is defined and item.value.nfs.enabled | default(false)"
+        path: "/mnt/{{ ds.name }}"
+        networks: "{{ ds.nfs.allowed_networks | default(omit) }}"
+        readonly: "{{ ds.nfs.read_only | default(omit) }}"
+        quiet: "{{ ds.nfs.quiet | default(omit) }}"
+        alldirs: "{{ ds.nfs.all_dirs | default(omit) }}"
+        options: "{{ ds.nfs.options | default(omit) }}"
+        state: "{{ 'present' if nfs_enabled else 'absent' }}"
+      loop: "{{ datasets | dict2items if datasets is defined else [] }}"
+      when: "ds.nfs is defined"
       loop_control:
         label: "{{ item.key }}"
 
