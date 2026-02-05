@@ -91,6 +91,19 @@
       loop_control:
         label: "{{ item.value.name }}"
 
+    # ==================== Dataset ACL Configuration ====================
+    # Apply NFSv4 ACLs to datasets for proper access control.
+    # Uses midclt directly since arensb.truenas collection doesn't support filesystem.setacl.
+    # ACL entries are built from acl_groups and acl_users in dataset definitions.
+    - name: Apply NFSv4 ACLs to datasets
+      ansible.builtin.include_tasks: tasks/truenas-apply-acl.yaml
+      loop: "{{ datasets | dict2items if datasets is defined else [] }}"
+      when:
+        - item.value.acl_type | default('') == 'NFSV4'
+        - (item.value.acl_groups | default([]) | length > 0) or (item.value.acl_users | default([]) | length > 0)
+      loop_control:
+        label: "{{ item.value.name }}"
+
     # Note: The arensb.truenas.sharing_smb module has compatibility issues with
     # TrueNAS SCALE API. Only minimal parameters are used here.
     # Access control is enforced by filesystem ACLs on the datasets.
