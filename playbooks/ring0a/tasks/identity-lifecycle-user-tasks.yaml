@@ -18,33 +18,37 @@
 
 - name: Create user if does not exist
   ansible.builtin.shell:
-    cmd: "samba-tool user create '{{ user.name }}' --userou='OU={{ ou.name }}' --random-password --given-name='{{ user.givenName }}' --surname='{{ user.surname }}' --display-name='{{ user.givenName }} {{ user.surname }}' --use-username-as-cn 2>&1; exit 0"
+    cmd: "samba-tool user create '{{ user.name }}' --userou='OU={{ ou.name }}' --random-password --given-name='{{ user.givenName }}' --surname='{{ user.surname }}' --use-username-as-cn "
   register: user_create_result
   when: user_exists_check.rc != 0
 
 - name: Set password on user creation if PWD env var is provided
   ansible.builtin.shell:
-    cmd: "samba-tool user setpassword '{{ user.name }}' --newpassword='{{ lookup('env', user.name + '_PWD') }}' 2>&1; exit 0"
+    cmd: "samba-tool user setpassword '{{ user.name }}' --newpassword='{{ lookup('env', user.name + '_PWD') }}' "
   when:
     - user_exists_check.rc != 0
     - lookup('env', user.name + '_PWD', default='') | length > 0
 
 - name: Update user name and surname details if exists
   ansible.builtin.shell:
-    cmd: "samba-tool user rename '{{ user.name }}' --given-name='{{ user.givenName }}' --surname='{{ user.surname }}' --display-name='{{ user.givenName }} {{ user.surname }}' 2>&1; exit 0"
+    cmd: "samba-tool user rename '{{ user.name }}' --given-name='{{ user.givenName }}' --surname='{{ user.surname }}' --display-name='{{ user.givenName }} {{ user.surname }}' "
   when: user_exists_check.rc == 0
 
 - name: Update password if user exists and PWD env var is provided
   ansible.builtin.shell:
-    cmd: "samba-tool user setpassword '{{ user.name }}' --newpassword='{{ lookup('env', user.name + '_PWD') }}' 2>&1; exit 0"
+    cmd: "samba-tool user setpassword '{{ user.name }}' --newpassword='{{ lookup('env', user.name + '_PWD') }}' "
   when:
     - user_exists_check.rc == 0
     - lookup('env', user.name + '_PWD', default='') | length > 0
 
 - name: Add user to each assigned group
   ansible.builtin.shell:
-    cmd: "samba-tool group addmembers '{{ group }}' '{{ user.name }}' 2>&1; exit 0"
+    cmd: "samba-tool group addmembers '{{ group }}' '{{ user.name }}' "
   loop: "{{ user.memberships }}"
   loop_control:
     loop_var: group
   register: group_membership_result
+  failed_when:
+    - group_membership_result.rc != 0
+    - "'Attribute member already exists' not in group_membership_result.stderr"
+  changed_when: group_membership_result.rc == 0
