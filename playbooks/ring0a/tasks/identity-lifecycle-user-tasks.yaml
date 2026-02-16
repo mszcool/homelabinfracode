@@ -18,7 +18,7 @@
 
 - name: Create user if does not exist
   ansible.builtin.shell:
-    cmd: "samba-tool user create '{{ user.name }}' --userou='OU={{ ou.name }}' --random-password --given-name='{{ user.givenName }}' --surname='{{ user.surname }} --display-name='{{ user.givenName }} {{ user.surname }}' --use-username-as-cn 2>&1; exit 0"
+    cmd: "samba-tool user create '{{ user.name }}' --userou='OU={{ ou.name }}' --random-password --given-name='{{ user.givenName }}' --surname='{{ user.surname }}' --display-name='{{ user.givenName }} {{ user.surname }}' --use-username-as-cn 2>&1; exit 0"
   register: user_create_result
   when: user_exists_check.rc != 0
 

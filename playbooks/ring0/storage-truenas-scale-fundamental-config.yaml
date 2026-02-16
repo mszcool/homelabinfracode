@@ -4,8 +4,6 @@
 # 
 # Notes:
 # - Requires the arensb.truenas Ansible collection
-# - Environment variables required:
-#   - TRUENAS_ADMIN_PASSWORD: Active Directory admin password
 # 
 # IMPORTANT: SSH must be enabled on TrueNAS before running this playbook.
 # This playbook will NOT enable or modify SSH settings to prevent accidental lockout.

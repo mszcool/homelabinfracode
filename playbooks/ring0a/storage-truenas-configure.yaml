@@ -96,7 +96,7 @@
     # Uses midclt directly since arensb.truenas collection doesn't support filesystem.setacl.
     # ACL entries are built from acl_groups and acl_users in dataset definitions.
     - name: Apply NFSv4 ACLs to datasets
-      ansible.builtin.include_tasks: tasks/truenas-apply-acl.yaml
+      ansible.builtin.include_tasks: tasks/storage-truenas-configure-apply-acl.yaml
       loop: "{{ datasets | dict2items if datasets is defined else [] }}"
       when:
         - item.value.acl_type | default('') == 'NFSV4'

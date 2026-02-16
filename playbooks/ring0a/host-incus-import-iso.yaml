@@ -94,7 +94,7 @@
 
     - name: Import ISOs to Incus host
       ansible.builtin.include_tasks:
-        file: tasks/import-iso.yaml
+        file: tasks/host-incus-import-iso-tasks.yaml
       vars:
         iso: "{{ item }}"
         incus_remote_name: "{{ host_incus_remote_name }}"
