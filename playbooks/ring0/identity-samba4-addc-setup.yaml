@@ -1,0 +1,449 @@
+---
+# Samba 4 Active Directory Domain Controller Setup
+#
+# This playbook automates the complete setup of a Samba 4 based Active Directory Domain Controller.
+#
+# Prerequisites:
+#   - Ubuntu 24.04 LTS installed on the target host
+#   - Static IP address configured via router DHCP reservation (MAC: 00:16:3e:11:00:10)
+#   - SSH access to the target host
+#
+# Required environment variables:
+#   SAMBA4_ADMIN_PASSWORD: Domain administrator password (min 8 chars, must include uppercase, number, special)
+#
+# Usage:
+#   # Set environment variables
+#   export SAMBA4_ADMIN_PASSWORD="YourPassword123!"
+#
+#   # Run the playbook
+#   ansible-playbook -i configs.private/ring0/samba4-addc-inventory.yaml \
+#                    playbooks/ring0/samba4-addc-setup.yaml
+
+- name: Setup Samba 4 Active Directory Domain Controller
+  hosts: samba4-addc
+  become: true
+  gather_facts: true
+  
+  pre_tasks:
+    - name: Validate required environment variables
+      ansible.builtin.assert:
+        that:
+          - lookup('env', samba4_addc.admin_pwd_env) != ""
+        fail_msg: |
+          Required environment variable is missing:
+          - {{ samba4_addc.admin_pwd_env }}: Domain administrator password
+    
+    - name: Set admin password from environment variable
+      ansible.builtin.set_fact:
+        samba4_admin_password: "{{ lookup('env', samba4_addc.admin_pwd_env) }}"
+      no_log: yes
+    
+    - name: Validate admin password complexity
+      ansible.builtin.assert:
+        that:
+          - samba4_admin_password | length >= 8
+          - samba4_admin_password | regex_search('[A-Z]')
+          - samba4_admin_password | regex_search('[0-9]')
+          - samba4_admin_password | regex_search('[!@#$%^&*()_+\-=\[\]{};:,.<>?]')
+        fail_msg: |
+          Password does not meet complexity requirements:
+          - Minimum 8 characters
+          - At least one uppercase letter
+          - At least one number
+          - At least one special character (!@#$%^&*()_+-=[]{}; etc.)
+    
+    - name: Display configuration summary
+      ansible.builtin.debug:
+        msg: |
+          Samba 4 AD DC Configuration:
+          - Hostname: {{ hostname }}.{{ domain_name }}
+          - Realm: {{ samba4_addc.realm }}
+          - Domain: {{ samba4_addc.domain }}
+          - DNS Domain: {{ samba4_addc.dns_domain }}
+          - IP Address: {{ samba4_addc.ip_address }}
+          - DNS Backend: {{ samba4_addc.dns_backend }}
+          - NTP Enabled: {{ samba4_addc.enable_ntp }}
+
+  tasks:
+    # ============================================================================
+    # STEP 1: System Preparation
+    # ============================================================================
+    
+    - name: System Preparation -- Set timezone
+      community.general.timezone:
+        name: "{{ samba4_addc.timezone }}"
+    
+    - name: System Preparation -- Update system packages
+      ansible.builtin.apt:
+        update_cache: true
+        cache_valid_time: 3600
+        upgrade: full
+    
+    - name: System Preparation -- Set hostname
+      ansible.builtin.hostname:
+        name: "{{ hostname }}"
+        use: systemd
+    
+    - name: System Preparation -- Update /etc/hosts with FQDN
+      ansible.builtin.lineinfile:
+        path: /etc/hosts
+        regexp: '^127\.0\.0\.1\s+localhost'
+        line: |
+          127.0.0.1       localhost
+          {{ samba4_addc.ip_address }}  {{ hostname }}.{{ samba4_addc.dns_domain }}  {{ hostname }}
+        create: true
+        state: present
+    
+    - name: System Preparation -- Install required packages
+      ansible.builtin.apt:
+        name: "{{ samba4_packages }}"
+        state: present
+    
+    - name: System Preparation -- Disable individual Samba services to prevent conflicts
+      block:
+        - name: Disable smbd and nmbd services
+          ansible.builtin.systemd:
+            name: "{{ item }}"
+            enabled: false
+            state: stopped
+          loop:
+            - smbd
+            - nmbd
+            - winbind
+          ignore_errors: true
+        
+        - name: Mask smbd and nmbd services to prevent re-enablement
+          ansible.builtin.systemd:
+            name: "{{ item }}"
+            masked: true
+          loop:
+            - smbd
+            - nmbd
+            - winbind
+          ignore_errors: true
+    
+    - name: System Preparation -- Configure time synchronization with NTP
+      block:
+        - name: Stop timedatectl if running
+          ansible.builtin.systemd:
+            name: systemd-timesyncd
+            state: stopped
+            enabled: false
+          ignore_errors: true
+        
+        - name: Install and configure NTP
+          ansible.builtin.blockinfile:
+            path: /etc/ntp.conf
+            block: |
+              # NTP Configuration for Samba 4 AD DC
+              # Kerberos requires precise time synchronization
+              
+              # Google and Cloudflare NTP servers
+              {% for server in samba4_addc.ntp_servers %}
+              server {{ server }} iburst
+              {% endfor %}
+              
+              # Allow local clock
+              fudge 127.127.1.0 stratum 10
+              
+              # Restrict access
+              restrict default kod limited nomodify notrap nopeer noquery
+              restrict -6 default kod limited nomodify notrap nopeer noquery
+              restrict 127.0.0.1
+              restrict -6 ::1
+            insertafter: "EOF"
+            create: true
+        
+        - name: Enable and start NTP service
+          ansible.builtin.systemd:
+            name: ntp
+            state: started
+            enabled: true
+      when: samba4_addc.enable_ntp
+    
+    # ============================================================================
+    # STEP 2: Pre-provisioning Cleanup (only if not already provisioned)
+    # ============================================================================
+    
+    - name: Check if Samba is already provisioned
+      ansible.builtin.stat:
+        path: /var/lib/samba/private/sam.ldb
+      register: sam_ldb_stat
+    
+    - name: Pre-provisioning Cleanup -- Remove old Samba configuration files
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - "/etc/samba/smb.conf"
+        - "/etc/samba/smb.conf.initial"
+        - "/etc/samba/smb.conf.bak"
+      when: not sam_ldb_stat.stat.exists
+    
+    - name: Pre-provisioning Cleanup -- Create samba private directory if needed
+      ansible.builtin.file:
+        path: "{{ samba_paths.private_dir }}"
+        state: directory
+        mode: '0700'
+        owner: root
+        group: root
+    
+    # ============================================================================
+    # STEP 3: Samba AD Provisioning
+    # ============================================================================
+    
+    - name: Samba Provisioning -- Provision Samba AD DC
+      ansible.builtin.shell: |
+        samba-tool domain provision \
+          --server-role={{ samba4_addc.server_role }} \
+          --use-rfc2307 \
+          --realm={{ samba4_addc.realm }} \
+          --domain={{ samba4_addc.domain }} \
+          --dns-backend={{ samba4_addc.dns_backend }} \
+          --adminpass='{{ samba4_admin_password }}'
+      register: samba_provision_result
+      when: not sam_ldb_stat.stat.exists
+      failed_when: samba_provision_result.rc != 0
+      changed_when: samba_provision_result.rc == 0
+      no_log: yes
+    
+    - name: Samba Provisioning -- Display provisioning output
+      ansible.builtin.debug:
+        msg: "Samba AD provisioning completed successfully"
+      when: 
+        - not sam_ldb_stat.stat.exists
+        - samba_provision_result.rc == 0
+    
+    - name: Samba Provisioning -- Confirm already provisioned
+      ansible.builtin.debug:
+        msg: "Samba AD already provisioned, skipping provisioning step"
+      when: sam_ldb_stat.stat.exists
+    
+    # ============================================================================
+    # STEP 4: Post-provisioning Configuration
+    # ============================================================================
+    
+    - name: Stop any running Samba processes
+      block:
+        - name: Kill any running samba processes
+          ansible.builtin.shell: |
+            pkill -9 samba || true
+          changed_when: false
+        
+        - name: Wait for Samba processes to terminate
+          ansible.builtin.wait_for:
+            timeout: 2
+          changed_when: false
+    
+    - name: Post-provisioning -- Copy Kerberos configuration
+      ansible.builtin.copy:
+        src: /var/lib/samba/private/krb5.conf
+        dest: /etc/krb5.conf
+        remote_src: true
+        backup: true
+        mode: '0644'
+        owner: root
+        group: root
+      when: not sam_ldb_stat.stat.exists
+    
+    - name: Post-provisioning -- Ensure krb5.conf has correct permissions
+      ansible.builtin.file:
+        path: /etc/krb5.conf
+        mode: '0644'
+        owner: root
+        group: root
+      when: not sam_ldb_stat.stat.exists
+    
+    - name: Post-provisioning -- Configure DNS resolver
+      block:
+        - name: Backup original resolv.conf
+          ansible.builtin.copy:
+            src: /etc/resolv.conf
+            dest: /etc/resolv.conf.bak
+            remote_src: true
+            backup: true
+          ignore_errors: true
+        
+        - name: Configure resolv.conf to use local DNS
+          ansible.builtin.copy:
+            content: |
+              # Samba 4 AD DC DNS Configuration
+              # The DC uses itself as the primary DNS resolver
+              search {{ samba4_addc.dns_domain }}
+              nameserver 127.0.0.1
+            dest: /etc/resolv.conf
+            mode: '0644'
+            owner: root
+            group: root
+        
+        - name: Prevent systemd-resolved from overwriting resolv.conf
+          ansible.builtin.lineinfile:
+            path: /etc/systemd/resolved.conf
+            regexp: '^#?DNS='
+            line: 'DNS=127.0.0.1'
+            create: true
+      when: configure_resolver
+    
+    - name: Post-provisioning -- Configure Samba smb.conf for DNS forwarders
+      block:
+        - name: Check if smb.conf exists
+          ansible.builtin.stat:
+            path: /etc/samba/smb.conf
+          register: smb_conf_stat
+        
+        - name: Remove any existing dns forwarder lines to avoid duplicates
+          ansible.builtin.lineinfile:
+            path: /etc/samba/smb.conf
+            regexp: '^\s*dns forwarder\s*='
+            state: absent
+          when: smb_conf_stat.stat.exists
+          register: dns_forwarder_removed
+        
+        - name: Add DNS forwarder configuration to smb.conf
+          ansible.builtin.lineinfile:
+            path: /etc/samba/smb.conf
+            insertafter: '\[global\]'
+            line: "dns forwarder = {{ samba4_addc.dns_forwarders | join(' ') }}"
+            state: present
+          when: smb_conf_stat.stat.exists
+          register: dns_forwarder_added
+      when: samba4_addc.dns_forwarders | length > 0
+    
+    # ============================================================================
+    # STEP 5: Service Configuration
+    # ============================================================================
+    
+    - name: Service Configuration -- Disable systemd-resolved before starting Samba
+      block:
+        - name: Stop systemd-resolved service
+          ansible.builtin.systemd:
+            name: systemd-resolved
+            state: stopped
+          ignore_errors: true
+        
+        - name: Disable systemd-resolved to prevent auto-start
+          ansible.builtin.systemd:
+            name: systemd-resolved
+            enabled: false
+          ignore_errors: true
+    
+    - name: Service Configuration -- Configure systemd service for Samba
+      block:
+        - name: Create Samba systemd service unit file
+          ansible.builtin.copy:
+            content: |
+              [Unit]
+              Description=Samba Active Directory Domain Controller
+              After=network-online.target
+              Wants=network-online.target
+              
+              [Service]
+              Type=notify
+              NotifyAccess=all
+              ExecStart=/usr/sbin/samba --foreground --no-process-group
+              ExecReload=/bin/kill -HUP $MAINPID
+              Restart=on-failure
+              RestartSec=10
+              StandardOutput=journal
+              StandardError=journal
+              
+              [Install]
+              WantedBy=multi-user.target
+            dest: /etc/systemd/system/samba.service
+            mode: '0644'
+          register: samba_service_updated
+        
+        - name: Reload systemd daemon
+          ansible.builtin.systemd:
+            daemon_reload: true
+          when: samba_service_updated.changed
+    
+    - name: Service Configuration -- Enable and start Samba service
+      ansible.builtin.systemd:
+        name: samba
+        enabled: true
+        state: started
+        daemon_reload: true
+      register: samba_service_start
+      failed_when:
+        - samba_service_start.failed
+        - "'already exists' not in samba_service_start.msg | default('')"
+    
+    # ============================================================================
+    # STEP 6: DNS Verification (Optional)
+    # ============================================================================
+    
+    - name: DNS Verification -- Wait for DNS to be ready
+      ansible.builtin.wait_for:
+        timeout: 10
+      changed_when: false
+    
+    - name: DNS Verification -- Test DNS resolution
+      ansible.builtin.shell: |
+        host -t SRV _ldap._tcp.{{ samba4_addc.dns_domain }}.
+      register: dns_ldap_test
+      failed_when: dns_ldap_test.rc not in [0, 1]
+      changed_when: false
+      retries: 5
+      delay: 5
+    
+    - name: DNS Verification -- Display DNS test results
+      ansible.builtin.debug:
+        msg: |
+          DNS SRV Records:
+          {{ dns_ldap_test.stdout }}
+  handlers: []
+  post_tasks:
+    - name: Display summary and next steps
+      ansible.builtin.debug:
+        msg: |
+          ============================================================================
+          Samba 4 Active Directory Domain Controller Setup Complete!
+          ============================================================================
+          
+          Deployment Summary:
+          - Hostname: {{ hostname }}.{{ samba4_addc.dns_domain }}
+          - Realm: {{ samba4_addc.realm }}
+          - DNS Domain: {{ samba4_addc.dns_domain }}
+          - IP Address: {{ samba4_addc.ip_address }}
+          - Administrator Account: Administrator
+          
+          Next Steps:
+          
+          1. VERIFY DNS CONFIGURATION:
+             host -t A {{ hostname }}.{{ samba4_addc.dns_domain }}
+             host -t SRV _ldap._tcp.{{ samba4_addc.dns_domain }}.
+             host -t SRV _kerberos._udp.{{ samba4_addc.dns_domain }}.
+          
+          2. TEST KERBEROS AUTHENTICATION:
+             kinit administrator
+             klist
+          
+          3. VERIFY SAMBA SERVICE:
+             systemctl status samba
+             smbclient -L localhost -N
+             samba-tool dns query 127.0.0.1 {{ samba4_addc.dns_domain }} _ldap._tcp SRV -U Administrator
+          
+          4. CONFIGURE DOMAIN MEMBERS:
+             - Set the AD DC's IP ({{ samba4_addc.ip_address }}) as the DNS server
+             - Join domain members with: samba-tool domain join --help
+          
+          5. (OPTIONAL) CREATE REVERSE DNS ZONE:
+             samba-tool dns zonecreate {{ samba4_addc.ip_address }} <reverse-zone> -U Administrator
+             
+             Example for 10.0.0.0/24 network:
+             samba-tool dns zonecreate {{ samba4_addc.ip_address }} 0.0.10.in-addr.arpa -U Administrator
+          
+          6. (OPTIONAL) ENABLE GROUP POLICY:
+             Edit /etc/samba/smb.conf and add:
+             [global]
+             group policy control = yes
+          
+          SECURITY REMINDERS:
+          - Change the Administrator password immediately
+          - Set strong password policies
+          - Configure firewall rules to restrict AD access
+          - Backup the SYSVOL and AD database regularly
+          - Monitor samba logs in /var/log/samba/
+          
+          ============================================================================

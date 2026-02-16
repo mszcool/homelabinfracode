@@ -7,3 +7,5 @@ collections:
     version: 0.6.1
   - name: ansible.netcommon
     version: 7.1.0
+  - name: arensb.truenas
+    version: ">=0.1.0"

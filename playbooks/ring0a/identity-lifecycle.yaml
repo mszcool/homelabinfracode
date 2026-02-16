@@ -1,0 +1,237 @@
+---
+# Identity Lifecycle Management Playbook
+# Manages groups, organizational units, and users on Samba4 ADDC
+# Ensures inventory state matches actual Samba4 ADDC state
+
+- name: Manage identity objects on Samba4 ADDC
+  hosts: identityprovider
+  become: yes
+  gather_facts: yes
+
+  vars:
+    # List of built-in groups that should never be deleted
+    builtin_groups:
+      - "Server Operators"
+      - "Read-only Domain Controllers"
+      - "Domain Computers"
+      - "Users"
+      - "DnsUpdateProxy"
+      - "Domain Controllers"
+      - "Account Operators"
+      - "Group Policy Creator Owners"
+      - "Remote Desktop Users"
+      - "Replicator"
+      - "Distributed COM Users"
+      - "Network Configuration Operators"
+      - "Protected Users"
+      - "Domain Guests"
+      - "Performance Monitor Users"
+      - "Domain Admins"
+      - "Schema Admins"
+      - "Allowed RODC Password Replication Group"
+      - "IIS_IUSRS"
+      - "Administrators"
+      - "Domain Users"
+      - "Windows Authorization Access Group"
+      - "Event Log Readers"
+      - "Cert Publishers"
+      - "Terminal Server License Servers"
+      - "DnsAdmins"
+      - "Cryptographic Operators"
+      - "Pre-Windows 2000 Compatible Access"
+      - "Performance Log Users"
+      - "Enterprise Admins"
+      - "Enterprise Read-only Domain Controllers"
+      - "RAS and IAS Servers"
+      - "Guests"
+      - "Denied RODC Password Replication Group"
+      - "Certificate Service DCOM Access"
+      - "Backup Operators"
+      - "Incoming Forest Trust Builders"
+      - "Print Operators"
+    # List of built-in OUs that should never be deleted
+    builtin_ous:
+      - "Domain Controllers"
+    # List of built-in users that should never be deleted
+    builtin_users:
+      - "Administrator"
+      - "Guest"
+      - "krbtgt"
+
+  tasks:
+    # ========================================================================
+    # GROUP MANAGEMENT
+    # ========================================================================
+
+    - name: Get existing groups from Samba4
+      ansible.builtin.command:
+        cmd: "samba-tool group list"
+      register: samba_existing_groups
+      changed_when: false
+      failed_when: false
+
+    - name: Parse existing groups
+      ansible.builtin.set_fact:
+        existing_groups: "{{ samba_existing_groups.stdout_lines | default([]) }}"
+
+    - name: Create identity groups
+      ansible.builtin.command:
+        cmd: "samba-tool group add '{{ item.name }}' --description='{{ item.description }}'"
+      loop: "{{ identity_groups }}"
+      register: group_creation_result
+      failed_when:
+        - group_creation_result.rc != 0
+        - "'already exists' not in group_creation_result.stderr"
+      changed_when:
+        - group_creation_result.rc == 0
+
+    # ========================================================================
+    # ORGANIZATIONAL UNIT MANAGEMENT
+    # ========================================================================
+
+    - name: Get existing organizational units
+      ansible.builtin.command:
+        cmd: "samba-tool ou list"
+      register: samba_existing_ous
+      changed_when: false
+      failed_when: false
+
+    - name: Parse existing OUs
+      ansible.builtin.set_fact:
+        existing_ous: "{{ samba_existing_ous.stdout_lines | default([]) | map('regex_replace', '^OU=', '') | list }}"
+
+    - name: Create organizational units
+      ansible.builtin.command:
+        cmd: "samba-tool ou create 'OU={{ item.name }}' --description='{{ item.description }}'"
+      loop: "{{ identity_organizational_units }}"
+      register: ou_creation_result
+      failed_when:
+        - ou_creation_result.rc != 0
+        - "'already exists' not in ou_creation_result.stderr"
+      changed_when:
+        - ou_creation_result.rc == 0
+
+    # ========================================================================
+    # USER MANAGEMENT
+    # ========================================================================
+
+    - name: Get existing users from Samba4
+      ansible.builtin.command:
+        cmd: "samba-tool user list"
+      register: samba_existing_users
+      changed_when: false
+      failed_when: false
+
+    - name: Parse existing users
+      ansible.builtin.set_fact:
+        existing_users: "{{ samba_existing_users.stdout_lines | default([]) }}"
+
+    - name: Flatten users list for processing
+      ansible.builtin.set_fact:
+        all_inventory_users: "{{ query('subelements', identity_organizational_units, 'users') }}"
+
+    - name: Process each user for creation, updates, and group membership
+      ansible.builtin.include_tasks:
+        file: tasks/identity-lifecycle-user-tasks.yaml
+      loop: "{{ all_inventory_users }}"
+      loop_control:
+        loop_var: ou_user_pair
+      vars:
+        user: "{{ ou_user_pair[1] }}"
+
+    # ========================================================================
+    # DELETION OPERATIONS (consolidated at end for better visibility)
+    # ========================================================================
+
+    - name: Delete groups not in inventory
+      block:
+        - name: Identify groups to be deleted
+          ansible.builtin.set_fact:
+            groups_to_delete: "{{ existing_groups | difference(identity_groups | map(attribute='name') | list + builtin_groups) }}"
+
+        - name: Display groups that would be deleted
+          ansible.builtin.debug:
+            msg: "The following groups would be deleted (not in inventory): {{ groups_to_delete }}"
+
+        - name: Delete groups not in inventory (only if delete_confirmed is true)
+          ansible.builtin.command:
+            cmd: "samba-tool group delete '{{ item }}'"
+          loop: "{{ groups_to_delete }}"
+          register: group_deletion_result
+          failed_when:
+            - group_deletion_result.rc != 0
+            - "'does not exist' not in group_deletion_result.stderr"
+          changed_when:
+            - group_deletion_result.rc == 0
+          when: delete_confirmed | default(false) | bool
+
+        - name: Warn user if delete_confirmed not set
+          ansible.builtin.debug:
+            msg: "WARNING: Group deletion is disabled by default. To actually delete groups, run with: -e delete_confirmed=true"
+          when: not (delete_confirmed | default(false) | bool) and groups_to_delete | length > 0
+
+    - name: Delete users not in inventory
+      block:
+        - name: Identify users to be deleted
+          ansible.builtin.set_fact:
+            users_to_delete: "{{ existing_users | difference(query('subelements', identity_organizational_units, 'users') | map(attribute='1.name') | list + builtin_users) }}"
+
+        - name: Display users that would be deleted
+          ansible.builtin.debug:
+            msg: "The following users would be deleted (not in inventory): {{ users_to_delete }}"
+
+        - name: Delete users not in inventory (only if delete_confirmed is true)
+          ansible.builtin.command:
+            cmd: "samba-tool user delete '{{ item }}'"
+          loop: "{{ users_to_delete }}"
+          register: user_deletion_result
+          failed_when:
+            - user_deletion_result.rc != 0
+            - "'does not exist' not in user_deletion_result.stderr"
+          changed_when:
+            - user_deletion_result.rc == 0
+          when: delete_confirmed | default(false) | bool
+
+        - name: Warn user if delete_confirmed not set
+          ansible.builtin.debug:
+            msg: "WARNING: User deletion is disabled by default. To actually delete users, run with: -e delete_confirmed=true"
+          when: not (delete_confirmed | default(false) | bool) and users_to_delete | length > 0
+
+    - name: Delete OUs not in inventory
+      block:
+        - name: Identify OUs to be deleted
+          ansible.builtin.set_fact:
+            ous_to_delete: "{{ existing_ous | difference(identity_organizational_units | map(attribute='name') | list + builtin_ous) }}"
+
+        - name: Display OUs that would be deleted
+          ansible.builtin.debug:
+            msg: "The following OUs would be deleted (not in inventory): {{ ous_to_delete }}"
+
+        - name: Delete OUs not in inventory (only if delete_confirmed is true)
+          ansible.builtin.command:
+            cmd: "samba-tool ou delete 'OU={{ item }}'"
+          loop: "{{ ous_to_delete }}"
+          register: ou_deletion_result
+          failed_when:
+            - ou_deletion_result.rc != 0
+            - "'does not exist' not in ou_deletion_result.stderr"
+          changed_when:
+            - ou_deletion_result.rc == 0
+          when: delete_confirmed | default(false) | bool
+
+        - name: Warn user if delete_confirmed not set
+          ansible.builtin.debug:
+            msg: "WARNING: OU deletion is disabled by default. To actually delete OUs, run with: -e delete_confirmed=true"
+          when: not (delete_confirmed | default(false) | bool) and ous_to_delete | length > 0
+
+    # ========================================================================
+    # SUMMARY
+    # ========================================================================
+
+    - name: Display summary
+      ansible.builtin.debug:
+        msg:
+          - "Identity lifecycle management completed"
+          - "Groups managed: {{ identity_groups | length }}"
+          - "Organizational Units managed: {{ identity_organizational_units | length }}"
+          - "Users managed: {{ query('subelements', identity_organizational_units, 'users') | length }}"

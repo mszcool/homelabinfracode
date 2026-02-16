@@ -1,0 +1,94 @@
+---
+# Task file: truenas-apply-acl.yaml
+# Apply NFSv4 ACLs to a TrueNAS dataset using midclt filesystem.setacl
+# This is called from truenas-configure.yaml with a dataset item
+
+- name: Build ACL entries for groups
+  ansible.builtin.set_fact:
+    acl_group_entries: >-
+      {%- set entries = [] -%}
+      {%- for grp in item.value.acl_groups | default([]) -%}
+        {%- set perms = {} -%}
+        {%- if grp.read | default(false) -%}
+          {%- set _ = perms.update({'READ_DATA': true, 'READ_ATTRIBUTES': true, 'READ_NAMED_ATTRS': true, 'READ_ACL': true}) -%}
+        {%- endif -%}
+        {%- if grp.write | default(false) -%}
+          {%- set _ = perms.update({'WRITE_DATA': true, 'APPEND_DATA': true, 'WRITE_ATTRIBUTES': true, 'WRITE_NAMED_ATTRS': true, 'DELETE': true, 'DELETE_CHILD': true}) -%}
+        {%- endif -%}
+        {%- if grp.execute | default(false) -%}
+          {%- set _ = perms.update({'EXECUTE': true}) -%}
+        {%- endif -%}
+        {%- set _ = entries.append({
+          'tag': 'GROUP',
+          'who': grp.name,
+          'perms': perms,
+          'flags': {'FILE_INHERIT': true, 'DIRECTORY_INHERIT': true},
+          'type': 'ALLOW'
+        }) -%}
+      {%- endfor -%}
+      {{ entries }}
+
+- name: Build ACL entries for users
+  ansible.builtin.set_fact:
+    acl_user_entries: >-
+      {%- set entries = [] -%}
+      {%- for usr in item.value.acl_users | default([]) -%}
+        {%- set perms = {} -%}
+        {%- if usr.read | default(false) -%}
+          {%- set _ = perms.update({'READ_DATA': true, 'READ_ATTRIBUTES': true, 'READ_NAMED_ATTRS': true, 'READ_ACL': true}) -%}
+        {%- endif -%}
+        {%- if usr.write | default(false) -%}
+          {%- set _ = perms.update({'WRITE_DATA': true, 'APPEND_DATA': true, 'WRITE_ATTRIBUTES': true, 'WRITE_NAMED_ATTRS': true, 'DELETE': true, 'DELETE_CHILD': true}) -%}
+        {%- endif -%}
+        {%- if usr.execute | default(false) -%}
+          {%- set _ = perms.update({'EXECUTE': true}) -%}
+        {%- endif -%}
+        {%- set _ = entries.append({
+          'tag': 'USER',
+          'who': usr.name,
+          'perms': perms,
+          'flags': {'FILE_INHERIT': true, 'DIRECTORY_INHERIT': true},
+          'type': 'ALLOW'
+        }) -%}
+      {%- endfor -%}
+      {{ entries }}
+
+- name: Combine ACL entries
+  ansible.builtin.set_fact:
+    combined_acl_entries: "{{ acl_group_entries + acl_user_entries }}"
+
+- name: Debug ACL payload
+  ansible.builtin.debug:
+    msg:
+      path: "/mnt/{{ item.value.name }}"
+      dacl: "{{ combined_acl_entries }}"
+      acltype: "NFS4"
+
+- name: Build filesystem.setacl payload
+  ansible.builtin.set_fact:
+    acl_payload:
+      path: "/mnt/{{ item.value.name }}"
+      dacl: "{{ combined_acl_entries }}"
+      acltype: "NFS4"
+      options:
+        recursive: false
+        traverse: false
+
+- name: Apply ACL via midclt (wait for job completion)
+  ansible.builtin.shell: |
+    midclt call -j filesystem.setacl '{{ acl_payload | to_json }}' 2>&1
+  args:
+    executable: /bin/zsh
+  register: acl_apply_result
+  changed_when: acl_apply_result.rc == 0
+  failed_when: acl_apply_result.rc != 0
+
+- name: Show ACL apply result
+  ansible.builtin.debug:
+    msg: "ACL result for {{ item.value.name }}: {{ acl_apply_result.stdout }}"
+  when: acl_apply_result.stdout is defined
+
+- name: Fail if ACL application had errors
+  ansible.builtin.fail:
+    msg: "Failed to apply ACL to {{ item.value.name }}: {{ acl_apply_result.stderr | default(acl_apply_result.stdout) }}"
+  when: acl_apply_result.rc != 0
