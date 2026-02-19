@@ -1,0 +1,32 @@
+---
+# Test environment overrides for identity management
+#
+# Hosts are defined in hosts.yaml (identityprovider, securitytokenservice groups)
+
+# ---------- Environment seed variables ----------
+# localdomain: provided by common-seeds.yaml
+identity_admin_user: "testidmaster"
+
+# Organizational Unit definitions with users (test - minimal set)
+identity_organizational_units:
+  - name: "familycore"
+    description: "Core family members"
+    users:
+      - name: "testuser1"
+        givenName: "Test"
+        surname: "User1"
+        memberships:
+          - "Parents"
+          - "Family"
+      - name: "testuser2"
+        givenName: "Test"
+        surname: "User2"
+        memberships:
+          - "Kids"
+          - "Family"
+  - name: "familyextended"
+    description: "Extended family members"
+    users: []
+  - name: "guests"
+    description: "Guest accounts"
+    users: []

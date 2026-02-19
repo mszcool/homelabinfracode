@@ -1,0 +1,141 @@
+---
+# Base (shared) constants for Samba4 AD DC
+#
+# Environment-specific seeds are provided by:
+#   <env>/group_vars/identityprovider/identity-samba4-addc.yaml
+#   (e.g., configs/envtest/inventory/ or configs.private/envprod/inventory/)
+#
+# Required seed variables:
+#   From common-seeds.yaml:
+#     localdomain:              Local domain name (e.g., mszlocal)
+#     ad_domain_short:          Short AD domain name (e.g., MSZ)
+#     ip_plan:                  Centralized IP plan with ranges, hosts, subnet, DHCP, DNS
+#     samba4_addc_ip:           Alias for ip_plan.hosts.samba4_addc
+#     routerAndPrimaryGatewayIp: Alias for ip_plan.hosts.router
+#     external_dns_servers:     Alias for ip_plan.external_dns_servers
+#   From identity-samba4-addc.yaml:
+#     samba4_addc_netmask:      Network mask (e.g., 255.255.255.0)
+#     samba4_addc_gateway:      Derived from routerAndPrimaryGatewayIp
+#     samba4_admin_user:        SSH user for the AD DC host (e.g., mszidmaster)
+#     samba4_primary_interface: Network interface name (e.g., enp5s0)
+
+# ---------- Shared constants ----------
+
+# Package dependencies for Samba 4 AD DC (Runtime only)
+# Based on official Samba wiki OS-independent list:
+# https://wiki.samba.org/index.php/Package_Dependencies_Required_to_Build_Samba
+samba4_packages:
+  # Core Samba packages
+  - "samba"
+  - "samba-dsdb-modules"
+  - "samba-vfs-modules"
+  - "winbind"
+
+  # Mandatory packages
+  - "python3"
+  - "perl"
+  - "libparse-yapp-perl"
+  - "acl"
+  - "attr"
+  - "libgnutls30"
+  - "zlib1g"
+
+  # Optional packages for AD DC
+  - "libkrb5-3"
+  - "krb5-user"
+  - "krb5-admin-server"
+  - "krb5-kdc"
+  - "libblkid1"
+  - "dbus"
+  - "libjansson4"
+  - "libreadline8"
+  - "libbsd0"
+  - "xsltproc"
+  - "libpam0g"
+  - "cups"
+  - "python3-markdown"
+  - "patch"
+  - "libgpgme11"
+  - "python3-gpg"
+  - "flex"
+
+  # DNS and utilities
+  - "dnsutils"
+
+  # Time synchronization (required for Kerberos)
+  - "ntp"
+  - "ntpdate"
+
+# System paths for Samba (same across environments)
+samba_paths:
+  samba_prefix: "/usr/local/samba"
+  config_file: "/etc/samba/smb.conf"
+  krb5_config: "/etc/krb5.conf"
+  private_dir: "/var/lib/samba/private"
+  state_dir: "/var/lib/samba/state"
+  cache_dir: "/var/cache/samba"
+  lock_dir: "/var/run/samba"
+
+# Group Policy configuration (optional, set to true to enable)
+enable_group_policy: false
+
+# Post-provisioning configuration
+# Files to clean up before provisioning
+cleanup_files:
+  - "/etc/samba/smb.conf.initial"
+  - "/etc/samba/smb.conf.bak"
+
+# DNS resolver configuration
+# The DC should use itself as the DNS resolver
+configure_resolver: true
+resolver_nameserver: "127.0.0.1"
+
+# ---------- Templated from environment seeds ----------
+
+# Host identification
+hostname: "samba4-addc"
+domain_name: "{{ localdomain }}"
+
+# Active Directory Domain Controller configuration
+samba4_addc:
+  # DNS and realm configuration (derived from seeds)
+  realm: "AD.{{ localdomain | upper }}"
+  domain: "{{ ad_domain_short }}"
+  dns_domain: "ad.{{ localdomain }}"
+
+  # Administrator account
+  admin_pwd_env: "SAMBA4_DOMAIN_ADMIN_PASSWORD"
+
+  # DNS configuration (gateway + external DNS from common-seeds)
+  dns_forwarders: "{{ [samba4_addc_gateway] + external_dns_servers }}"
+
+  # Server role and features
+  server_role: "dc"
+  dns_backend: "SAMBA_INTERNAL"
+  enable_nix_extensions: true
+
+  # Network interface configuration (from seeds)
+  ip_address: "{{ samba4_addc_ip }}"
+  netmask: "{{ samba4_addc_netmask }}"
+  gateway: "{{ samba4_addc_gateway }}"
+
+  # Filesystem configuration
+  filesystem: "ext4"
+
+  # Time synchronization
+  enable_ntp: true
+  ntp_servers:
+    - "time.google.com"
+    - "time.cloudflare.com"
+
+  # Timezone configuration
+  timezone: "Europe/Vienna"
+
+# Network interface
+primary_interface: "{{ samba4_primary_interface }}"
+
+# Reverse DNS zone
+reverse_dns_zone: ""
+
+# DNS resolver search domain
+resolver_search_domain: "{{ samba4_addc.dns_domain }}"

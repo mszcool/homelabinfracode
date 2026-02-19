@@ -1,0 +1,73 @@
+---
+# Test environment - central host inventory
+#
+# All test hosts are defined here in a single file.
+# Group hierarchy is defined in base/hosts.yaml.
+# Variables are in group_vars/all/ and group_vars/edge_devices/.
+#
+# Usage (directory-based inventory):
+#   ansible-playbook \
+#     -i configs/envbase/ \
+#     -i configs/envtest/inventory/ \
+#     playbooks/ring0/<playbook>.yaml
+
+all:
+  children:
+    # ---------- Incus bare-metal cluster nodes ----------
+    incus:
+      hosts:
+        incussingledisk.testlocal:
+          hostname: incussingledisk
+          host_config_name: "msz_single_disk_server"
+        incusdualdisk.testlocal:
+          hostname: incusdualdisk
+          host_config_name: "msz_dual_disk_server"
+
+    # ---------- Identity provider (Samba4 AD DC) ----------
+    identityprovider:
+      hosts:
+        samba4-addc:
+          ansible_host: "samba4-addc.{{ localdomain }}"
+          ansible_user: "{{ samba4_admin_user }}"
+          ansible_connection: ssh
+          ansible_port: 22
+
+    # ---------- Security token service (future) ----------
+    securitytokenservice:
+      hosts: {}
+
+    # ---------- TrueNAS SCALE storage ----------
+    truenas:
+      hosts:
+        truenas-scale:
+          truenas_hostname: "truenas-test"
+          truenas_admin_username: "testadmin"
+          ansible_host: "{{ truenas_hostname }}.{{ localdomain }}"
+          ansible_user: "{{ truenas_admin_username }}"
+          ansible_connection: ssh
+          ansible_port: 22
+
+    # ---------- MikroTik main router ----------
+    mainrouter:
+      hosts:
+        mszrouter:
+          ansible_host: "{{ ip_plan.hosts.router }}"
+
+    # ---------- Raspberry Pi edge devices ----------
+    garage:
+      hosts:
+        garage-edge:
+          ansible_host: "{{ ip_plan.hosts.edge_garage }}"
+          main_adapter: eth0
+          edge_wifi_adapter: wlan0
+          edge_local_wifi_name: testgaragewifi
+          edge_bridge_name: br0
+
+    pool:
+      hosts:
+        pool-edge:
+          ansible_host: "{{ ip_plan.hosts.edge_pool }}"
+          main_adapter: eth0
+          edge_wifi_adapter: wlan0
+          edge_local_wifi_name: testpoolwifi
+          edge_bridge_name: br0

@@ -1,0 +1,52 @@
+---
+# Base (shared) constants for TrueNAS SCALE initial setup
+#
+# Environment-specific seeds are provided by:
+#   <env>/group_vars/truenas/storage-truenas-setup.yaml
+#   (e.g., configs/envtest/inventory/ or configs.private/envprod/inventory/)
+#
+# Required seed variables:
+#   From common-seeds.yaml:
+#     localdomain:              Local domain name (e.g., mszlocal)
+#     ad_domain_short:          Short AD domain name (e.g., MSZ)
+#     samba4_addc_ip:           IP of the AD DC (e.g., 192.168.0.41)
+#   From host_vars on truenas-scale (in hosts.yaml):
+#     truenas_hostname:         TrueNAS hostname (e.g., truenas-primary)
+#     truenas_admin_username:   Admin user name (e.g., truenas_admin)
+#   From storage-truenas-setup.yaml:
+#     truenas_admin_ssh_pubkey: Admin SSH public key
+#     truenas_data_pool:        Storage pool topology (MIRROR/STRIPE, disk list)
+
+# ---------- Shared constants ----------
+
+# Text console configuration
+truenas_text_console_enabled: false
+
+# Root account configuration
+truenas_root_account_locked: true
+
+# Two-Factor Authentication
+truenas_global_2fa_enabled: false
+
+# Keyboard layout
+truenas_keyboard_layout: "de"
+
+# Localization (same across environments)
+truenas_timezone: "Europe/Vienna"
+truenas_country: "AT"
+truenas_state: "Upper Austria"
+truenas_city: "Gmunden"
+
+# Admin password environment variable name
+truenas_admin_pwd_env: "TRUENAS_ADMIN_PASSWORD"
+
+# ---------- Templated from environment seeds ----------
+
+# Active Directory Configuration (derived from seeds)
+truenas_ad:
+  truenas_ad_dc_ip: "{{ samba4_addc_ip }}"
+  dns_domain: "ad.{{ localdomain }}"
+  realm: "AD.{{ localdomain | upper }}"
+  domain: "{{ ad_domain_short }}"
+  admin_username: "Administrator"
+  admin_password: "{{ lookup('env', 'SAMBA4_DOMAIN_ADMIN_PASSWORD') }}"

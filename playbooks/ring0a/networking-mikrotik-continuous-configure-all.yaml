@@ -21,12 +21,6 @@
     param_include_blank_setup_tasks: "{{ include_blank_setup_tasks }}"
 
   tasks:
-    - name: Prepare localhost -- install python3-paramiko on host.
-      ansible.builtin.apt:
-        name: python3-paramiko
-        state: present
-      delegate_to: localhost
-
     - name: Network -- Create or update VLAN interfaces on the RouterOS target.
       community.routeros.command:
         commands:

@@ -1,0 +1,39 @@
+---
+# Base group hierarchy for ring0 infrastructure
+#
+# This file defines the Ansible group structure shared across all environments.
+# Actual host assignments are in <env>/hosts.yaml
+# (e.g., configs/envtest/inventory/hosts.yaml or configs.private/envprod/inventory/hosts.yaml).
+#
+# Usage (directory-based inventory):
+#   ansible-playbook \
+#     -i configs/envbase/ \
+#     -i configs/<envXXX>/inventory/ \
+#     playbooks/ring0/<playbook>.yaml
+
+all:
+  children:
+    # Incus bare-metal cluster nodes
+    incus:
+
+    # Samba4 Active Directory Domain Controller
+    identityprovider:
+
+    # Future: Authentic / Authentik security token service
+    securitytokenservice:
+
+    # TrueNAS SCALE storage servers
+    truenas:
+
+    # MikroTik main router (managed via localhost API)
+    mainrouter:
+
+    # Raspberry Pi edge devices - individual site groups
+    garage:
+    pool:
+
+    # Parent group for all edge devices
+    edge_devices:
+      children:
+        garage:
+        pool:

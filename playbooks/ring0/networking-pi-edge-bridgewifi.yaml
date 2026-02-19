@@ -1,6 +1,6 @@
 ---
 - name: Setup Raspberry Pi Edge with bridged WiFi
-  hosts: all
+  hosts: edge_devices
   become: true
   gather_facts: true
   remote_user: "{{ root_user }}"

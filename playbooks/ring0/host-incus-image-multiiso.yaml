@@ -33,18 +33,6 @@
     param_preseed_output_dir: "{{ incus_preseed_output_dir | default('configs') }}"
 
   tasks:
-    - name: Pre-requisites -- Install required packages
-      become: true
-      ansible.builtin.apt:
-        name:
-          - whois  # Contains mkpasswd utility
-          - xorriso
-          - isolinux
-          - p7zip-full
-          - genisoimage
-        state: present
-        update_cache: true
-
     - name: Pre-requisites -- Ensure the ~/iso directory exists
       ansible.builtin.file:
         path: "{{ param_iso_destination_path | expanduser }}"

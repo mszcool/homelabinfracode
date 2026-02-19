@@ -1,0 +1,11 @@
+---
+# Test environment seeds for Samba4 AD DC
+#
+# Hosts are defined in hosts.yaml (identityprovider group)
+
+# ---------- Environment seed variables ----------
+# localdomain, ad_domain_short, samba4_addc_ip, routerAndPrimaryGatewayIp: provided by common-seeds.yaml
+samba4_addc_netmask: "255.255.0.0"
+samba4_addc_gateway: "{{ routerAndPrimaryGatewayIp }}"
+samba4_admin_user: "testidmaster"
+samba4_primary_interface: "eth0"

@@ -2,7 +2,7 @@
 # Find disk-to-PCI controller mapping on target hosts
 # Usage: ansible-playbook -i <inventory> playbooks/ring0/find-disk-pci.yaml
 - name: Map disks to PCI controllers and ATA ports
-  hosts: all
+  hosts: incus
   gather_facts: no
   become: true
   tasks:
