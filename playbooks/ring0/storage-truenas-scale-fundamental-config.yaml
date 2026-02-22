@@ -179,6 +179,24 @@
         - truenas_data_pool.topology.data | length > 0
         - pool_query.stdout | from_json | length == 0
 
+    # ==================== Docker / Apps System Configuration ====================
+
+    - name: Query current Docker configuration
+      ansible.builtin.command:
+        cmd: midclt call docker.config
+      register: docker_config_query
+      changed_when: false
+
+    - name: Enable Docker apps system and assign pool
+      ansible.builtin.command:
+        cmd: >
+          midclt call docker.update '{"pool": "{{ storage_pools.primaryPool.name }}"}'
+      register: docker_update_result
+      changed_when: true
+      when: >-
+        (docker_config_query.stdout | from_json).pool is none
+        or (docker_config_query.stdout | from_json).pool != storage_pools.primaryPool.name
+
   post_tasks:
     - name: Display configuration results
       debug:
@@ -203,6 +221,9 @@
           
           Storage Pool:
           - Data pool created/verified: {{ (pool_create_result is succeeded or pool_create_result is skipped) and (pool_query.stdout | from_json | length > 0 or pool_create_result is succeeded) }}
+          
+          Docker / Apps System:
+          - Apps pool assigned ({{ storage_pools.primaryPool.name }}): {{ docker_update_result is succeeded or docker_update_result is skipped }}
 
     - name: Configuration notes
       debug:

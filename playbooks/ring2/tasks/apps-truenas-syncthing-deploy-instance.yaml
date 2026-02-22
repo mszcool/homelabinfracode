@@ -1,0 +1,210 @@
+---
+# Task: Deploy a single Syncthing instance on TrueNAS SCALE via midclt
+#
+# Called by apps-truenas-syncthing.yaml for each instance in syncthing_instances.
+# Uses midclt call app.create / app.update to manage the app lifecycle.
+#
+# Input variable: syncthing_item (dict item from syncthing_instances | dict2items)
+#   syncthing_item.key:   Instance key (e.g., syncthing_family)
+#   syncthing_item.value: Instance config dict with app_name, cpu_cores, memory_mb, etc.
+#
+# Type handling note:
+#   Ansible's Jinja2 (without jinja2_native) converts {{ expr | int }} results
+#   to strings in vars blocks.  The shell tasks pipe JSON through a Python3
+#   type-fixer to ensure port_number/cpus/memory are integers and
+#   read_only/acl_enable/host_network are booleans before passing to midclt.
+#
+# Troubleshooting commands (run on TrueNAS shell):
+#   # Get app schema & default values (to discover required payload structure):
+#   midclt call catalog.get_app_details syncthing '{"train": "stable"}'
+#   midclt call catalog.get_app_details syncthing '{"train": "stable"}' | python3 -m json.tool
+#
+#   # Check async job result after app.create / app.update (replace ID accordingly):
+#   midclt call core.get_jobs '[["id", "=", 18043]]' | python3 -m json.tool
+
+- name: "{{ syncthing_item.value.app_name }} - Set instance vars"
+  ansible.builtin.set_fact:
+    instance: "{{ syncthing_item.value }}"
+    instance_key: "{{ syncthing_item.key }}"
+
+- name: "{{ instance.app_name }} - Check if app already exists"
+  ansible.builtin.command:
+    cmd: >
+      midclt call app.query
+      '[["name", "=", "{{ instance.app_name }}"]]'
+  register: app_exists_check
+  changed_when: false
+
+- name: "{{ instance.app_name }} - Set app existence fact"
+  ansible.builtin.set_fact:
+    app_exists: "{{ (app_exists_check.stdout | from_json | length) > 0 }}"
+
+# ---------- Build typed storage entries from host paths ----------
+
+- name: "{{ instance.app_name }} - Initialize storage entries"
+  ansible.builtin.set_fact:
+    _storage_entries: []
+
+- name: "{{ instance.app_name }} - Build storage entry for each host path"
+  ansible.builtin.set_fact:
+    _storage_entries: "{{ _storage_entries + [_entry] }}"
+  vars:
+    _entry:
+      type: "host_path"
+      host_path_config:
+        acl_enable: false
+        path: "{{ hp_item.host_path }}"
+      mount_path: "{{ hp_item.mount_path }}"
+      read_only: "{{ hp_item.read_only | default(false) }}"
+  loop: "{{ instance.host_paths | default([]) }}"
+  loop_control:
+    loop_var: hp_item
+    label: "{{ hp_item.mount_path }}"
+
+# ---------- Build shared app values payload ----------
+# Port objects follow the TrueNAS SCALE app schema:
+#   { bind_mode: "published", port_number: <int>, host_ips: [] }
+
+- name: "{{ instance.app_name }} - Build app values payload"
+  ansible.builtin.set_fact:
+    _app_values:
+      network:
+        web_port:
+          bind_mode: "published"
+          port_number: "{{ instance.web_port | default(syncthing_app_defaults.default_web_port) | int }}"
+          host_ips: []
+        tcp_port:
+          bind_mode: "published"
+          port_number: "{{ instance.listen_port | default(syncthing_app_defaults.default_listen_port) | int }}"
+          host_ips: []
+        udp_port:
+          bind_mode: "published"
+          port_number: "{{ instance.listen_port | default(syncthing_app_defaults.default_listen_port) | int }}"
+          host_ips: []
+        host_network: false
+        dns_opts: []
+        networks: []
+      resources:
+        limits:
+          cpus: "{{ instance.cpu_cores | default(syncthing_app_defaults.default_cpu_cores) | int }}"
+          memory: "{{ instance.memory_mb | default(syncthing_app_defaults.default_memory_mb) | int }}"
+      storage:
+        config:
+          type: "ix_volume"
+          ix_volume_config:
+            acl_enable: false
+            dataset_name: "config"
+        additional_storage: "{{ _storage_entries }}"
+
+# ---------- Create or Update the app ----------
+
+- name: "{{ instance.app_name }} - DEBUG: Show app values payload"
+  ansible.builtin.debug:
+    msg: "{{ _app_values | to_json }}"
+
+- name: "{{ instance.app_name }} - Create app (new deployment)"
+  ansible.builtin.shell: |
+    FIXED_JSON=$(echo '{{ _create_payload | to_json }}' | python3 -c "
+    import sys, json
+    d = json.loads(sys.stdin.read())
+    def fix_types(obj):
+        if isinstance(obj, dict):
+            for k in list(obj.keys()):
+                v = obj[k]
+                if k in ('port_number', 'cpus', 'memory') and isinstance(v, str):
+                    try: obj[k] = int(v)
+                    except ValueError: pass
+                elif k in ('read_only', 'acl_enable', 'host_network') and isinstance(v, str):
+                    obj[k] = v.lower() in ('true', '1', 'yes')
+                elif isinstance(v, (dict, list)):
+                    fix_types(v)
+        elif isinstance(obj, list):
+            for item in obj:
+                if isinstance(item, (dict, list)):
+                    fix_types(item)
+    fix_types(d)
+    print(json.dumps(d))
+    ")
+    midclt call app.create "$FIXED_JSON"
+  args:
+    executable: /bin/bash
+  vars:
+    _create_payload:
+      app_name: "{{ instance.app_name }}"
+      catalog_app: "{{ syncthing_app_defaults.catalog_app }}"
+      train: "{{ syncthing_app_defaults.train }}"
+      values: "{{ _app_values }}"
+  register: app_create_result
+  when: not (app_exists | bool)
+  changed_when: app_create_result.rc == 0
+
+- name: "{{ instance.app_name }} - Update app (existing deployment)"
+  ansible.builtin.shell: |
+    FIXED_JSON=$(echo '{{ _update_payload | to_json }}' | python3 -c "
+    import sys, json
+    d = json.loads(sys.stdin.read())
+    def fix_types(obj):
+        if isinstance(obj, dict):
+            for k in list(obj.keys()):
+                v = obj[k]
+                if k in ('port_number', 'cpus', 'memory') and isinstance(v, str):
+                    try: obj[k] = int(v)
+                    except ValueError: pass
+                elif k in ('read_only', 'acl_enable', 'host_network') and isinstance(v, str):
+                    obj[k] = v.lower() in ('true', '1', 'yes')
+                elif isinstance(v, (dict, list)):
+                    fix_types(v)
+        elif isinstance(obj, list):
+            for item in obj:
+                if isinstance(item, (dict, list)):
+                    fix_types(item)
+    fix_types(d)
+    print(json.dumps(d))
+    ")
+    midclt call app.update "{{ instance.app_name }}" "$FIXED_JSON"
+  args:
+    executable: /bin/bash
+  vars:
+    _update_payload:
+      values: "{{ _app_values }}"
+  register: app_update_result
+  when: app_exists | bool
+  changed_when: app_update_result.rc == 0
+
+# ---------- Wait and report ----------
+
+- name: "{{ instance.app_name }} - Wait for app to become active"
+  ansible.builtin.shell: |
+    for i in $(seq 1 30); do
+      STATE=$(midclt call app.query '[["name", "=", "{{ instance.app_name }}"]]' | python3 -c "
+    import sys, json
+    apps = json.loads(sys.stdin.read())
+    if apps:
+        print(apps[0].get('state', 'unknown'))
+    else:
+        print('not_found')
+    ")
+      if [ "$STATE" = "RUNNING" ] || [ "$STATE" = "DEPLOYING" ]; then
+        echo "App {{ instance.app_name }} state: $STATE"
+        exit 0
+      fi
+      echo "Waiting for {{ instance.app_name }}... current state: $STATE (attempt $i/30)"
+      sleep 10
+    done
+    echo "WARNING: App {{ instance.app_name }} did not reach RUNNING state within timeout"
+    exit 0
+  args:
+    executable: /bin/bash
+  register: wait_result
+  changed_when: false
+
+- name: "{{ instance.app_name }} - Display deployment result"
+  ansible.builtin.debug:
+    msg: >
+      Instance '{{ instance.app_name }}':
+      web_port={{ instance.web_port | default(syncthing_app_defaults.default_web_port) }},
+      listen_port={{ instance.listen_port | default(syncthing_app_defaults.default_listen_port) }},
+      cpu={{ instance.cpu_cores | default(syncthing_app_defaults.default_cpu_cores) }},
+      memory={{ instance.memory_mb | default(syncthing_app_defaults.default_memory_mb) }}MB,
+      mounts={{ instance.host_paths | default([]) | map(attribute='host_path') | list | join(', ') }}
+      status={{ wait_result.stdout_lines | last | default('unknown') }}

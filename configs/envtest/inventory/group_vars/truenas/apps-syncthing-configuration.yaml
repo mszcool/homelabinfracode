@@ -1,0 +1,19 @@
+---
+# Test environment seeds for Syncthing app deployment on TrueNAS SCALE
+#
+# Defines syncthing instances for the test environment.
+# Base constants are in envbase/group_vars/truenas/apps-syncthing-configuration.yaml
+
+# ---------- Syncthing instances (test - single lightweight instance) ----------
+syncthing_instances:
+  syncthing_test:
+    app_name: "syncthing-test"
+    description: "Test syncthing instance for validation"
+    cpu_cores: 1
+    memory_mb: 512
+    web_port: 8384
+    listen_port: 22000
+    host_paths:
+      - host_path: "/mnt/data/DocsFamily"
+        mount_path: "/data/DocsFamily"
+        read_only: false

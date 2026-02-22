@@ -80,6 +80,25 @@ datasets:
     quota_gb: 10
     quota_warning_pct: 80
 
+  # -------------------- Apps Storage --------------------
+  Apps:
+    name: "data/Apps"
+    type: "filesystem"
+    description: "Container/app storage for TrueNAS Docker apps"
+    compression: "LZ4"
+    acl_type: "NFSV4"
+    share_type: "APPS"
+    acl_groups:
+      - { name: "{{ ad_domain_short }}\\parents", read: true, write: true, execute: true }
+    acl_users: []
+    quota_gb: 10
+    quota_warning_pct: 80
+    smb:
+      enabled: false
+      browsable: false
+    nfs:
+      enabled: false
+
   Fotos:
     name: "data/Fotos"
     type: "filesystem"

@@ -66,6 +66,14 @@ storage_pools:
   primaryPool:
     name: "data"
 
+# Apps dataset defaults (quota can be overridden per environment)
+# share_type "APPS" optimizes ZFS properties for container workloads
+# (see https://api.truenas.com/v25.10/api_methods_pool.dataset.create.html)
+apps_dataset_defaults:
+  compression: "LZ4"
+  acl_type: "NFSV4"
+  share_type: "APPS"
+
 # ---------- Templated from environment seeds ----------
 
 # System settings (hdd_sleep_scope resolved from env seed)
