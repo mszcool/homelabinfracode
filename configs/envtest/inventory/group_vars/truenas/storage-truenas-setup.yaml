@@ -1,0 +1,24 @@
+---
+# Test environment seeds for TrueNAS SCALE initial setup
+#
+# Required environment variables:
+#   TRUENAS_ADMIN_PASSWORD: Admin password for TrueNAS
+#   SAMBA4_DOMAIN_ADMIN_PASSWORD: Domain admin password for AD integration
+#
+# Hosts are defined in hosts.yaml (truenas group)
+
+# ---------- Environment seed variables ----------
+# localdomain, ad_domain_short, samba4_addc_ip: provided by common-seeds.yaml
+# truenas_hostname, truenas_admin_username: provided by host_vars on truenas-scale in hosts.yaml
+
+# TrueNAS identity
+truenas_admin_ssh_pubkey: "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQCg0Y6vbXyN0q70R2Wkl6HhrH3GoE8163Uv19xFSmMrLJ2bFtzpGttlJ8tpHFWIh4eIKss0oq5TydCUC0p2c5v48Oj318y4CO9EBTtPafgzHyz6PkvBqL6uFv8NN8TvLZdwMaKdEpdVDLB+WD8dXqf+fPe8atY2YbIkd5XDIE1wjvjrA8Br6iSjNcaIW4jpsUNWKufEM+zkiYyVrTEIn/AMCA2E2eCJCasSq3sj/8R5ujJqTFxjo46XGhbjbsx4QRDzkApJVyKeA5+zv6DoRyBEFOmZ6MQjMqtPPtdtZwflRZ8GMKyRTMqgmnG0N6CFsd5aIHZ2plZljHF82U3LaX1D"
+
+# Storage Pool Configuration (test - single disk stripe)
+truenas_data_pool:
+  name: "data"
+  topology:
+    data:
+      - type: "STRIPE"
+        disks:
+          - "sdb"

@@ -1,0 +1,83 @@
+---
+# Base (shared) constants for TrueNAS SCALE ongoing configuration
+#
+# Environment-specific seeds are provided by:
+#   <env>/group_vars/truenas/storage-truenas-configuration.yaml
+#   (e.g., configs/envtest/inventory/ or configs.private/envprod/inventory/)
+#
+# Required seed variables:
+#   From common-seeds.yaml:
+#     localdomain:              Local domain name (e.g., mszlocal)
+#     ad_domain_short:          Short AD domain name (e.g., MSZ) - used in dataset ACLs
+#   From host_vars on truenas-scale (in hosts.yaml):
+#     truenas_admin_username:   Admin user name (e.g., truenas_admin)
+#     truenas_hostname:         TrueNAS hostname (e.g., truenas-primary)
+#   From storage-truenas-configuration.yaml:
+#     nfs_allowed_network:      NFS allowed network CIDR (e.g., 192.168.0.0/24)
+#     truenas_hdd_sleep_disks:  List of disks for HDD sleep (e.g., [sdb, sdc])
+#     datasets:                 Dataset definitions (genuinely unique per environment)
+
+# ---------- Shared constants ----------
+
+# Services Configuration
+# NOTE: SSH is intentionally excluded - it must be pre-enabled on TrueNAS
+# and is never modified by playbooks to prevent accidental lockout.
+services:
+  cifs:
+    enabled: true
+    state: started
+  nfs:
+    enabled: true
+    state: started
+    v4: true
+  # SSH intentionally excluded - must be pre-enabled, never modified by playbooks
+
+# Maintenance Tasks (same schedule structure across environments)
+snapshot_tasks:
+  daily_data:
+    dataset: "data/DocsFamily"
+    recursive: true
+    lifetime: 168  # 7 days in hours
+    enabled: true
+    schedule:
+      minute: "0"
+      hour: "2"
+      day_month: "*"
+      month: "*"
+      day_week: "*"
+
+scrub_tasks:
+  weekly_data:
+    pool: "data"
+    threshold: 35
+    description: "Weekly pool scrub"
+    enabled: true
+    schedule:
+      minute: "0"
+      hour: "3"
+      day_month: "*"
+      month: "*"
+      day_week: "0"  # Sunday
+
+# NOTE: S.M.A.R.T. configuration removed - API deprecated in TrueNAS 25.10
+
+# Storage pool name (same across environments)
+storage_pools:
+  primaryPool:
+    name: "data"
+
+# Apps dataset defaults (quota can be overridden per environment)
+# share_type "APPS" optimizes ZFS properties for container workloads
+# (see https://api.truenas.com/v25.10/api_methods_pool.dataset.create.html)
+apps_dataset_defaults:
+  compression: "LZ4"
+  acl_type: "NFSV4"
+  share_type: "APPS"
+
+# ---------- Templated from environment seeds ----------
+
+# System settings (hdd_sleep_scope resolved from env seed)
+system_settings:
+  system_dataset_pool: "data"
+  hdd_sleep: 20  # Minutes until HDDs spin down
+  hdd_sleep_scope: "{{ truenas_hdd_sleep_disks }}"

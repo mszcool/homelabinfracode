@@ -1,0 +1,43 @@
+---
+# Prepare localhost with all packages required by the various playbooks.
+# Run this once (or whenever dependencies change) before running other playbooks
+# that execute tasks on localhost or delegate to localhost.
+#
+# Usage:
+#   ansible-playbook -i localhost, playbooks/prepare-localhost.yaml
+#
+# The -i localhost, flag is needed to override the default inventory in
+# ansible.cfg and avoid "unable to parse inventory" warnings.
+# No real inventory is required — this playbook only targets localhost.
+#
+# Packages installed:
+#   - whois          : mkpasswd utility (host-incus-image-unified, host-incus-image-multiiso)
+#   - xorriso        : ISO manipulation  (host-incus-image-unified, host-incus-image-multiiso)
+#   - isolinux       : ISO boot loader   (host-incus-image-unified, host-incus-image-multiiso)
+#   - p7zip-full     : 7z archive tool   (host-incus-image-unified, host-incus-image-multiiso)
+#   - genisoimage    : ISO generation     (host-incus-image-unified, host-incus-image-multiiso)
+#   - python3-paramiko : SSH library      (networking-mikrotik-continuous-configure-all, cleanup)
+#
+- name: Prepare localhost -- install all packages required by playbooks.
+  hosts: localhost
+  connection: local
+  become: true
+  gather_facts: false
+
+  tasks:
+    - name: Install packages required for Incus ISO image generation
+      ansible.builtin.apt:
+        name:
+          - whois
+          - xorriso
+          - isolinux
+          - p7zip-full
+          - genisoimage
+        state: present
+        update_cache: true
+
+    - name: Install packages required for Mikrotik router management
+      ansible.builtin.apt:
+        name:
+          - python3-paramiko
+        state: present

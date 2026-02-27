@@ -1,0 +1,115 @@
+---
+# Test environment seeds for networking foundation
+#
+# Hosts are defined in hosts.yaml (mainrouter group)
+
+# ---------- Environment seed variables ----------
+# localdomain, routerAndPrimaryGatewayIp, external_dns_servers, ip_plan: provided by common-seeds.yaml
+router_lan_ip: "{{ routerAndPrimaryGatewayIp }}"
+nat_pool_remote_target_ip: "{{ ip_plan.hosts.pool_remote_access }}"
+
+# LAN network seeds (derived from ip_plan)
+lan_subnet: "{{ ip_plan.lan_subnet }}"
+lan_dns_servers: "{{ [routerAndPrimaryGatewayIp] + external_dns_servers }}"
+lan_dhcp_pool_from: "{{ ip_plan.dhcp_pool.from }}"
+lan_dhcp_pool_to: "{{ ip_plan.dhcp_pool.to }}"
+
+# VLANs (environment-specific, any number supported)
+vlans:
+  - name: "vlan-test-1"
+    description: "Test VLAN 1"
+    subnet: "10.90.90.0/24"
+    interface_type: "vlan"
+    interface: "vlan-test-1"
+    parent_interface: "lanBridge"
+    vlan_id: 90
+    gateway: "10.90.90.1"
+    dhcp_settings:
+      enabled: true
+      dns_servers: "{{ ['10.90.90.1'] + external_dns_servers }}"
+      lease_time:
+        default: 300
+        max: 7200
+      address_pool:
+        from: "10.90.90.50"
+        to: "10.90.90.200"
+
+# Admin users (test credentials and keys)
+users:
+  root:
+    name: "admin"
+    password_env: "ROOT_PWD"
+    ssh_key: "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQCg0Y6vbXyN0q70R2Wkl6HhrH3GoE8163Uv19xFSmMrLJ2bFtzpGttlJ8tpHFWIh4eIKss0oq5TydCUC0p2c5v48Oj318y4CO9EBTtPafgzHyz6PkvBqL6uFv8NN8TvLZdwMaKdEpdVDLB+WD8dXqf+fPe8atY2YbIkd5XDIE1wjvjrA8Br6iSjNcaIW4jpsUNWKufEM+zkiYyVrTEIn/AMCA2E2eCJCasSq3sj/8R5ujJqTFxjo46XGhbjbsx4QRDzkApJVyKeA5+zv6DoRyBEFOmZ6MQjMqtPPtdtZwflRZ8GMKyRTMqgmnG0N6CFsd5aIHZ2plZljHF82U3LaX1D"
+  automation:
+    name: "automation"
+    password_env: "AUTOM_PWD"
+    ssh_key: "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQCg0Y6vbXyN0q70R2Wkl6HhrH3GoE8163Uv19xFSmMrLJ2bFtzpGttlJ8tpHFWIh4eIKss0oq5TydCUC0p2c5v48Oj318y4CO9EBTtPafgzHyz6PkvBqL6uFv8NN8TvLZdwMaKdEpdVDLB+WD8dXqf+fPe8atY2YbIkd5XDIE1wjvjrA8Br6iSjNcaIW4jpsUNWKufEM+zkiYyVrTEIn/AMCA2E2eCJCasSq3sj/8R5ujJqTFxjo46XGhbjbsx4QRDzkApJVyKeA5+zv6DoRyBEFOmZ6MQjMqtPPtdtZwflRZ8GMKyRTMqgmnG0N6CFsd5aIHZ2plZljHF82U3LaX1D"
+
+# Device groups with MAC/IP assignments (test - minimal set)
+devices_mapped:
+  - group: "core-infrastructure"
+    start_ip: "{{ ip_plan.ranges.core_infrastructure.from }}"
+    end_ip: "{{ ip_plan.ranges.core_infrastructure.to }}"
+    members:
+      - alias: "{{ routername }}"
+        dns_names:
+          - "{{ routername }}"
+          - "{{ routername }}.{{ localdomain }}"
+        static_dhcp:
+          ip: "{{ ip_plan.hosts.router }}"
+  - group: "virtualization-servers"
+    start_ip: "{{ ip_plan.ranges.virtualization_servers.from }}"
+    end_ip: "{{ ip_plan.ranges.virtualization_servers.to }}"
+    members:
+      - alias: "incussingledisk"
+        dns_names:
+          - "incussingledisk"
+          - "incussingledisk.{{ localdomain }}"
+        static_dhcp:
+          mac: "AA:BB:CC:DD:EE:01"
+          ip: "10.10.0.31"
+      - alias: "incusdualdisk"
+        dns_names:
+          - "incusdualdisk"
+          - "incusdualdisk.{{ localdomain }}"
+        static_dhcp:
+          mac: "AA:BB:CC:DD:EE:02"
+          ip: "10.10.0.32"
+  - group: "foundational-services"
+    start_ip: "{{ ip_plan.ranges.foundational_services.from }}"
+    end_ip: "{{ ip_plan.ranges.foundational_services.to }}"
+    members:
+      - alias: "samba4-addc-test"
+        dns_names:
+          - "samba4-addc"
+          - "samba4-addc.{{ localdomain }}"
+        static_dhcp:
+          mac: "AA:BB:CC:DD:EE:11"
+          ip: "{{ ip_plan.hosts.samba4_addc }}"
+      - alias: "truenas-test"
+        dns_names:
+          - "truenas-primary"
+          - "truenas-primary.{{ localdomain }}"
+        static_dhcp:
+          mac: "AA:BB:CC:DD:EE:12"
+          ip: "{{ ip_plan.hosts.truenas }}"
+  - group: "unrestricted-devices"
+    start_ip: "{{ ip_plan.ranges.unrestricted_devices.from }}"
+    end_ip: "{{ ip_plan.ranges.unrestricted_devices.to }}"
+    members: []
+  - group: "restricted-devices"
+    start_ip: "{{ ip_plan.ranges.restricted_devices.from }}"
+    end_ip: "{{ ip_plan.ranges.restricted_devices.to }}"
+    members: []
+  - group: "kids-devices"
+    start_ip: "{{ ip_plan.ranges.kids_devices.from }}"
+    end_ip: "{{ ip_plan.ranges.kids_devices.to }}"
+    members: []
+  - group: "iot-servers"
+    start_ip: "{{ ip_plan.ranges.iot_servers.from }}"
+    end_ip: "{{ ip_plan.ranges.iot_servers.to }}"
+    members: []
+  - group: "iot-devices"
+    start_ip: "{{ ip_plan.ranges.iot_devices.from }}"
+    end_ip: "{{ ip_plan.ranges.iot_devices.to }}"
+    members: []

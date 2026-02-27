@@ -1,6 +1,7 @@
 ---
 - name: Networking setup for devices (DNS names, static address assignments etc.) for Mikrotik.
-  hosts: localhost
+  hosts: mainrouter
+  connection: local
   become: false
   gather_facts: false
 

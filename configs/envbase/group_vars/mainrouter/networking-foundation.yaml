@@ -1,0 +1,424 @@
+---
+# Base (shared) constants for networking foundation
+#
+# Environment-specific seeds are provided by:
+#   <env>/group_vars/mainrouter/networking-foundation.yaml
+#   (e.g., configs/envtest/inventory/ or configs.private/envprod/inventory/)
+#
+# Required seed variables:
+#   From common-seeds.yaml:
+#     localdomain:                Local domain name (e.g., mszlocal)
+#     ip_plan:                    Centralized IP plan with ranges, hosts, subnet, DHCP, DNS
+#     routerAndPrimaryGatewayIp:  Alias for ip_plan.hosts.router
+#     external_dns_servers:       Alias for ip_plan.external_dns_servers
+#   From networking-foundation.yaml:
+#     router_lan_ip:              Derived from routerAndPrimaryGatewayIp
+#     nat_pool_remote_target_ip:  Derived from ip_plan.hosts.pool_remote_access
+#     lan_subnet:                 Derived from ip_plan.lan_subnet
+#     lan_dns_servers:            Derived from routerAndPrimaryGatewayIp + external_dns_servers
+#     lan_dhcp_pool_from:         Derived from ip_plan.dhcp_pool.from
+#     lan_dhcp_pool_to:           Derived from ip_plan.dhcp_pool.to
+#     vlans:                      List of VLAN dicts (each with name, description,
+#                                 subnet, vlan_id, gateway, dhcp_settings, etc.)
+#     users:                      Admin user credentials and SSH keys
+#     devices_mapped:             Device groups with MAC/IP assignments
+#                                 (ranges + infra IPs derived from ip_plan)
+
+# ---------- Shared constants ----------
+
+timezone: "Etc/UTC"
+language: "en_US"
+start_marker_text: "START"
+end_marker_text: "END"
+
+# Router name (same across environments)
+routername: mszrouter
+
+# ---------- Templated from environment seeds ----------
+
+# Router hardware configuration (LAN IP from seed)
+mainrouterconfig:
+  hostname: maininternetrouter
+  loopback_interface_name: "lo"
+  wan_interface_list: "wan"
+  lan_interface_list: "lan"
+  wan_interface:
+    interface: ether1
+    ipaddr: "dhcp"
+    ipaddrv6: "dhcp6"
+  lan_interface:
+    bridge: lanBridge
+    interfaces: "ether2,ether3,ether4,ether5,sfp1"
+    ipaddr: "{{ router_lan_ip }}"
+    subnet: "16"
+
+# LAN network definition (templated from seeds)
+lan_network:
+  name: "lan"
+  description: "Main LAN Network"
+  subnet: "{{ lan_subnet }}"
+  interface_type: "bridge"
+  interface: "lanBridge"
+  gateway: "{{ router_lan_ip }}"
+  dhcp_settings:
+    enabled: true
+    dns_servers: "{{ lan_dns_servers }}"
+    lease_time:
+      default: 300
+      max: 7200
+    address_pool:
+      from: "{{ lan_dhcp_pool_from }}"
+      to: "{{ lan_dhcp_pool_to }}"
+
+# Combined networks list: LAN (from base seeds) + VLANs (from environment)
+networks: "{{ [lan_network] + vlans }}"
+
+# Firewall rules (same rule structure across environments)
+firewall_rules:
+  - name: "Home Network - Inbound and Outbound Internet Rules"
+    comment: "homeinout_100"
+    required_for_blank_setup: false
+    place_before: "default_500"
+    filter_rules:
+      - name: "IoT-Servers - Allow SSH In for Pool Remote Access"
+        direction: "input"
+        action: "accept"
+        comment: "homeinout_105"
+        srcAddress: "*"
+        destAddress: "*"
+        srcPort: "*"
+        destPort: "2022"
+        protocol: "tcp"
+        connectionState: "*"
+        connectionNatState: "*"
+        inInterface: "*"
+        outInterface: "*"
+        inInterfaceList: "wan"
+        outInterfaceList: "*"
+        srcAddressList: "*"
+        destAddressList: "*"
+        log: false
+      - name: "Restricted Devices - Block all Internet traffic for all dynamic DHCP and Kids"
+        disabled: true
+        direction: "forward"
+        action: "drop"
+        comment: "homeinout_109"
+        srcAddress: "*"
+        destAddress: "*"
+        srcPort: "*"
+        destPort: "*"
+        protocol: "*"
+        connectionState: "*"
+        connectionNatState: "*"
+        inInterface: "*"
+        outInterface: "*"
+        inInterfaceList: "*"
+        outInterfaceList: "*"
+        srcAddressList: "restricted-devices"
+        destAddressList: "*"
+        log: false
+      - name: "Kids Devices - block Internet traffic for all kids devices"
+        disabled: true
+        direction: "forward"
+        action: "drop"
+        comment: "homeinout_110"
+        srcAddress: "*"
+        destAddress: "*"
+        srcPort: "*"
+        destPort: "*"
+        protocol: "*"
+        connectionState: "*"
+        connectionNatState: "*"
+        inInterface: "*"
+        outInterface: "*"
+        inInterfaceList: "*"
+        outInterfaceList: "*"
+        srcAddressList: "kids-devices"
+        destAddressList: "*"
+        log: false
+      - name: "Kids Devices - Block Spotify Video #1"
+        disabled: false
+        direction: "forward"
+        action: "drop"
+        comment: "homeinout_115"
+        srcAddress: "*"
+        destAddress: "2.18.79.103"
+        srcPort: "*"
+        destPort: "*"
+        protocol: "*"
+        connectionState: "*"
+        connectionNatState: "*"
+        inInterface: "*"
+        outInterface: "*"
+        inInterfaceList: "*"
+        outInterfaceList: "*"
+        srcAddressList: "kids-devices"
+        destAddressList: "*"
+        log: false
+      - name: "Kids Devices - Block Spotify Video #2"
+        disabled: false
+        direction: "forward"
+        action: "drop"
+        comment: "homeinout_116"
+        srcAddress: "*"
+        destAddress: "2.18.79.109"
+        srcPort: "*"
+        destPort: "*"
+        protocol: "*"
+        connectionState: "*"
+        connectionNatState: "*"
+        inInterface: "*"
+        outInterface: "*"
+        inInterfaceList: "*"
+        outInterfaceList: "*"
+        srcAddressList: "kids-devices"
+        destAddressList: "*"
+        log: false
+      - name: "Kids Devices - Block Spotify Video #3"
+        disabled: false
+        direction: "forward"
+        action: "drop"
+        comment: "homeinout_117"
+        srcAddress: "*"
+        destAddress: "146.75.54.248"
+        srcPort: "*"
+        destPort: "*"
+        protocol: "*"
+        connectionState: "*"
+        connectionNatState: "*"
+        inInterface: "*"
+        outInterface: "*"
+        inInterfaceList: "*"
+        outInterfaceList: "*"
+        srcAddressList: "kids-devices"
+        destAddressList: "*"
+        log: false
+      - name: "Kids Devices - Block Spotify Video #4"
+        disabled: false
+        direction: "forward"
+        action: "drop"
+        comment: "homeinout_118"
+        srcAddress: "*"
+        destAddress: "151.101.242.248"
+        srcPort: "*"
+        destPort: "*"
+        protocol: "*"
+        connectionState: "*"
+        connectionNatState: "*"
+        inInterface: "*"
+        outInterface: "*"
+        inInterfaceList: "*"
+        outInterfaceList: "*"
+        srcAddressList: "kids-devices"
+        destAddressList: "*"
+        log: false
+    inbound_nat_rules:
+      - name: "IoT-Servers - Allow SSH In for Pool Remote Access"
+        direction: "dstnat"
+        action: "dst-nat"
+        comment: "homeinout_nat_105"
+        srcAddress: "*"
+        destAddress: "*"
+        srcPort: "*"
+        destPort: "2022"
+        protocol: "tcp"
+        localTargetAddress: "{{ nat_pool_remote_target_ip }}"
+        localTargetPort: "22"
+        inInterface: "*"
+        outInterface: "*"
+        inInterfaceList: "wan"
+        outInterfaceList: "*"
+        srcAddressList: "*"
+        destAddressList: "*"
+        ipSecPolicy: "*"
+        log: false
+  - name: "Defaults for allowing internet connections from LAN"
+    comment: "default_500"
+    required_for_blank_setup: true
+    filter_rules:
+      - name: "Allow established and related connections"
+        direction: "input"
+        action: "accept"
+        comment: "default_505"
+        srcAddress: "*"
+        destAddress: "*"
+        srcPort: "*"
+        destPort: "*"
+        protocol: "*"
+        connectionState: "established,related"
+        connectionNatState: "*"
+        inInterface: "*"
+        outInterface: "*"
+        inInterfaceList: "*"
+        outInterfaceList: "*"
+        srcAddressList: "*"
+        destAddressList: "*"
+        log: false
+      - name: "Allow ICMP traffic from all excluding WAN"
+        direction: "input"
+        action: "accept"
+        comment: "default_510"
+        srcAddress: "*"
+        destAddress: "*"
+        srcPort: "*"
+        destPort: "*"
+        protocol: "icmp"
+        connectionState: "*"
+        connectionNatState: "*"
+        inInterface: "*"
+        outInterface: "*"
+        inInterfaceList: "lan"
+        outInterfaceList: "*"
+        srcAddressList: "*"
+        destAddressList: "*"
+        log: true
+      - name: "Allow traffic to the router from itself for CAPsMAN"
+        direction: "input"
+        action: "accept"
+        comment: "default_515"
+        srcAddress: "*"
+        destAddress: "127.0.0.1"
+        srcPort: "*"
+        destPort: "*"
+        protocol: "*"
+        connectionState: "*"
+        connectionNatState: "*"
+        inInterface: "lo"
+        outInterface: "*"
+        inInterfaceList: "*"
+        outInterfaceList: "*"
+        srcAddressList: "*"
+        destAddressList: "*"
+        log: true
+      - name: "Allow established and related connections in forward chain"
+        direction: "forward"
+        action: "accept"
+        comment: "default_520"
+        srcAddress: "*"
+        destAddress: "*"
+        srcPort: "*"
+        destPort: "*"
+        protocol: "*"
+        connectionState: "established,related"
+        connectionNatState: "*"
+        inInterface: "*"
+        outInterface: "*"
+        inInterfaceList: "*"
+        outInterfaceList: "*"
+        srcAddressList: "*"
+        destAddressList: "*"
+        log: false
+      - name: "Allow all outbound traffic from LAN through WAN"
+        direction: "forward"
+        action: "accept"
+        comment: "default_525"
+        srcAddress: "*"
+        destAddress: "*"
+        srcPort: "*"
+        destPort: "*"
+        protocol: "*"
+        connectionState: "*"
+        connectionNatState: "*"
+        inInterface: "*"
+        outInterface: "*"
+        inInterfaceList: "*"
+        outInterfaceList: "wan"
+        srcAddressList: "*"
+        destAddressList: "*"
+        log: false
+    inbound_nat_rules:
+      - name: "Masquerade everything outgoing"
+        direction: "srcnat"
+        action: "masquerade"
+        comment: "default_nat_505"
+        srcAddress: "*"
+        destAddress: "*"
+        srcPort: "*"
+        destPort: "*"
+        protocol: "*"
+        localTargetAddress: "*"
+        localTargetPort: "*"
+        inInterface: "*"
+        outInterface: "*"
+        inInterfaceList: "*"
+        outInterfaceList: "wan"
+        srcAddressList: "*"
+        destAddressList: "*"
+        ipSecPolicy: "out,none"
+        log: false
+  - name: "Drop all remaining traffic"
+    comment: "default_900"
+    required_for_blank_setup: true
+    filter_rules:
+      - name: "Drop all inbound traffic from WAN"
+        direction: "input"
+        action: "drop"
+        comment: "default_905"
+        srcAddress: "*"
+        destAddress: "*"
+        srcPort: "*"
+        destPort: "*"
+        protocol: "*"
+        connectionState: "*"
+        connectionNatState: "*"
+        inInterface: "*"
+        outInterface: "*"
+        inInterfaceList: "wan"
+        outInterfaceList: "*"
+        srcAddressList: "*"
+        destAddressList: "*"
+        log: true
+      - name: "Drop all inbound traffic that is not from LAN"
+        direction: "input"
+        action: "drop"
+        comment: "default_910"
+        srcAddress: "*"
+        destAddress: "*"
+        srcPort: "*"
+        destPort: "*"
+        protocol: "*"
+        connectionState: "*"
+        connectionNatState: "*"
+        inInterface: "*"
+        outInterface: "*"
+        inInterfaceList: "!lan"
+        outInterfaceList: "*"
+        srcAddressList: "*"
+        destAddressList: "*"
+        log: true
+      - name: "Drop all invalid connections"
+        direction: "forward"
+        action: "drop"
+        comment: "default_915"
+        srcAddress: "*"
+        destAddress: "*"
+        srcPort: "*"
+        destPort: "*"
+        protocol: "*"
+        connectionState: "invalid"
+        connectionNatState: "*"
+        inInterface: "*"
+        outInterface: "*"
+        inInterfaceList: "*"
+        outInterfaceList: "*"
+        srcAddressList: "*"
+        destAddressList: "*"
+        log: true
+      - name: "Drop all connections from WAN without a destination NAT rule."
+        direction: "forward"
+        action: "drop"
+        comment: "default_920"
+        srcAddress: "*"
+        destAddress: "*"
+        srcPort: "*"
+        destPort: "*"
+        protocol: "*"
+        connectionState: "new"
+        connectionNatState: "!dstnat"
+        inInterface: "*"
+        outInterface: "*"
+        inInterfaceList: "wan"
+        outInterfaceList: "*"
+        srcAddressList: "*"
+        destAddressList: "*"
+        log: false

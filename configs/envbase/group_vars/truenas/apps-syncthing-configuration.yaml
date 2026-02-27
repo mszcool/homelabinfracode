@@ -1,0 +1,37 @@
+---
+# Base (shared) constants for Syncthing app deployment on TrueNAS SCALE
+#
+# Environment-specific instances are provided by:
+#   <env>/group_vars/truenas/apps-syncthing-configuration.yaml
+#   (e.g., configs/envtest/inventory/ or configs.private/envprod/inventory/)
+#
+# Required seed variables:
+#   From common-seeds.yaml:
+#     localdomain:  Local domain name (e.g., mszlocal)
+#   From this file (environment layer):
+#     syncthing_instances:  Dict of syncthing instances to deploy
+#
+# Each syncthing instance in syncthing_instances must define:
+#   app_name:         Unique TrueNAS app name (e.g., syncthing-family)
+#   description:      Human-readable description
+#   cpu_cores:        CPU core limit (integer)
+#   memory_mb:        Memory limit in MB (integer)
+#   web_port:         Web UI port (integer, must be unique per instance)
+#   listen_port:      Syncthing protocol listen port (integer, must be unique)
+#   host_paths:       List of host path mounts, each with:
+#     host_path:      Absolute path on TrueNAS (e.g., /mnt/data/DocsFamily)
+#     mount_path:     Mount path inside the container (e.g., /data/DocsFamily)
+#     read_only:      Whether the mount is read-only (default: false)
+
+# ---------- Shared constants ----------
+
+# App catalog reference
+syncthing_app_defaults:
+  catalog_app: "syncthing"
+  train: "stable"
+  # Default resource limits (can be overridden per instance)
+  default_cpu_cores: 1
+  default_memory_mb: 1024
+  # Default network settings
+  default_web_port: 8384
+  default_listen_port: 22000

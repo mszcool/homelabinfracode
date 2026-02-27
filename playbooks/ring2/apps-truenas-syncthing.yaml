@@ -1,0 +1,116 @@
+---
+# Playbook: Deploy Syncthing instances on TrueNAS SCALE (Ring 2 - User Services)
+#
+# Deploys one or more Syncthing app instances on TrueNAS using the Docker-based
+# app system via `midclt`. Each instance gets its own container with configurable
+# CPU, memory, network ports, and host path mounts.
+#
+# Prerequisites:
+#   - TrueNAS SCALE with Docker/Apps support enabled
+#   - SSH must be enabled on TrueNAS
+#   - The Apps dataset (data/Apps) must exist (created by ring0a storage-truenas-configure)
+#   - Apps pool must be configured in TrueNAS UI (Settings → Apps → Choose Pool → data)
+#   - Host path datasets (DocsFamily, Fotos, DocsUsers, etc.) must exist
+#
+# Configuration:
+#   - Base constants: configs/envbase/group_vars/truenas/apps-syncthing-configuration.yaml
+#   - Environment instances: <env>/group_vars/truenas/apps-syncthing-configuration.yaml
+#
+# Usage:
+#   ansible-playbook \
+#     -i configs/envbase/ \
+#     -i configs.private/envprod/inventory/ \
+#     playbooks/ring2/apps-truenas-syncthing.yaml
+#
+# IMPORTANT: SSH must be enabled on TrueNAS before running this playbook.
+
+- name: Deploy Syncthing apps on TrueNAS SCALE
+  hosts: truenas
+  gather_facts: false
+  become: yes
+
+  pre_tasks:
+    - name: Validate syncthing_instances is defined
+      ansible.builtin.assert:
+        that:
+          - syncthing_instances is defined
+          - syncthing_instances | length > 0
+        fail_msg: "No syncthing_instances defined. Check your inventory group_vars/truenas/apps-syncthing-configuration.yaml"
+
+    - name: Validate syncthing_app_defaults is defined
+      ansible.builtin.assert:
+        that:
+          - syncthing_app_defaults is defined
+          - syncthing_app_defaults.catalog_app is defined
+          - syncthing_app_defaults.train is defined
+        fail_msg: "syncthing_app_defaults not defined. Check envbase/group_vars/truenas/apps-syncthing-configuration.yaml"
+
+    - name: Validate unique ports across all instances
+      ansible.builtin.assert:
+        that:
+          - (syncthing_instances.values() | map(attribute='web_port') | list | unique | length)
+            == (syncthing_instances.values() | map(attribute='web_port') | list | length)
+          - (syncthing_instances.values() | map(attribute='listen_port') | list | unique | length)
+            == (syncthing_instances.values() | map(attribute='listen_port') | list | length)
+        fail_msg: "Duplicate web_port or listen_port detected across syncthing instances. Each instance must use unique ports."
+
+    - name: Check if apps system is available
+      ansible.builtin.command:
+        cmd: midclt call app.query '[]'
+      register: apps_system_check
+      changed_when: false
+      failed_when: false
+
+    - name: Fail if apps system is not available
+      ansible.builtin.fail:
+        msg: >
+          TrueNAS apps system is not available. Ensure:
+          1. TrueNAS SCALE has Docker/Apps support enabled
+          2. Apps pool is configured (Settings → Apps → Choose Pool → data)
+      when: apps_system_check.rc != 0
+
+  tasks:
+    - name: Deploy each Syncthing instance
+      ansible.builtin.include_tasks: tasks/apps-truenas-syncthing-deploy-instance.yaml
+      loop: "{{ syncthing_instances | dict2items }}"
+      loop_control:
+        label: "{{ syncthing_item.value.app_name }}"
+        loop_var: syncthing_item
+
+  post_tasks:
+    - name: Query final state of all Syncthing apps
+      ansible.builtin.command:
+        cmd: >
+          midclt call app.query
+          '[["name", "~", "syncthing"]]'
+      register: final_app_state
+      changed_when: false
+
+    - name: Display deployed Syncthing instances
+      ansible.builtin.debug:
+        msg: |
+          Deployed Syncthing instances:
+          {% for app in (final_app_state.stdout | from_json) %}
+          - {{ app.name }}: state={{ app.state | default('unknown') }}
+          {% endfor %}
+      when: final_app_state.stdout is defined and (final_app_state.stdout | from_json | length) > 0
+
+    - name: "WARNING - Set admin password immediately!"
+      ansible.builtin.debug:
+        msg: >-
+          {{ '\033[1;31m' }}
+          ╔══════════════════════════════════════════════════════════════════╗
+          ║  WARNING: Syncthing instances have NO admin password by default ║
+          ║                                                                 ║
+          ║  You MUST open each Syncthing Web UI and set a GUI password     ║
+          ║  immediately! Without a password, anyone on your network can    ║
+          ║  access and control your Syncthing instances.                   ║
+          ║                                                                 ║
+          ║  Web UIs:                                                       ║
+          {% for inst in syncthing_instances.values() %}
+          ║    - {{ inst.app_name }}: http://{{ inventory_hostname }}:{{ inst.web_port | default(syncthing_app_defaults.default_web_port) }}/{{ ''.ljust(62 - inst.app_name | length - (inst.web_port | default(syncthing_app_defaults.default_web_port) | string | length) - (inventory_hostname | length) - 11) }}║
+          {% endfor %}
+          ║                                                                 ║
+          ║  Settings → GUI → GUI Authentication User / Password            ║
+          ╚══════════════════════════════════════════════════════════════════╝
+          {{ '\033[0m' }}

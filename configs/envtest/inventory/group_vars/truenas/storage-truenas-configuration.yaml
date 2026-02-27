@@ -1,0 +1,128 @@
+---
+# Test environment seeds for TrueNAS SCALE ongoing configuration
+#
+# Hosts are defined in hosts.yaml (truenas group)
+
+# ---------- Environment seed variables ----------
+# localdomain, ad_domain_short: provided by common-seeds.yaml
+# truenas_hostname, truenas_admin_username: provided by host_vars on truenas-scale in hosts.yaml
+nfs_allowed_network: "10.10.0.0/16"
+
+# Disks subject to HDD sleep policy
+truenas_hdd_sleep_disks:
+  - "sdb"
+
+# ---------- Datasets (test - minimal with test users) ----------
+# ACL groups use {{ ad_domain_short }} seed for domain prefix
+# NFS networks use {{ nfs_allowed_network }} seed
+datasets:
+  DocsFamily:
+    name: "data/DocsFamily"
+    type: "filesystem"
+    description: "Family documents shared storage"
+    compression: "LZ4"
+    acl_type: "NFSV4"
+    acl_groups:
+      - { name: "{{ ad_domain_short }}\\family", read: true, write: false, execute: true }
+      - { name: "{{ ad_domain_short }}\\parents", read: true, write: true, execute: true }
+    acl_users: []
+    quota_gb: null
+    quota_warning_pct: 80
+    smb:
+      enabled: true
+      browsable: true
+    nfs:
+      enabled: true
+      allowed_networks:
+        - "{{ nfs_allowed_network }}"
+
+  DocsUsers:
+    name: "data/DocsUsers"
+    type: "filesystem"
+    description: "Per-user document storage (parent dataset)"
+    compression: "LZ4"
+    acl_type: "NFSV4"
+    acl_groups:
+      - { name: "{{ ad_domain_short }}\\parents", read: true, write: true, execute: true }
+      - { name: "{{ ad_domain_short }}\\family", read: true, write: false, execute: true }
+    acl_users: []
+    quota_gb: null
+    quota_warning_pct: 80
+    smb:
+      enabled: true
+      browsable: true
+    nfs:
+      enabled: false
+
+  DocsUsers_testuser1:
+    name: "data/DocsUsers/testuser1"
+    type: "filesystem"
+    description: "Personal documents for Test User 1"
+    compression: "LZ4"
+    acl_type: "NFSV4"
+    acl_groups:
+      - { name: "{{ ad_domain_short }}\\parents", read: true, write: true, execute: true }
+    acl_users:
+      - { name: "{{ ad_domain_short }}\\testuser1", read: true, write: true, execute: true }
+    quota_gb: 10
+    quota_warning_pct: 80
+    children:
+      - name: "TestSubDir1"
+        quota_gb: 5
+        children:
+          - name: "Nested1"
+            quota_gb: 2
+          - name: "Nested2"
+      - name: "TestSubDir2"
+
+  DocsUsers_testuser2:
+    name: "data/DocsUsers/testuser2"
+    type: "filesystem"
+    description: "Personal documents for Test User 2"
+    compression: "LZ4"
+    acl_type: "NFSV4"
+    acl_groups:
+      - { name: "{{ ad_domain_short }}\\parents", read: true, write: true, execute: true }
+    acl_users:
+      - { name: "{{ ad_domain_short }}\\testuser2", read: true, write: true, execute: true }
+    quota_gb: 10
+    quota_warning_pct: 80
+
+  # -------------------- Apps Storage --------------------
+  Apps:
+    name: "data/Apps"
+    type: "filesystem"
+    description: "Container/app storage for TrueNAS Docker apps"
+    compression: "LZ4"
+    acl_type: "NFSV4"
+    share_type: "APPS"
+    acl_groups:
+      - { name: "{{ ad_domain_short }}\\parents", read: true, write: true, execute: true }
+    acl_users: []
+    quota_gb: 10
+    quota_warning_pct: 80
+    smb:
+      enabled: false
+      browsable: false
+    nfs:
+      enabled: false
+
+  Fotos:
+    name: "data/Fotos"
+    type: "filesystem"
+    description: "Family photo storage"
+    compression: "LZ4"
+    acl_type: "NFSV4"
+    acl_groups:
+      - { name: "{{ ad_domain_short }}\\family", read: true, write: false, execute: true }
+      - { name: "{{ ad_domain_short }}\\parents", read: true, write: true, execute: true }
+    acl_users: []
+    quota_gb: null
+    quota_warning_pct: 80
+    smb:
+      enabled: true
+      browsable: true
+    nfs:
+      enabled: true
+      allowed_networks:
+        - "{{ nfs_allowed_network }}"

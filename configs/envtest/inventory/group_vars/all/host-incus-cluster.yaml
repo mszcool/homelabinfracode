@@ -1,0 +1,63 @@
+---
+# Test environment seeds for Incus cluster hosts
+#
+# Note: root_user is defined here and applies to all hosts via group_vars/all.
+# Edge devices override root_user in group_vars/edge_devices/config.yaml.
+
+# ---------- Environment seed variables ----------
+# localdomain: provided by common-seeds.yaml
+root_user: "testadmin"
+root_user_fullname: "test admin user"
+root_user_password_env: "TEST_ROOT_PASSWORD"
+root_user_publickey: "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQCg0Y6vbXyN0q70R2Wkl6HhrH3GoE8163Uv19xFSmMrLJ2bFtzpGttlJ8tpHFWIh4eIKss0oq5TydCUC0p2c5v48Oj318y4CO9EBTtPafgzHyz6PkvBqL6uFv8NN8TvLZdwMaKdEpdVDLB+WD8dXqf+fPe8atY2YbIkd5XDIE1wjvjrA8Br6iSjNcaIW4jpsUNWKufEM+zkiYyVrTEIn/AMCA2E2eCJCasSq3sj/8R5ujJqTFxjo46XGhbjbsx4QRDzkApJVyKeA5+zv6DoRyBEFOmZ6MQjMqtPPtdtZwflRZ8GMKyRTMqgmnG0N6CFsd5aIHZ2plZljHF82U3LaX1D"
+
+# Incus sizing seeds (test - smaller)
+incus_profile_disk_production: "50GiB"
+incus_project_limit_production: "200GiB"
+incus_project_limit_default: "100GiB"
+
+# Preseed output directory (test path)
+incus_preseed_output_dir: "../../configs/incus"
+
+# Incus client certificate paths (used by incus_trusted_clients in base)
+incus_cert_full_access: "../../configs/incus/trusted-client-certs/dev-workstation1.crt"
+incus_cert_limited_access: "../../configs/incus/trusted-client-certs/dev-workstation2.crt"
+
+# ---------- Hardware configurations (test - virtual/simulated) ----------
+host_configs:
+  - name: "msz_single_disk_server"
+    virtual_disk_config:
+      devices_in_scope:
+        - device: "sda"
+      root_partition:
+        device: "sda"
+        size_MB: "20480"
+      volume_group_volumes:
+        images:
+          size_MB: "51200"
+        instances:
+          all_remaining_space: true
+    network_config:
+      physical_network_parent: "eth0"
+  - name: "msz_dual_disk_server"
+    virtual_disk_config:
+      devices_in_scope:
+        - device: "sda"
+        - device: "sdb"
+      root_partition:
+        device: "sda"
+        size_MB: "20480"
+      volume_group_volumes:
+        images:
+          size_MB: "51200"
+        instances:
+          all_remaining_space: true
+    network_config:
+      physical_network_parent: "eth0"
+
+# ---------- Trusted client certificates ----------
+# Uses shared structure from base; certificate paths from common-seeds.yaml.
+# Uncomment and override incus_trusted_clients here if test needs different clients.
+
+# ISO images (test - none by default, overrides base)
+iso_images: []

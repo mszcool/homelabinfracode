@@ -1,0 +1,18 @@
+---
+# Base (shared) constants for Raspberry Pi edge devices
+#
+# Environment-specific overrides are provided by:
+#   <env>/group_vars/edge_devices/config.yaml
+#   (e.g., configs/envtest/inventory/ or configs.private/envprod/inventory/)
+
+# WiFi country code (same across environments)
+wifi_country: "AT"
+
+# Firewall allowed ports (same across all edge devices)
+edge_fw_allowed_ports:
+  - "80"
+  - "443"
+  - "67"
+  - "68"
+  - "53"
+  - "22"

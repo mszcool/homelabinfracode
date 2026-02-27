@@ -1,0 +1,17 @@
+---
+# Base (shared) constants for identity management
+#
+# Environment-specific overrides are provided by:
+#   <env>/group_vars/identityprovider/identity-configuration.yaml
+#   (e.g., configs/envtest/inventory/ or configs.private/envprod/inventory/)
+
+# Group definitions for identity provider (same across environments)
+identity_groups:
+  - name: "Parents"
+    description: "Administrators of family content such as photos and files"
+  - name: "Kids"
+    description: "Kids of the family with read access to photos and files"
+  - name: "Family"
+    description: "Members of family with read-access to sensitive files such as photos"
+  - name: "FamilyExtended"
+    description: "Family members including grandparents with read-access to things such as photos"

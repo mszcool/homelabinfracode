@@ -68,7 +68,144 @@
       loop_control:
         label: "{{ (item.stdout | from_json | first).devname | default('unknown') }} -> {{ system_settings.hdd_sleep | default(20) }} minutes"
 
-    # ==================== Dataset Configuration ====================
+    # ==================== Expand Datasets with Children ====================
+    # Children inherit all parent properties except: name, description, smb, nfs, share_type.
+    # Children can optionally override: quota_gb, description.
+    # Nesting is recursive — children can have their own children at any depth.
+    # Child dataset name = parent_name/child_name (concatenated through the tree).
+    # Implemented via filter_plugins/expand_datasets.py (Jinja2 cannot recurse).
+    - name: Expand datasets to include child definitions (recursive)
+      ansible.builtin.set_fact:
+        datasets_expanded: "{{ datasets | default({}) | expand_datasets }}"
+
+    # ==================== Validate Children Quotas ====================
+    # Fail early if any parent's children have quotas that sum to more than
+    # the parent's own quota. Checked recursively at every nesting level.
+    - name: Validate children quota sums do not exceed parent quotas
+      ansible.builtin.set_fact:
+        _quota_errors: "{{ datasets | default({}) | validate_dataset_quotas }}"
+
+    - name: Fail if children quota validation errors found
+      ansible.builtin.fail:
+        msg: |-
+          Dataset children quota validation failed:
+          {% for err in _quota_errors %}
+            - {{ err }}
+          {% endfor %}
+      when: _quota_errors | length > 0
+
+    # ==================== Dataset Configuration ==
+    # Manage datasets that require share_type (e.g., "APPS") via midclt,
+    # since arensb.truenas.filesystem does not support the share_type parameter.
+    # - New datasets: created via pool.dataset.create with share_type (create-time only)
+    # - Existing datasets: updated via pool.dataset.update with inventory-configurable
+    #   properties (see https://api.truenas.com/v25.10/api_methods_pool.dataset.update.html)
+    # Scoped to properties configurable in inventory: comments, compression, acltype,
+    # aclmode, quota, quota_warning, recordsize, sync, atime.
+    - name: Manage datasets with share_type via midclt (create or update)
+      ansible.builtin.shell: |
+        set -euo pipefail
+
+        DS_NAME="{{ ds.name }}"
+
+        # Build the update payload from inventory-configurable properties
+        # These map to pool.dataset.update parameters
+        UPDATE_PAYLOAD=$(python3 -c "
+        import json, sys
+
+        ds = json.loads(sys.argv[1])
+        payload = {}
+
+        # comments (from description)
+        if ds.get('description'):
+            payload['comments'] = ds['description']
+
+        # compression
+        if ds.get('compression'):
+            payload['compression'] = ds['compression']
+
+        # acltype (from acl_type)
+        if ds.get('acl_type'):
+            payload['acltype'] = ds['acl_type']
+
+        # aclmode (derived: PASSTHROUGH when NFSV4, else omitted)
+        if ds.get('acl_mode'):
+            payload['aclmode'] = ds['acl_mode']
+        elif ds.get('acl_type') == 'NFSV4':
+            payload['aclmode'] = 'PASSTHROUGH'
+
+        # quota (from quota_gb, converted to bytes; null/0 means no quota)
+        if ds.get('quota_gb') is not None and ds['quota_gb']:
+            payload['quota'] = int(ds['quota_gb'] * 1024 * 1024 * 1024)
+        elif ds.get('quota_gb') is not None and not ds['quota_gb']:
+            payload['quota'] = 0
+
+        # quota_warning (from quota_warning_pct, 0-100)
+        if ds.get('quota_warning_pct') is not None:
+            payload['quota_warning'] = int(ds['quota_warning_pct'])
+
+        # recordsize (from record_size)
+        if ds.get('record_size'):
+            payload['recordsize'] = ds['record_size']
+
+        # sync
+        if ds.get('sync'):
+            payload['sync'] = ds['sync']
+
+        # atime
+        if ds.get('atime'):
+            payload['atime'] = ds['atime']
+
+        print(json.dumps(payload))
+        " '{{ ds_json }}')
+
+        # Check if dataset already exists
+        EXISTING=$(midclt call pool.dataset.query '[["name", "=", "'"$DS_NAME"'"]]')
+        COUNT=$(echo "$EXISTING" | python3 -c 'import sys,json; print(len(json.loads(sys.stdin.read())))')
+
+        if [ "$COUNT" -gt 0 ]; then
+          # Dataset exists - update with inventory-configurable properties
+          if [ "$UPDATE_PAYLOAD" = "{}" ]; then
+            echo "UNCHANGED: Dataset $DS_NAME exists, no properties to update"
+            exit 0
+          fi
+          midclt call pool.dataset.update "$DS_NAME" "$UPDATE_PAYLOAD" > /dev/null
+          echo "UPDATED: Dataset $DS_NAME properties updated"
+        else
+          # Dataset does not exist - create with share_type + properties
+          CREATE_PAYLOAD=$(python3 -c "
+        import json, sys
+        update = json.loads(sys.argv[1])
+        create = {
+            'name': sys.argv[2],
+            'type': 'FILESYSTEM',
+            'share_type': sys.argv[3],
+            'create_ancestors': True
+        }
+        # Merge updatable properties into create payload
+        create.update(update)
+        print(json.dumps(create))
+          " "$UPDATE_PAYLOAD" "$DS_NAME" "{{ ds.share_type }}")
+          midclt call pool.dataset.create "$CREATE_PAYLOAD" > /dev/null
+          echo "CREATED: Dataset $DS_NAME with share_type={{ ds.share_type }}"
+        fi
+      args:
+        executable: /bin/bash
+      vars:
+        ds: "{{ item.value }}"
+        pool_name: "{{ ds.name.split('/')[0] }}"
+        ds_json: "{{ item.value | to_json }}"
+      loop: "{{ datasets_expanded | dict2items if datasets_expanded is defined else [] }}"
+      when:
+        - ds.share_type is defined
+        - pool_name in truenas_pools
+      register: share_type_manage
+      changed_when: >-
+        share_type_manage.stdout is defined and
+        ('CREATED' in share_type_manage.stdout or 'UPDATED' in share_type_manage.stdout)
+      loop_control:
+        label: "{{ item.value.name }} (share_type={{ item.value.share_type | default('N/A') }})"
+
     - name: Create datasets (only when pool exists)
       vars:
         ds: "{{ item.value }}"
@@ -86,7 +223,7 @@
         aclmode: "{{ ds.acl_mode | default('PASSTHROUGH' if ds.acl_type | default('') == 'NFSV4' else omit) }}"
         create_ancestors: true
         state: present
-      loop: "{{ datasets | dict2items if datasets is defined else [] }}"
+      loop: "{{ datasets_expanded | dict2items if datasets_expanded is defined else [] }}"
       when: "pool_name in truenas_pools"
       loop_control:
         label: "{{ item.value.name }}"
@@ -97,7 +234,7 @@
     # ACL entries are built from acl_groups and acl_users in dataset definitions.
     - name: Apply NFSv4 ACLs to datasets
       ansible.builtin.include_tasks: tasks/storage-truenas-configure-apply-acl.yaml
-      loop: "{{ datasets | dict2items if datasets is defined else [] }}"
+      loop: "{{ datasets_expanded | dict2items if datasets_expanded is defined else [] }}"
       when:
         - item.value.acl_type | default('') == 'NFSV4'
         - (item.value.acl_groups | default([]) | length > 0) or (item.value.acl_users | default([]) | length > 0)
