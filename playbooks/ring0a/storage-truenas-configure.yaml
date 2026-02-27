@@ -68,7 +68,33 @@
       loop_control:
         label: "{{ (item.stdout | from_json | first).devname | default('unknown') }} -> {{ system_settings.hdd_sleep | default(20) }} minutes"
 
-    # ==================== Dataset Configuration ====================
+    # ==================== Expand Datasets with Children ====================
+    # Children inherit all parent properties except: name, description, smb, nfs, share_type.
+    # Children can optionally override: quota_gb, description.
+    # Nesting is recursive — children can have their own children at any depth.
+    # Child dataset name = parent_name/child_name (concatenated through the tree).
+    # Implemented via filter_plugins/expand_datasets.py (Jinja2 cannot recurse).
+    - name: Expand datasets to include child definitions (recursive)
+      ansible.builtin.set_fact:
+        datasets_expanded: "{{ datasets | default({}) | expand_datasets }}"
+
+    # ==================== Validate Children Quotas ====================
+    # Fail early if any parent's children have quotas that sum to more than
+    # the parent's own quota. Checked recursively at every nesting level.
+    - name: Validate children quota sums do not exceed parent quotas
+      ansible.builtin.set_fact:
+        _quota_errors: "{{ datasets | default({}) | validate_dataset_quotas }}"
+
+    - name: Fail if children quota validation errors found
+      ansible.builtin.fail:
+        msg: |-
+          Dataset children quota validation failed:
+          {% for err in _quota_errors %}
+            - {{ err }}
+          {% endfor %}
+      when: _quota_errors | length > 0
+
+    # ==================== Dataset Configuration ==
     # Manage datasets that require share_type (e.g., "APPS") via midclt,
     # since arensb.truenas.filesystem does not support the share_type parameter.
     # - New datasets: created via pool.dataset.create with share_type (create-time only)
@@ -169,7 +195,7 @@
         ds: "{{ item.value }}"
         pool_name: "{{ ds.name.split('/')[0] }}"
         ds_json: "{{ item.value | to_json }}"
-      loop: "{{ datasets | dict2items if datasets is defined else [] }}"
+      loop: "{{ datasets_expanded | dict2items if datasets_expanded is defined else [] }}"
       when:
         - ds.share_type is defined
         - pool_name in truenas_pools
@@ -197,7 +223,7 @@
         aclmode: "{{ ds.acl_mode | default('PASSTHROUGH' if ds.acl_type | default('') == 'NFSV4' else omit) }}"
         create_ancestors: true
         state: present
-      loop: "{{ datasets | dict2items if datasets is defined else [] }}"
+      loop: "{{ datasets_expanded | dict2items if datasets_expanded is defined else [] }}"
       when: "pool_name in truenas_pools"
       loop_control:
         label: "{{ item.value.name }}"
@@ -208,7 +234,7 @@
     # ACL entries are built from acl_groups and acl_users in dataset definitions.
     - name: Apply NFSv4 ACLs to datasets
       ansible.builtin.include_tasks: tasks/storage-truenas-configure-apply-acl.yaml
-      loop: "{{ datasets | dict2items if datasets is defined else [] }}"
+      loop: "{{ datasets_expanded | dict2items if datasets_expanded is defined else [] }}"
       when:
         - item.value.acl_type | default('') == 'NFSV4'
         - (item.value.acl_groups | default([]) | length > 0) or (item.value.acl_users | default([]) | length > 0)

@@ -66,6 +66,14 @@ datasets:
       - { name: "{{ ad_domain_short }}\\testuser1", read: true, write: true, execute: true }
     quota_gb: 10
     quota_warning_pct: 80
+    children:
+      - name: "TestSubDir1"
+        quota_gb: 5
+        children:
+          - name: "Nested1"
+            quota_gb: 2
+          - name: "Nested2"
+      - name: "TestSubDir2"
 
   DocsUsers_testuser2:
     name: "data/DocsUsers/testuser2"
