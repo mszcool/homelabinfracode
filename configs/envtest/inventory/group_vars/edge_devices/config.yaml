@@ -10,5 +10,5 @@
 # SSH user for Raspberry Pi edge devices (overrides all-level root_user)
 root_user: "testadmin"
 
-# Environment variable name for WiFi password
-wifi_password_env: "TEST_WIFI_PASSWORD"
+# WiFi password from 1Password vault
+wifi_password: "{{ lookup('community.general.onepassword', 'WiFi Password', field='password', vault=op_vault_name) }}"

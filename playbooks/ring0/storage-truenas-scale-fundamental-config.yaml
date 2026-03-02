@@ -17,6 +17,10 @@
   gather_facts: false
 
   pre_tasks:
+    - name: Pre-flight -- Validate 1Password connectivity
+      ansible.builtin.include_tasks:
+        file: ../tasks/validate_onepassword.yaml
+
     - name: Display configuration summary
       debug:
         msg: |
@@ -69,14 +73,14 @@
           '{"sshpubkey": "{{ truenas_admin_ssh_pubkey }}\n"}'
       when: (admin_user_query.stdout | from_json | length) > 0
 
-    - name: Update admin account password from environment variable
+    - name: Update admin account password from 1Password vault
       ansible.builtin.command:
         cmd: >
           midclt call user.update {{ admin_user_query.stdout | from_json | first | json_query('id') }}
-          '{"password": "{{ lookup('env', truenas_admin_pwd_env) }}"}'
+          '{"password": "{{ truenas_admin_password }}"}'
       when:
         - (admin_user_query.stdout | from_json | length) > 0
-        - lookup('env', truenas_admin_pwd_env, default='') | length > 0
+        - truenas_admin_password | default('') | length > 0
       changed_when: true
 
     # ==================== Localization Configuration ====================

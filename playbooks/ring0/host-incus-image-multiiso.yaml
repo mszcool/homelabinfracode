@@ -19,7 +19,7 @@
   vars:
     param_root_user_name: "{{ root_user }}"
     param_root_user_fullname: "{{ root_user_fullname }}"
-    param_root_user_password_clear: "{{ lookup('env', root_user_password_env) }}"
+    param_root_user_password_clear: "{{ root_user_password }}"
     param_root_user_publickey: "{{ root_user_publickey }}"
     param_iso_source_url: "{{ iso_source_url }}"
     param_iso_source_path: "{{ lookup('env', 'HOME') }}{{ iso_source_path }}"
@@ -33,6 +33,10 @@
     param_preseed_output_dir: "{{ incus_preseed_output_dir | default('configs') }}"
 
   tasks:
+    - name: Pre-flight -- Validate 1Password connectivity
+      ansible.builtin.include_tasks:
+        file: ../tasks/validate_onepassword.yaml
+
     - name: Pre-requisites -- Ensure the ~/iso directory exists
       ansible.builtin.file:
         path: "{{ param_iso_destination_path | expanduser }}"

@@ -7,13 +7,12 @@
 #   - Ubuntu 24.04 LTS installed on the target host
 #   - Static IP address configured via router DHCP reservation (MAC: 00:16:3e:11:00:10)
 #   - SSH access to the target host
-#
-# Required environment variables:
-#   SAMBA4_ADMIN_PASSWORD: Domain administrator password (min 8 chars, must include uppercase, number, special)
+#   - 1Password CLI (op) v2+ installed
+#   - OP_SERVICE_ACCOUNT_TOKEN set with access to the configured vault
+#   - 'Samba4 Domain Admin Password' item in 1Password vault (min 8 chars, uppercase, number, special)
 #
 # Usage:
-#   # Set environment variables
-#   export SAMBA4_ADMIN_PASSWORD="YourPassword123!"
+#   export OP_SERVICE_ACCOUNT_TOKEN="<your-token>"
 #
 #   # Run the playbook
 #   ansible-playbook -i configs.private/ring0/samba4-addc-inventory.yaml \
@@ -25,17 +24,17 @@
   gather_facts: true
   
   pre_tasks:
-    - name: Validate required environment variables
+    - name: Validate that Samba4 admin password is available from 1Password
       ansible.builtin.assert:
         that:
-          - lookup('env', samba4_addc.admin_pwd_env) != ""
+          - samba4_addc.admin_password | default('') | length > 0
         fail_msg: |
-          Required environment variable is missing:
-          - {{ samba4_addc.admin_pwd_env }}: Domain administrator password
+          Samba4 admin password not available from 1Password.
+          Ensure OP_SERVICE_ACCOUNT_TOKEN is set and 'Samba4 Domain Admin Password' item exists in the configured vault.
     
-    - name: Set admin password from environment variable
+    - name: Set admin password from 1Password
       ansible.builtin.set_fact:
-        samba4_admin_password: "{{ lookup('env', samba4_addc.admin_pwd_env) }}"
+        samba4_admin_password: "{{ samba4_addc.admin_password }}"
       no_log: yes
     
     - name: Validate admin password complexity

@@ -103,8 +103,8 @@ samba4_addc:
   domain: "{{ ad_domain_short }}"
   dns_domain: "ad.{{ localdomain }}"
 
-  # Administrator account
-  admin_pwd_env: "SAMBA4_DOMAIN_ADMIN_PASSWORD"
+  # Administrator account password from 1Password
+  admin_password: "{{ lookup('community.general.onepassword', 'Samba4 Domain Admin Password', field='password', vault=op_vault_name) }}"
 
   # DNS configuration (gateway + external DNS from common-seeds)
   dns_forwarders: "{{ [samba4_addc_gateway] + external_dns_servers }}"

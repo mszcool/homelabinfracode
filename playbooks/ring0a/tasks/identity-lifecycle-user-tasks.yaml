@@ -22,24 +22,26 @@
   register: user_create_result
   when: user_exists_check.rc != 0
 
-- name: Set password on user creation if PWD env var is provided
+- name: Set password on user creation if 1Password item is configured for user
   ansible.builtin.shell:
-    cmd: "samba-tool user setpassword '{{ user.name }}' --newpassword='{{ lookup('env', user.name + '_PWD') }}' "
+    cmd: "samba-tool user setpassword '{{ user.name }}' --newpassword='{{ lookup('community.general.onepassword', user.op_item, field='password', vault=user.op_vault) }}' "
   when:
     - user_exists_check.rc != 0
-    - lookup('env', user.name + '_PWD', default='') | length > 0
+    - user.op_vault is defined and user.op_vault | length > 0
+    - user.op_item is defined and user.op_item | length > 0
 
 - name: Update user name and surname details if exists
   ansible.builtin.shell:
     cmd: "samba-tool user rename '{{ user.name }}' --given-name='{{ user.givenName }}' --surname='{{ user.surname }}' --display-name='{{ user.givenName }} {{ user.surname }}' "
   when: user_exists_check.rc == 0
 
-- name: Update password if user exists and PWD env var is provided
+- name: Update password if user exists and 1Password item is configured for user
   ansible.builtin.shell:
-    cmd: "samba-tool user setpassword '{{ user.name }}' --newpassword='{{ lookup('env', user.name + '_PWD') }}' "
+    cmd: "samba-tool user setpassword '{{ user.name }}' --newpassword='{{ lookup('community.general.onepassword', user.op_item, field='password', vault=user.op_vault) }}' "
   when:
     - user_exists_check.rc == 0
-    - lookup('env', user.name + '_PWD', default='') | length > 0
+    - user.op_vault is defined and user.op_vault | length > 0
+    - user.op_item is defined and user.op_item | length > 0
 
 - name: Add user to each assigned group
   ansible.builtin.shell:

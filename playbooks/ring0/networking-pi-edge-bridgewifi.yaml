@@ -6,7 +6,7 @@
   remote_user: "{{ root_user }}"
 
   vars:
-    edge_wifi_password: "{{ lookup('env', wifi_password_env) }}"
+    edge_wifi_password: "{{ wifi_password }}"
     param_edge_main_adapter: "{{ hostvars[inventory_hostname].main_adapter }}"
     param_edge_wifi_adapter: "{{ hostvars[inventory_hostname].edge_wifi_adapter }}"
     param_edge_local_wifi_name: "{{ hostvars[inventory_hostname].edge_local_wifi_name }}"
@@ -14,13 +14,11 @@
     param_edge_fw_allowed_ports: "{{ hostvars[inventory_hostname].edge_fw_allowed_ports }}"
 
   tasks:
-    - name: Pre-Checks - Check if the WIFI password environment variable is set
-      vars:
-        env_var_name: "{{ wifi_password_env }}"
+    - name: Pre-Checks - Validate WiFi password is available from 1Password
       ansible.builtin.assert:
         that:
-          - lookup('env', env_var_name)
-        fail_msg: "Please set the {{ env_var_name }} environment variable before executing this playbook!"
+          - edge_wifi_password | default('') | length > 0
+        fail_msg: "WiFi password not available. Ensure OP_SERVICE_ACCOUNT_TOKEN is set and 'WiFi Password' item exists in the configured 1Password vault."
 
     - name: Prepare - Install additional pre-requisites for WiFi bridging
       ansible.builtin.apt:

@@ -18,13 +18,13 @@
       ansible.builtin.hostname:
         name: "{{ param_hostname }}"
 
-    - name: If the environment variable for the password is set, set input variable for the password generation tasks.
+    - name: If the root user password is provided, set input variable for the password generation tasks.
       ansible.builtin.set_fact:
-        generate_password_input: "{{ lookup('env', root_user_password_env) | default('') }}"
-      when: lookup('env', root_user_password_env) | default('') | length > 0
+        generate_password_input: "{{ root_user_password | default('') }}"
+      when: root_user_password is defined and root_user_password | default('') | length > 0
       no_log: true
 
-    - name: If the environment variable in root_user_password_env is set, update the password.
+    - name: If the root user password is set, update the password.
       ansible.builtin.user:
         name: "{{ root_user }}"
         password: "{{ generate_password_input | password_hash('sha512') }}"

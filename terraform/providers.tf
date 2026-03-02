@@ -6,3 +6,12 @@ provider "incus" {
   # Example: If INCUS_CONF=/home/mszcool/incus/ring0/
   # Then Terraform will use the remotes configured in that directory
 }
+
+provider "onepassword" {
+  # Authentication via OP_SERVICE_ACCOUNT_TOKEN environment variable
+  # The service account must have access to the vault specified in var.op_vault_name
+  #
+  # Usage:
+  #   export OP_SERVICE_ACCOUNT_TOKEN="<your-service-account-token>"
+  #   terraform plan -var-file=...
+}
