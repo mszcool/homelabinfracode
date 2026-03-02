@@ -7,7 +7,7 @@
 
   vars:
     ansible_connection: ansible.netcommon.network_cli
-    ansible_network_os: community.network.routeros
+    ansible_network_os: community.routeros.routeros
     param_firewall_rule_groups: "{{ firewall_rules }}"
     param_devices_mapped: "{{ devices_mapped }}"
     param_networks: "{{ networks }}"
@@ -178,11 +178,6 @@
     - name: Clean-Up -- DHCP Leases -- Populate the array with the configured static DHCP leases
       ansible.builtin.set_fact:
         configured_dhcp_leases: "{{ configured_dhcp_leases + [device_group.group + ' - ' + device.alias] }}"
-      loop: "{{ devices_mapped }}"
-      loop_control:
-        label: "{{ item.group }}"
-      vars:
-        device_group: "{{ item }}"
       loop: "{{ devices_mapped | subelements('members') }}"
       loop_control:
         label: "{{ item.0.group }} - {{ item.1.alias }}"
