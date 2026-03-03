@@ -17,10 +17,10 @@
   gather_facts: false
 
   vars:
-    param_root_user_name: "{{ root_user }}"
-    param_root_user_fullname: "{{ root_user_fullname }}"
-    param_root_user_password_clear: "{{ root_user_password }}"
-    param_root_user_publickey: "{{ root_user_publickey }}"
+    param_root_user_name: "{{ incus_root_user }}"
+    param_root_user_fullname: "{{ incus_root_user_fullname }}"
+    param_root_user_password_clear: "{{ incus_root_user_password }}"
+    param_root_user_publickey: "{{ incus_root_user_publickey }}"
     param_iso_source_url: "{{ iso_source_url }}"
     param_iso_source_path: "{{ lookup('env', 'HOME') }}{{ iso_source_path }}"
     param_iso_destination_path: "{{ lookup('env', 'HOME') }}{{ iso_destination_path }}"
@@ -181,7 +181,7 @@
         dest: "{{ param_iso_working_path }}/configs/common/incus-firstboot-setup.sh"
         mode: '0755'
       vars:
-        tp_root_user: "{{ root_user }}"
+        tp_root_user: "{{ incus_root_user }}"
         tp_incus_config: "{{ param_incus_config }}"
         tp_production_projects: "{{ discovered_project_files.files | map(attribute='path') | map('basename') | map('regex_replace', '\\.yaml$', '') | list }}"
 

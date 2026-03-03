@@ -3,7 +3,6 @@
   hosts: edge_devices
   become: true
   gather_facts: true
-  remote_user: "{{ root_user }}"
 
   vars:
     edge_wifi_password: "{{ wifi_password }}"

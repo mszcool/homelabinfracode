@@ -2,7 +2,6 @@
 - name: Import ISOs to Incus clusters
   hosts: incus
   gather_facts: true
-  remote_user: "{{ root_user }}"
 
   vars:
     # Default storage pool name

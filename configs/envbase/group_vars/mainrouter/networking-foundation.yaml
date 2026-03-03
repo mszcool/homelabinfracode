@@ -20,7 +20,13 @@
 #     lan_dhcp_pool_to:           Derived from ip_plan.dhcp_pool.to
 #     vlans:                      List of VLAN dicts (each with name, description,
 #                                 subnet, vlan_id, gateway, dhcp_settings, etc.)
-#     users:                      Admin user credentials and SSH keys
+#     router_root_name:           Router admin user name
+#     router_root_password:       Router admin password (1Password lookup)
+#     router_root_ssh_key:        Router admin SSH public key
+#     router_automation_name:     Router automation user name
+#     router_automation_password: Router automation password (1Password lookup)
+#     router_automation_ssh_key:  Router automation SSH public key
+#     ansible_user:               SSH connection user (resolves to router_automation_name)
 #     devices_mapped:             Device groups with MAC/IP assignments
 #                                 (ranges + infra IPs derived from ip_plan)
 

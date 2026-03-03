@@ -3,7 +3,6 @@
   hosts: mainrouter
   become: false
   gather_facts: false
-  remote_user: "{{ users.automation.name }}"
 
   vars:
     ansible_connection: ansible.netcommon.network_cli

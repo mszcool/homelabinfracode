@@ -6,14 +6,17 @@
   gather_facts: false
 
   vars:
+    # Override interpreter for connection: local — ansible.cfg's ~/pythonvenv path
+    # doesn't expand correctly when Ansible resolves it against the router host context.
+    ansible_python_interpreter: "{{ ansible_playbook_python }}"
     param_router_time_zone: "{{ timezone }}"
     param_firewall_rule_groups: "{{ firewall_rules }}"
-    param_root_user_name: "{{ users.root.name }}"
-    param_root_user_password: "{{ users.root.password }}"
-    param_root_user_ssh_pub_key: "{{ users.root.ssh_key }}"
-    param_automation_user_name: "{{ users.automation.name }}"
-    param_automation_user_password: "{{ users.automation.password }}"
-    param_automation_user_ssh_pub_key: "{{ users.automation.ssh_key }}"
+    param_root_user_name: "{{ router_root_name }}"
+    param_root_user_password: "{{ router_root_password }}"
+    param_root_user_ssh_pub_key: "{{ router_root_ssh_key }}"
+    param_automation_user_name: "{{ router_automation_name }}"
+    param_automation_user_password: "{{ router_automation_password }}"
+    param_automation_user_ssh_pub_key: "{{ router_automation_ssh_key }}"
     param_router_name: "{{ mainrouterconfig.hostname }}"
     param_wan_interface_list: "{{ mainrouterconfig.wan_interface_list }}"
     param_lan_interface_list: "{{ mainrouterconfig.lan_interface_list }}"

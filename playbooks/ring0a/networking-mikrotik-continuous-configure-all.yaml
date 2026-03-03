@@ -3,10 +3,8 @@
   hosts: mainrouter
   become: false
   gather_facts: false
-  remote_user: "{{ users.automation.name }}"
 
   vars:
-    ansible_user: "{{ users.automation.name }}"
     ansible_connection: ansible.netcommon.network_cli
     ansible_network_os: community.routeros.routeros
     ansible_command_timeout: 60

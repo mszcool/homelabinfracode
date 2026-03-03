@@ -35,15 +35,17 @@ vlans:
         to: "10.90.90.200"
 
 # Admin users (test credentials and keys)
-users:
-  root:
-    name: "admin"
-    password: "{{ lookup('community.general.onepassword', 'Router Root Password', field='password', vault=op_vault_name) }}"
-    ssh_key: "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQCg0Y6vbXyN0q70R2Wkl6HhrH3GoE8163Uv19xFSmMrLJ2bFtzpGttlJ8tpHFWIh4eIKss0oq5TydCUC0p2c5v48Oj318y4CO9EBTtPafgzHyz6PkvBqL6uFv8NN8TvLZdwMaKdEpdVDLB+WD8dXqf+fPe8atY2YbIkd5XDIE1wjvjrA8Br6iSjNcaIW4jpsUNWKufEM+zkiYyVrTEIn/AMCA2E2eCJCasSq3sj/8R5ujJqTFxjo46XGhbjbsx4QRDzkApJVyKeA5+zv6DoRyBEFOmZ6MQjMqtPPtdtZwflRZ8GMKyRTMqgmnG0N6CFsd5aIHZ2plZljHF82U3LaX1D"
-  automation:
-    name: "automation"
-    password: "{{ lookup('community.general.onepassword', 'Router Automation Password', field='password', vault=op_vault_name) }}"
-    ssh_key: "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQCg0Y6vbXyN0q70R2Wkl6HhrH3GoE8163Uv19xFSmMrLJ2bFtzpGttlJ8tpHFWIh4eIKss0oq5TydCUC0p2c5v48Oj318y4CO9EBTtPafgzHyz6PkvBqL6uFv8NN8TvLZdwMaKdEpdVDLB+WD8dXqf+fPe8atY2YbIkd5XDIE1wjvjrA8Br6iSjNcaIW4jpsUNWKufEM+zkiYyVrTEIn/AMCA2E2eCJCasSq3sj/8R5ujJqTFxjo46XGhbjbsx4QRDzkApJVyKeA5+zv6DoRyBEFOmZ6MQjMqtPPtdtZwflRZ8GMKyRTMqgmnG0N6CFsd5aIHZ2plZljHF82U3LaX1D"
+# Flattened from nested 'users' dict to group-specific router_* variables
+# to avoid naming conflicts with other groups.
+router_root_name: "admin"
+router_root_password: "{{ lookup('community.general.onepassword', 'Router Root Password', field='password', vault=op_vault_name) }}"
+router_root_ssh_key: "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQCg0Y6vbXyN0q70R2Wkl6HhrH3GoE8163Uv19xFSmMrLJ2bFtzpGttlJ8tpHFWIh4eIKss0oq5TydCUC0p2c5v48Oj318y4CO9EBTtPafgzHyz6PkvBqL6uFv8NN8TvLZdwMaKdEpdVDLB+WD8dXqf+fPe8atY2YbIkd5XDIE1wjvjrA8Br6iSjNcaIW4jpsUNWKufEM+zkiYyVrTEIn/AMCA2E2eCJCasSq3sj/8R5ujJqTFxjo46XGhbjbsx4QRDzkApJVyKeA5+zv6DoRyBEFOmZ6MQjMqtPPtdtZwflRZ8GMKyRTMqgmnG0N6CFsd5aIHZ2plZljHF82U3LaX1D"
+router_automation_name: "automation"
+router_automation_password: "{{ lookup('community.general.onepassword', 'Router Automation Password', field='password', vault=op_vault_name) }}"
+router_automation_ssh_key: "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQCg0Y6vbXyN0q70R2Wkl6HhrH3GoE8163Uv19xFSmMrLJ2bFtzpGttlJ8tpHFWIh4eIKss0oq5TydCUC0p2c5v48Oj318y4CO9EBTtPafgzHyz6PkvBqL6uFv8NN8TvLZdwMaKdEpdVDLB+WD8dXqf+fPe8atY2YbIkd5XDIE1wjvjrA8Br6iSjNcaIW4jpsUNWKufEM+zkiYyVrTEIn/AMCA2E2eCJCasSq3sj/8R5ujJqTFxjo46XGhbjbsx4QRDzkApJVyKeA5+zv6DoRyBEFOmZ6MQjMqtPPtdtZwflRZ8GMKyRTMqgmnG0N6CFsd5aIHZ2plZljHF82U3LaX1D"
+
+# SSH connection user for this group (overrides all-level default)
+ansible_user: "{{ router_automation_name }}"
 
 # Device groups with MAC/IP assignments (test - minimal set)
 devices_mapped:
