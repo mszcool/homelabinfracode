@@ -21,6 +21,7 @@ declare -A ENV_DIRS=(
 # Expected groups that should appear in a valid inventory
 EXPECTED_GROUPS=(
   "incus"
+  "incus_scope"
   "identityprovider"
   "truenas"
   "mainrouter"
@@ -77,7 +78,7 @@ validate_environment() {
   done
 
   # Check group-specific group_vars directories exist
-  local group_dirs=("mainrouter" "identityprovider" "truenas" "edge_devices")
+  local group_dirs=("incus_scope" "mainrouter" "identityprovider" "truenas" "edge_devices")
   for gd in "${group_dirs[@]}"; do
     if [[ ! -d "${base_path}group_vars/${gd}" ]]; then
       echo "  FAIL: missing base group_vars/${gd}/"
@@ -151,6 +152,15 @@ print(len(hosts))
         PASSED=$((PASSED + 1))
       else
         echo "  WARN: localhost may not see group_vars/all variables"
+      fi
+      # localhost should also see incus_scope variables (ISO build playbooks need them)
+      if echo "$var_output" | grep -q '"incus_root_user"'; then
+        echo "  OK:   localhost sees group_vars/incus_scope variables"
+        PASSED=$((PASSED + 1))
+      else
+        echo "  FAIL: localhost missing group_vars/incus_scope variables"
+        FAILED=$((FAILED + 1))
+        ERRORS="${ERRORS}\n  [${env}] localhost missing incus_scope variables"
       fi
     fi
 

@@ -1,15 +1,14 @@
 ---
 # Base (shared) constants for Incus cluster hosts
 #
-# NOTE: This file is intentionally in group_vars/all/ (not group_vars/incus/)
-# because it is consumed by both:
-#   - hosts: localhost playbooks (ISO image builds run locally)
-#   - hosts: incus playbooks (import ISOs, update nodes, disk PCI mapping)
-# localhost is not a member of the incus group, so placing this in
-# group_vars/incus/ would break the localhost playbooks.
+# This file lives in group_vars/incus_scope/ — a parent group that contains:
+#   - localhost (for ISO image build playbooks that run locally)
+#   - incus (bare-metal cluster nodes, as a child group)
+# This scoping ensures both localhost and incus hosts see these variables
+# without polluting group_vars/all/ with incus-specific configuration.
 #
 # Environment-specific seeds are provided by:
-#   <env>/group_vars/all/host-incus-cluster.yaml
+#   <env>/group_vars/incus_scope/host-incus-cluster.yaml
 #   (e.g., configs/envtest/inventory/ or configs.private/envprod/inventory/)
 #
 # Required seed variables:

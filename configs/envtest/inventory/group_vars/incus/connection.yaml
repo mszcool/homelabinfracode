@@ -1,0 +1,8 @@
+---
+# SSH connection settings for Incus bare-metal cluster nodes
+#
+# ansible_user is scoped to the incus group (not incus_scope) because it is
+# only meaningful for SSH connections to actual nodes. localhost uses
+# ansible_connection: local and does not need this.
+
+ansible_user: "{{ incus_root_user }}"
