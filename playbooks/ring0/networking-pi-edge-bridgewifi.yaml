@@ -13,11 +13,14 @@
     param_edge_fw_allowed_ports: "{{ hostvars[inventory_hostname].edge_fw_allowed_ports }}"
 
   tasks:
-    - name: Pre-Checks - Validate WiFi password is available from 1Password
+    - name: Pre-Checks - Validate WiFi password is available
       ansible.builtin.assert:
         that:
           - edge_wifi_password | default('') | length > 0
-        fail_msg: "WiFi password not available. Ensure OP_SERVICE_ACCOUNT_TOKEN is set and 'WiFi Password' item exists in the configured 1Password vault."
+        fail_msg: >
+          WiFi password not available.
+          Check group_vars/all/secrets-vault.yaml — ensure vault_wifi_password resolves
+          (via 1Password lookup or direct value in an ansible-vault encrypted file).
 
     - name: Prepare - Install additional pre-requisites for WiFi bridging
       ansible.builtin.apt:

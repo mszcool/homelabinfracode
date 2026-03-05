@@ -35,9 +35,9 @@
     param_iso_target_name: "{{ incus_iso_target_name | default('ubuntu-mszlab-unified-autoinstall.iso') }}"
 
   tasks:
-    - name: Pre-flight -- Validate 1Password connectivity
+    - name: Pre-flight -- Validate secrets backend connectivity
       ansible.builtin.include_tasks:
-        file: ../tasks/validate_onepassword.yaml
+        file: ../tasks/validate_secrets.yaml
 
     - name: Pre-requisites -- Ensure the ~/iso directory exists
       ansible.builtin.file:

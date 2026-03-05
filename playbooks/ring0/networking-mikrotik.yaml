@@ -41,12 +41,16 @@
       ansible.builtin.set_fact:
         param_script_file_phase2_name: "{{ param_router_name }}-phase2-bootstrap.rsc"
 
-    - name: Validate that router passwords are available from 1Password
+    - name: Validate that router passwords are available
       ansible.builtin.assert:
         that:
           - param_root_user_password | default('') | length > 0
           - param_automation_user_password | default('') | length > 0
-        fail_msg: "Router passwords not available. Ensure OP_SERVICE_ACCOUNT_TOKEN is set and 1Password items exist in the configured vault."
+        fail_msg: >
+          Router passwords not available.
+          Check group_vars/all/secrets-vault.yaml — ensure vault_router_root_password and
+          vault_router_automation_password resolve (via 1Password lookup or direct value
+          in an ansible-vault encrypted file).
 
     - name: Create SSL certificates directory if it doesn't exist
       ansible.builtin.file:

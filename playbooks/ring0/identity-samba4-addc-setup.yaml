@@ -24,15 +24,20 @@
   gather_facts: true
   
   pre_tasks:
-    - name: Validate that Samba4 admin password is available from 1Password
+    - name: Validate secrets backend connectivity
+      ansible.builtin.include_tasks:
+        file: ../tasks/validate_secrets.yaml
+
+    - name: Validate that Samba4 admin password is available
       ansible.builtin.assert:
         that:
           - samba4_addc.admin_password | default('') | length > 0
         fail_msg: |
-          Samba4 admin password not available from 1Password.
-          Ensure OP_SERVICE_ACCOUNT_TOKEN is set and 'Samba4 Domain Admin Password' item exists in the configured vault.
+          Samba4 admin password not available.
+          Check group_vars/all/secrets-vault.yaml — ensure vault_samba4_admin_password resolves
+          (via 1Password lookup or direct value in an ansible-vault encrypted file).
     
-    - name: Set admin password from 1Password
+    - name: Set admin password from secrets backend
       ansible.builtin.set_fact:
         samba4_admin_password: "{{ samba4_addc.admin_password }}"
       no_log: yes

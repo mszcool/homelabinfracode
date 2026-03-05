@@ -33,9 +33,9 @@
     param_preseed_output_dir: "{{ incus_preseed_output_dir | default('configs') }}"
 
   tasks:
-    - name: Pre-flight -- Validate 1Password connectivity
+    - name: Pre-flight -- Validate secrets backend connectivity
       ansible.builtin.include_tasks:
-        file: ../tasks/validate_onepassword.yaml
+        file: ../tasks/validate_secrets.yaml
 
     - name: Pre-requisites -- Ensure the ~/iso directory exists
       ansible.builtin.file:

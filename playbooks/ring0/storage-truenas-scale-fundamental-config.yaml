@@ -17,9 +17,9 @@
   gather_facts: false
 
   pre_tasks:
-    - name: Pre-flight -- Validate 1Password connectivity
+    - name: Pre-flight -- Validate secrets backend connectivity
       ansible.builtin.include_tasks:
-        file: ../tasks/validate_onepassword.yaml
+        file: ../tasks/validate_secrets.yaml
 
     - name: Display configuration summary
       debug:
