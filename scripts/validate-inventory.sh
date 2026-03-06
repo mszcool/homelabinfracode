@@ -25,8 +25,6 @@ EXPECTED_GROUPS=(
   "identityprovider"
   "truenas"
   "mainrouter"
-  "garage"
-  "pool"
   "edge_devices"
 )
 

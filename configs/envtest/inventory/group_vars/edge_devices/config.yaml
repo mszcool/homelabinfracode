@@ -10,6 +10,3 @@ edge_root_user: "testadmin"
 
 # SSH connection user for this group (overrides all-level default)
 ansible_user: "{{ edge_root_user }}"
-
-# WiFi password — resolved via secrets-vault.yaml (1Password lookup or direct value)
-edge_wifi_password: "{{ vault_edge_wifi_password }}"

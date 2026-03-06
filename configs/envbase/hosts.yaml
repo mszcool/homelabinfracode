@@ -39,12 +39,5 @@ all:
     # MikroTik main router (managed via localhost API)
     mainrouter:
 
-    # Raspberry Pi edge devices - individual site groups
-    garage:
-    pool:
-
-    # Parent group for all edge devices
+    # Raspberry Pi edge devices (garage-edge, pool-edge are hosts)
     edge_devices:
-      children:
-        garage:
-        pool:

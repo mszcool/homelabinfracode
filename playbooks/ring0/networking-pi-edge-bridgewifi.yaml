@@ -17,9 +17,10 @@
         that:
           - edge_wifi_password | default('') | length > 0
         fail_msg: >
-          WiFi password not available.
-          Check group_vars/all/secrets-vault.yaml — ensure vault_edge_wifi_password resolves
-          (via 1Password lookup or direct value in an ansible-vault encrypted file).
+          WiFi password not available for this host.
+          Check group_vars/all/secrets-vault.yaml — ensure vault_edge_wifi_passwords
+          contains an entry for this host (via 1Password lookups or direct values
+          in an ansible-vault encrypted file).
 
     - name: Prepare - Install additional pre-requisites for WiFi bridging
       ansible.builtin.apt:
