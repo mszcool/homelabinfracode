@@ -12,4 +12,4 @@ edge_root_user: "testadmin"
 ansible_user: "{{ edge_root_user }}"
 
 # WiFi password — resolved via secrets-vault.yaml (1Password lookup or direct value)
-wifi_password: "{{ vault_wifi_password }}"
+edge_wifi_password: "{{ vault_edge_wifi_password }}"

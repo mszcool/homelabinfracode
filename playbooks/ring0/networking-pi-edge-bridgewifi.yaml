@@ -5,7 +5,6 @@
   gather_facts: true
 
   vars:
-    edge_wifi_password: "{{ wifi_password }}"
     param_edge_main_adapter: "{{ hostvars[inventory_hostname].main_adapter }}"
     param_edge_wifi_adapter: "{{ hostvars[inventory_hostname].edge_wifi_adapter }}"
     param_edge_local_wifi_name: "{{ hostvars[inventory_hostname].edge_local_wifi_name }}"
@@ -19,7 +18,7 @@
           - edge_wifi_password | default('') | length > 0
         fail_msg: >
           WiFi password not available.
-          Check group_vars/all/secrets-vault.yaml — ensure vault_wifi_password resolves
+          Check group_vars/all/secrets-vault.yaml — ensure vault_edge_wifi_password resolves
           (via 1Password lookup or direct value in an ansible-vault encrypted file).
 
     - name: Prepare - Install additional pre-requisites for WiFi bridging
