@@ -205,10 +205,10 @@ all
 Terraform manages VM and container provisioning on Incus. The architecture separates concerns into ring-specific variable files:
 
 ```
-┌────────────────────────────────────────────────┐
+┌─────────────────────────────────────────────────┐
 │  terraform/                                     │
 │                                                 │
-│  versions.tf ─→ providers.tf ─→ variables.tf   │
+│  versions.tf ─→ providers.tf ─→ variables.tf    │
 │                                       │         │
 │                                  locals.tf      │
 │                                       │         │
@@ -224,7 +224,7 @@ Terraform manages VM and container provisioning on Incus. The architecture separ
 │     └── PCIe passthrough (optional)             │
 │                                                 │
 │  outputs.tf ─→ VM info (IPs, status, disks)     │
-└────────────────────────────────────────────────┘
+└─────────────────────────────────────────────────┘
 ```
 
 Each ring uses a separate `.tfvars` file:
