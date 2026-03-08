@@ -1,4 +1,8 @@
-# Incus Terraform Infrastructure
+# Terraform — README
+
+> **Context**: For the master architecture overview, see [Architecture](../02-architecture.md). For the Terraform documentation index, see [INDEX.md](./INDEX.md). For Ring 0 setup including Terraform provisioning, see [Ring 0 Setup](../04-ring0-setup.md).
+>
+> **Path conventions**: Tfvars at `configs/envtest/` (test) or `configs.private/envprod/` (production). Secrets via 1Password provider. See [Architecture](../02-architecture.md).
 
 This directory contains modular Terraform configurations for managing Incus VMs and containers on the homelab infrastructure.
 
@@ -12,18 +16,21 @@ terraform/
 ├── providers.tf         # Incus provider configuration
 ├── variables.tf         # Global variables
 ├── locals.tf            # Local computed values
-├── README.md            # This file
+├── main.tf              # Root module
+├── outputs.tf           # Output definitions
 ├── modules/
 │   ├── vm/              # Virtual machine module
 │   └── container/       # Container module (future)
-├── environments/
-│   ├── ring0/           # Ring0 infrastructure (networking, storage)
-│   ├── ring1/           # Ring1 infrastructure (applications)
-│   └── ring2/           # Ring2 infrastructure (user services)
-└── tfvars/
-    ├── ring0.tfvars     # Ring0 environment variables
-    ├── ring1.tfvars     # Ring1 environment variables
-    └── ring2.tfvars     # Ring2 environment variables
+configs/envtest/
+├── ring0.tfvars         # Ring0 test environment variables
+├── ring1.tfvars         # Ring1 test environment variables
+└── ring2.tfvars         # Ring2 test environment variables
+configs.private/envprod/
+├── ring0.tfvars         # Ring0 production variables (private)
+├── ring1.tfvars         # Ring1 production variables (private)
+└── ring2.tfvars         # Ring2 production variables (private)
+docs/terraform/
+└── TERRAFORM-README.md  # This file
 ```
 
 ## Important Design Constraints
@@ -136,7 +143,7 @@ provider "incus" {
 
   remote {
     name    = "primary"
-    address = "https://incus.incussingledisk.mszlocaltest:8443"
+    address = "https://incus.incussingledisk.yourlab.localtest:8443"
     token   = var.incus_token
   }
 }
@@ -154,20 +161,20 @@ terraform init
 ### Plan Ring0 Deployment
 
 ```bash
-# Using configuration from configs.private/ring0/ring0.tfvars
-terraform plan -var-file="../configs.private/ring0/ring0.tfvars"
+# Using configuration from configs.private/envprod/ring0.tfvars
+terraform plan -var-file="../configs.private/envprod/ring0.tfvars"
 ```
 
 ### Apply Ring0 Deployment
 
 ```bash
-terraform apply -var-file="../configs.private/ring0/ring0.tfvars"
+terraform apply -var-file="../configs.private/envprod/ring0.tfvars"
 ```
 
 ### Destroy Resources
 
 ```bash
-terraform destroy -var-file="../configs.private/ring0/ring0.tfvars"
+terraform destroy -var-file="../configs.private/envprod/ring0.tfvars"
 ```
 
 ## Variable Files and Organization
@@ -175,31 +182,23 @@ terraform destroy -var-file="../configs.private/ring0/ring0.tfvars"
 Terraform variable files are organized for security and version control:
 
 ### Sample Configurations (Public Repository)
-Located in `configs/` (public repo):
+Located in `configs/envtest/` (public repo):
 ```
-configs/
-├── ring0/
-│   ├── ring0.tfvars          # Sample/example values
-│   └── # Other Ring0 configs
-├── ring1/
-│   └── ring1.tfvars          # Sample/example values
-└── ring2/
-    └── ring2.tfvars          # Sample/example values
+configs/envtest/
+├── ring0.tfvars              # Sample/example values
+├── ring1.tfvars              # Sample/example values
+└── ring2.tfvars              # Sample/example values
 ```
 
 **Purpose:** Reference examples showing structure and commented values. Use as templates.
 
 ### Actual Configurations (Private Repository)
-Located in `configs.private/` (private repo):
+Located in `configs.private/envprod/` (private repo):
 ```
-configs.private/
-├── ring0/
-│   ├── ring0.tfvars          # YOUR actual configuration
-│   └── # Other Ring0 configs
-├── ring1/
-│   └── ring1.tfvars          # YOUR actual configuration
-└── ring2/
-    └── ring2.tfvars          # YOUR actual configuration
+configs.private/envprod/
+├── ring0.tfvars              # YOUR actual configuration
+├── ring1.tfvars              # YOUR actual configuration
+└── ring2.tfvars              # YOUR actual configuration
 ```
 
 **Purpose:** Your actual infrastructure definitions. Contains sensitive data (IPs, MAC addresses, paths). Never commit to public repos.
@@ -209,13 +208,13 @@ configs.private/
 When running Terraform, always reference the private configuration:
 
 ```bash
-# From terraform/ directory, referencing configs.private/
-terraform plan -var-file="../configs.private/ring0/ring0.tfvars"
-terraform apply -var-file="../configs.private/ring0/ring0.tfvars"
+# From terraform/ directory, referencing configs.private/envprod/
+terraform plan -var-file="../configs.private/envprod/ring0.tfvars"
+terraform apply -var-file="../configs.private/envprod/ring0.tfvars"
 
 # Or for other environments
-terraform apply -var-file="../configs.private/ring1/ring1.tfvars"
-terraform apply -var-file="../configs.private/ring2/ring2.tfvars"
+terraform apply -var-file="../configs.private/envprod/ring1.tfvars"
+terraform apply -var-file="../configs.private/envprod/ring2.tfvars"
 ```
 
 ## Migration from Ansible
@@ -243,7 +242,7 @@ terraform apply -var-file="../configs.private/ring2/ring2.tfvars"
 For small deployments:
 
 ```bash
-terraform apply -var-file="tfvars/ring0.tfvars"
+terraform apply -var-file="../configs/envtest/ring0.tfvars"
 ```
 
 State is stored in `terraform.tfstate` (should be gitignored).

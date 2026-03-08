@@ -1,28 +1,32 @@
-# Samba 4 Active Directory Domain Controller - Implementation Summary
+# Samba4 Active Directory Domain Controller — Implementation Summary
+
+> **Context**: This is a reference document for the Samba4 AD DC subsystem. For the master setup workflow, see [Ring 0 Setup — Samba4 AD DC](../04-ring0-setup.md#4-samba4-active-directory-domain-controller-setup). For ongoing identity management, see [Ring 0a — Identity Configuration](../05-ring0a-automated.md#4-continuous-identity-configuration).
+>
+> **Path conventions**: This document may reference legacy paths. The current layout uses directory-based inventory (`configs/envbase/` + `configs.private/envprod/inventory/`) and environment-specific tfvars (`configs.private/envprod/ring0.tfvars` or `configs/envtest/ring0.tfvars`). See [Architecture](../02-architecture.md) for the full inventory model.
 
 ## Overview
 
-A complete, fully-automated solution for deploying a Samba 4 based Active Directory Domain Controller in an Incus virtual machine has been created. This solution combines Terraform for infrastructure provisioning and Ansible for application configuration.
+A fully-automated solution for deploying a Samba4 Active Directory Domain Controller in an Incus virtual machine. This solution combines Terraform for infrastructure provisioning and Ansible for application configuration.
 
-## Files Created
+## Key Files
 
-### Configuration Files
+### Configuration
 
-1. **[configs.private/ring0/ring0.tfvars](../../../configs.private/ring0/ring0.tfvars)** (Modified)
-   - Added `samba4-addc` VM definition
+1. **Terraform VM definition** — `configs.private/envprod/ring0.tfvars` (or `configs/envtest/ring0.tfvars`)
+   - `samba4-addc` VM definition
    - 2 CPU cores, 4GB memory, 64GB disk
    - Static MAC address: `00:16:3e:11:00:10`
    - Uses Ubuntu 24.04 image
 
-2. **[configs.private/ring0/samba4-addc-inventory.yaml](../../../configs.private/ring0/samba4-addc-inventory.yaml)** (New)
-   - Comprehensive Ansible inventory for AD DC configuration
+2. **Ansible inventory** — Directory-based at `configs/envbase/` + `configs.private/envprod/inventory/`
+   - AD DC host assigned to the `identityprovider` group
+   - Group variables in `configs/envbase/group_vars/identityprovider/`
    - Parameterized realm, domain, DNS settings
-   - Environment variable references for sensitive data
-   - Includes all required packages and paths
+   - Secrets resolved via 1Password (`community.general.onepassword`)
 
-### Playbooks & Roles
+### Playbooks
 
-3. **[playbooks/ring0/samba4-addc-setup.yaml](./samba4-addc-setup.yaml)** (New)
+3. **`playbooks/ring0/identity-samba4-addc-setup.yaml`** — Initial AD DC setup (Ring 0)
    - All-in-one playbook for complete AD DC setup
    - 6-step deployment process:
      1. System preparation
@@ -32,113 +36,74 @@ A complete, fully-automated solution for deploying a Samba 4 based Active Direct
      5. Post-provisioning configuration
      6. Service verification
    - Comprehensive validation and error handling
-   - Detailed post-deployment instructions
 
-4. **[playbooks/roles/samba4-addc-packages/](./roles/samba4-addc-packages/)** (New)
-   - Package installation and NTP configuration
-   - Modular, reusable Ansible role
-   - Installs all dependencies including Samba, Kerberos, BIND DNS
-   - Configures time synchronization
-
-5. **[playbooks/roles/samba4-addc-provision/](./roles/samba4-addc-provision/)** (New)
-   - Samba AD provisioning using `samba-tool domain provision`
-   - Handles cleanup of pre-existing configurations
-   - Validates successful provisioning
-   - Supports re-running without errors
-
-6. **[playbooks/roles/samba4-addc-configure/](./roles/samba4-addc-configure/)** (New)
-   - Post-provisioning configuration
-   - Kerberos setup
-   - DNS resolver configuration
-   - DNS forwarder configuration
-   - Service management and verification
+4. **`playbooks/ring0a/identity-lifecycle.yaml`** — Ongoing identity management (Ring 0a)
+   - Users, groups, OUs lifecycle management
+   - Idempotent, safe to run repeatedly
 
 ### Documentation
 
-7. **[README-SAMBA4-ADDC.md](./README-SAMBA4-ADDC.md)** (New)
-   - Comprehensive 500+ line guide
-   - Architecture overview
-   - Prerequisites and quick start
-   - Detailed step-by-step deployment
-   - Post-deployment verification
-   - Troubleshooting guide
-   - Administrative tasks
-   - Security considerations
-   - Integration guidance
+See [INDEX.md](./INDEX.md) for the full documentation map:
 
-8. **[SAMBA4-ADDC-QUICKREF.md](./SAMBA4-ADDC-QUICKREF.md)** (New)
-   - Quick reference for experienced users
-   - Deployment checklist
-   - Key commands and values
-   - Configuration table
-   - Troubleshooting quick tips
-
-9. **[SAMBA4-ADDC-EXAMPLES.md](./SAMBA4-ADDC-EXAMPLES.md)** (New)
-   - 6 detailed example configurations:
-     1. Default (mszlocal domain)
-     2. Production domain
-     3. High-capacity setup
-     4. Multi-site deployment
-     5. Development/test setup
-     6. Custom network configuration
-   - Deployment commands for each scenario
-   - Best practices and scaling guidance
+- [README-SAMBA4-ADDC.md](./README-SAMBA4-ADDC.md) — Comprehensive deployment and operations guide
+- [SAMBA4-ADDC-QUICKREF.md](./SAMBA4-ADDC-QUICKREF.md) — Quick reference for experienced users
+- [SAMBA4-ADDC-EXAMPLES.md](./SAMBA4-ADDC-EXAMPLES.md) — 6 example configurations
+- [SAMBA4-DEPLOYMENT-CHECKLIST.md](./SAMBA4-DEPLOYMENT-CHECKLIST.md) — Step-by-step deployment checklist
 
 ## Key Features
 
 ### Automated Deployment
-- ✅ Terraform VM provisioning with Incus
-- ✅ Ubuntu 24.04 LTS base image
-- ✅ Static MAC address for fixed IP assignment
-- ✅ Automated package installation and configuration
-- ✅ Non-interactive Samba provisioning
+- Terraform VM provisioning with Incus
+- Ubuntu 24.04 LTS base image
+- Static MAC address for fixed IP assignment
+- Automated package installation and configuration
+- Non-interactive Samba provisioning
 
 ### Configuration Management
-- ✅ Inventory-driven configuration
-- ✅ Environment variable support for sensitive data
-- ✅ Fully customizable realm, domain, and DNS settings
-- ✅ DNS forwarder configuration for Mikrotik integration
-- ✅ NTP configuration for time synchronization
+- Inventory-driven configuration (directory-based inventory model)
+- Secrets managed via 1Password (`community.general.onepassword`)
+- Fully customizable realm, domain, and DNS settings
+- DNS forwarder configuration for MikroTik integration
+- NTP configuration for time synchronization
 
 ### Network Integration
-- ✅ Static IP assignment via MAC address reservation
-- ✅ DNS forwarder support (points to Mikrotik/upstream DNS)
-- ✅ DNS SRV record creation and verification
-- ✅ Reverse DNS zone setup (optional)
-- ✅ Network interface configuration
+- Static IP assignment via MAC address reservation
+- DNS forwarder support (points to MikroTik/upstream DNS)
+- DNS SRV record creation and verification
+- Reverse DNS zone setup (optional)
+- Network interface configuration
 
 ### Security
-- ✅ Password complexity validation
-- ✅ Environment variable protection (no logs)
-- ✅ Kerberos realm and certificate setup
-- ✅ LDAPS support capability
-- ✅ Firewall guidance included
+- Password complexity validation
+- 1Password-managed secrets (no plaintext in config files)
+- Kerberos realm and certificate setup
+- LDAPS support capability
+- Firewall guidance included
 
-### Verification & Monitoring
-- ✅ DNS resolution testing
-- ✅ Kerberos authentication validation
-- ✅ Service health checks
-- ✅ Detailed health status output
-- ✅ Troubleshooting guidance
+### Verification and Monitoring
+- DNS resolution testing
+- Kerberos authentication validation
+- Service health checks
+- Detailed health status output
+- Troubleshooting guidance
 
 ## Deployment Process
 
 ### 1. Customization (15 minutes)
 ```bash
-# Edit inventory with your environment details
-vi configs.private/ring0/samba4-addc-inventory.yaml
+# Edit group variables for the identityprovider group
+vi configs/envbase/group_vars/identityprovider/vars.yaml
 ```
 
-### 2. Environment Setup (5 minutes)
+### 2. Start 1Password session (5 minutes)
 ```bash
-export SAMBA4_ADMIN_PASSWORD="YourPassword123!"
-export SAMBA4_DNS_FORWARDER_1="10.0.0.1"
+eval $(./scripts/op-session.sh 2h prod)
 ```
 
 ### 3. VM Provisioning (10-15 minutes)
 ```bash
 cd terraform
-terraform apply -var-file=../configs.private/ring0/ring0.tfvars
+terraform apply -var-file=../configs.private/envprod/ring0.tfvars
 ```
 
 ### 4. Network Configuration (5 minutes)
@@ -146,14 +111,15 @@ terraform apply -var-file=../configs.private/ring0/ring0.tfvars
 
 ### 5. Ansible Configuration (20-30 minutes)
 ```bash
-ansible-playbook -i configs.private/ring0/samba4-addc-inventory.yaml \
-                  playbooks/ring0/samba4-addc-setup.yaml
+ansible-playbook \
+  -i configs/envbase/ -i configs.private/envprod/inventory/ \
+  playbooks/ring0/identity-samba4-addc-setup.yaml
 ```
 
 ### 6. Verification (10 minutes)
 ```bash
 # Test DNS
-host -t SRV _ldap._tcp.mszlocal.
+host -t SRV _ldap._tcp.yourlab.local.
 
 # Test Kerberos
 kinit administrator
@@ -164,25 +130,24 @@ kinit administrator
 ## Architecture Benefits
 
 ### Terraform Benefits
-- ✅ Infrastructure as code
-- ✅ Version control friendly
-- ✅ Reproducible deployments
-- ✅ Easily extendable for multiple DCs
-- ✅ Integrated with existing Incus infrastructure
+- Infrastructure as code
+- Version control friendly
+- Reproducible deployments
+- Easily extendable for multiple DCs
+- Integrated with existing Incus infrastructure
 
 ### Ansible Benefits
-- ✅ Agentless configuration management
-- ✅ Modular, reusable roles
-- ✅ Idempotent operations
-- ✅ Detailed logging and verification
-- ✅ Easy to extend and customize
+- Agentless configuration management
+- Idempotent operations
+- Detailed logging and verification
+- Easy to extend and customize
 
 ### Combined Benefits
-- ✅ Complete infrastructure and application automation
-- ✅ Single source of truth (Git repositories)
-- ✅ Audit trail of all changes
-- ✅ Easy rollback and recovery
-- ✅ Scalable to multiple DCs and sites
+- Complete infrastructure and application automation
+- Dual-repo model (public structure + private secrets)
+- Audit trail of all changes
+- Easy rollback and recovery
+- Scalable to multiple DCs and sites
 
 ## Customization Points
 
@@ -211,22 +176,22 @@ kinit administrator
 ## Integration with Existing Infrastructure
 
 ### Terraform Module Compatibility
-- ✅ Uses existing `vm` module without modifications
-- ✅ Compatible with Incus provider
-- ✅ Integrates with Ring0 project structure
-- ✅ Follows existing tfvars organization
+- Uses existing `vm` module without modifications
+- Compatible with Incus provider
+- Integrates with Ring 0 project structure
+- Follows environment-based tfvars organization
 
 ### Ansible Integration
-- ✅ Consistent with existing playbook structure
-- ✅ Uses same inventory format
-- ✅ Follows ring0 naming conventions
-- ✅ Compatible with existing roles
+- Consistent with existing playbook structure
+- Uses directory-based inventory model
+- Follows ring naming conventions
+- Compatible with existing group_vars hierarchy
 
 ### Network Integration
-- ✅ Works with existing Mikrotik DHCP
-- ✅ Uses existing network bridges
-- ✅ Compatible with current DNS setup
-- ✅ No changes to router configuration (except DHCP reservation)
+- Works with existing MikroTik DHCP
+- Uses existing network bridges
+- Compatible with current DNS setup
+- No changes to router configuration (except DHCP reservation)
 
 ## Security Considerations
 
@@ -250,24 +215,22 @@ kinit administrator
 
 | File | Purpose | Type |
 |------|---------|------|
-| `ring0.tfvars` | VM definition | Config |
-| `samba4-addc-inventory.yaml` | Ansible variables | Config |
-| `samba4-addc-setup.yaml` | Main playbook | Automation |
-| `roles/samba4-addc-packages/` | Package installation | Role |
-| `roles/samba4-addc-provision/` | AD provisioning | Role |
-| `roles/samba4-addc-configure/` | Post-provisioning config | Role |
+| `configs.private/envprod/ring0.tfvars` | VM definition | Config |
+| `configs/envbase/group_vars/identityprovider/` | Samba4 variables | Config |
+| `playbooks/ring0/identity-samba4-addc-setup.yaml` | Initial setup playbook | Automation |
+| `playbooks/ring0a/identity-lifecycle.yaml` | Ongoing identity management | Automation |
 | `README-SAMBA4-ADDC.md` | Full documentation | Docs |
 | `SAMBA4-ADDC-QUICKREF.md` | Quick reference | Docs |
 | `SAMBA4-ADDC-EXAMPLES.md` | Example configs | Docs |
 
 ## Next Steps
 
-1. **Review** the [Quick Start Guide](./README-SAMBA4-ADDC.md#quick-start)
-2. **Customize** `samba4-addc-inventory.yaml` for your environment
+1. **Review** the [master setup guide](../04-ring0-setup.md#4-samba4-active-directory-domain-controller-setup)
+2. **Customize** group variables in `configs/envbase/group_vars/identityprovider/`
 3. **Deploy** the VM with Terraform
 4. **Configure** the AD DC with Ansible
 5. **Verify** DNS and Kerberos functionality
-6. **Join** domain members as needed
+6. **Manage users/groups** via [Ring 0a identity lifecycle](../05-ring0a-automated.md#4-continuous-identity-configuration)
 
 ## Troubleshooting Resources
 
@@ -285,27 +248,9 @@ kinit administrator
 
 ## Implementation Highlights
 
-✅ **Fully Automated**: No manual steps required after customization
-✅ **Production Ready**: Follows Samba best practices
-✅ **Well Documented**: 1000+ lines of documentation
-✅ **Highly Customizable**: Easy to adapt to different scenarios
-✅ **Secure**: Built-in security features and recommendations
-✅ **Scalable**: Foundation for multi-DC deployments
-✅ **Enterprise Ready**: Group Policy capable, DNS integrated
-✅ **Infrastructure as Code**: Terraform and Ansible based
-✅ **Version Controlled**: All configuration in Git
-✅ **Maintainable**: Clear structure and extensive comments
-
-## Questions or Issues?
-
-Refer to:
-1. [Comprehensive Guide](./README-SAMBA4-ADDC.md)
-2. [Quick Reference](./SAMBA4-ADDC-QUICKREF.md)
-3. [Examples](./SAMBA4-ADDC-EXAMPLES.md)
-4. [Samba Wiki](https://wiki.samba.org/)
-
----
-
-**Created**: January 2, 2026
-**Version**: 1.0
-**Status**: Ready for deployment
+- **Fully Automated**: No manual steps required after customization
+- **Production Ready**: Follows Samba best practices
+- **Secure**: 1Password-managed secrets, Kerberos authentication
+- **Scalable**: Foundation for multi-DC deployments
+- **Infrastructure as Code**: Terraform + Ansible, dual-repo model
+- **Idempotent**: Safe to re-run playbooks without side effects

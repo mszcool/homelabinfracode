@@ -1,68 +1,65 @@
-# Terraform Incus Refactor - Complete Documentation Index
+# Terraform Incus Refactor — Documentation Index
 
-Welcome! This document helps you navigate the complete Terraform refactor of your Incus infrastructure.
+> **Context**: This directory contains detailed Terraform reference documentation. For the master architecture overview (including Terraform's role), see [Architecture — Terraform](../02-architecture.md). For Ring 0 setup including Terraform provisioning, see [Ring 0 Setup](../04-ring0-setup.md). For environment setup (Terraform installation), see [Environment Setup](../03-environment-setup.md).
+>
+> **Path conventions**: Tfvars files are at `configs/envtest/ring0.tfvars` (test) or `configs.private/envprod/ring0.tfvars` (production). The 1Password Terraform provider (`1Password/onepassword`) resolves secrets at plan/apply time. See [Architecture](../02-architecture.md) for the full model.
 
-## 📋 Quick Navigation
+This document helps you navigate the Terraform documentation.
+
+## Quick Navigation
 
 ### For Different Audiences
 
-**👤 Project Manager / Decision Maker**
+**Project Manager / Decision Maker**
 → Start with [DESIGN_SUMMARY.md](DESIGN_SUMMARY.md) (5 min read)
-→ Then [COMPARISON.md](COMPARISON.md) (15 min read)
 
-**👨‍💻 Developer / DevOps Engineer**
+**Developer / DevOps Engineer**
 → Start with [QUICKSTART.md](QUICKSTART.md) (10 min hands-on)
 → Then [TERRAFORM-README.md](TERRAFORM-README.md) (understand architecture)
 → Then [MIGRATION_GUIDE.md](MIGRATION_GUIDE.md) (plan implementation)
-→ Reference: [../terraform/modules/vm/README.md](../terraform/modules/vm/README.md) (module details)
+→ Reference: [../../terraform/modules/vm/README.md](../../terraform/modules/vm/README.md) (module details)
 
-**🏗️ Architect / Infrastructure Designer**
+**Architect / Infrastructure Designer**
 → Start with [DESIGN_SUMMARY.md](DESIGN_SUMMARY.md)
 → Then [ARCHITECTURE.md](ARCHITECTURE.md) (detailed diagrams)
-→ Then [README.md](README.md) (implementation details)
-→ Then [COMPARISON.md](COMPARISON.md) (Ansible vs Terraform)
-
-**📚 Student / New to Terraform**
-→ Start with [QUICKSTART.md](QUICKSTART.md)
-→ Then [modules/vm/README.md](modules/vm/README.md)
-→ Then Terraform official docs
+→ Then [TERRAFORM-README.md](TERRAFORM-README.md) (implementation details)
 
 ---
 
-## 📁 Files and Their Purpose
+## File Organization
 
-### Configuration Files (Ready to Use)
+### Configuration Files (in `terraform/`)
 
 ```
 terraform/
-├── versions.tf              ✅ Terraform version constraints
-├── providers.tf             ✅ Incus provider authentication
-├── variables.tf             ✅ Input variable definitions
-├── locals.tf                ✅ Local computed values
-├── main.tf                  ✅ Root module instantiation
-└── outputs.tf               ✅ Infrastructure outputs
+├── versions.tf              Terraform version constraints
+├── providers.tf             Incus + 1Password provider authentication
+├── variables.tf             Input variable definitions
+├── locals.tf                Local computed values
+├── main.tf                  Root module instantiation
+└── outputs.tf               Infrastructure outputs
 ```
 
 **Usage:** These are the core configuration files. Start by running:
 ```bash
 cd terraform
 terraform init
-terraform plan -var-file="../configs.private/ring0/ring0.tfvars"
+terraform plan -var-file="../configs.private/envprod/ring0.tfvars"
 ```
 
-> 📝 **Note:** Variable files are now organized in `configs/` (public samples) and `configs.private/` (actual configs).
+> **Note:** Variable files are organized in `configs/envtest/` (test samples) and `configs.private/envprod/` (actual production configs).
 > See [TFVARS_ORGANIZATION.md](TFVARS_ORGANIZATION.md) for details.
 
 ### Module Files (Reusable Components)
 
 ```
 modules/vm/
-├── main.tf                  ✅ Core VM resources
-├── variables.tf             ✅ VM input parameters
-├── outputs.tf               ✅ VM output values
-├── locals.tf                ✅ Internal VM logic
-├── versions.tf              ✅ Module dependencies
-└── README.md                📖 Module documentation
+├── main.tf                  Core VM resources
+├── variables.tf             VM input parameters
+├── outputs.tf               VM output values
+├── locals.tf                Internal VM logic
+├── versions.tf              Module dependencies
+└── README.md                Module documentation
 ```
 
 **Usage:** The VM module is self-contained. Use for creating any VM:
@@ -76,29 +73,29 @@ module "my_vm" {
 
 ### Variable Files (Environment Configuration)
 
-**Public Samples** (reference and documentation):
+**Test Samples** (reference and documentation):
 ```
-configs/
-├── ring0/ring0.tfvars       ✅ Infrastructure layer examples (TrueNAS, storage)
-├── ring1/ring1.tfvars       ✅ Application layer examples
-└── ring2/ring2.tfvars       ✅ User services examples
-```
-
-**Private Actual Configs** (deployment configurations):
-```
-configs.private/
-├── ring0/ring0.tfvars       ✅ YOUR actual Ring0 configuration
-├── ring1/ring1.tfvars       ✅ YOUR actual Ring1 configuration
-└── ring2/ring2.tfvars       ✅ YOUR actual Ring2 configuration
+configs/envtest/
+├── ring0.tfvars             Infrastructure layer examples (TrueNAS, storage)
+├── ring1.tfvars             Application layer examples
+└── ring2.tfvars             User services examples
 ```
 
-**Usage:** Always use configs.private for deployment:
+**Production Configs** (actual deployment):
+```
+configs.private/envprod/
+├── ring0.tfvars             YOUR actual Ring 0 configuration
+├── ring1.tfvars             YOUR actual Ring 1 configuration
+└── ring2.tfvars             YOUR actual Ring 2 configuration
+```
+
+**Usage:** Always use configs.private for real deployment:
 ```bash
-terraform plan -var-file="../configs.private/ring0/ring0.tfvars"
-terraform apply -var-file="../configs.private/ring1/ring1.tfvars"
+terraform plan -var-file="../configs.private/envprod/ring0.tfvars"
+terraform apply -var-file="../configs.private/envprod/ring1.tfvars"
 ```
 
-> 📚 See [TFVARS_ORGANIZATION.md](TFVARS_ORGANIZATION.md) for security rationale and detailed explanation.
+> See [TFVARS_ORGANIZATION.md](TFVARS_ORGANIZATION.md) for security rationale and detailed explanation.
 
 ### Documentation Files (Reference)
 
@@ -113,9 +110,9 @@ terraform apply -var-file="../configs.private/ring1/ring1.tfvars"
 
 ---
 
-## 🚀 Getting Started (Choose Your Path)
+## Getting Started (Choose Your Path)
 
-### Path 1: I Just Want to Deploy (10 minutes)
+### Path 1: Deploy Now (10 minutes)
 
 ```bash
 # 1. Initialize
@@ -123,62 +120,41 @@ cd terraform
 terraform init
 
 # 2. Preview
-terraform plan -var-file="../configs.private/ring0/ring0.tfvars"
+terraform plan -var-file="../configs.private/envprod/ring0.tfvars"
 
-# 3. Review output (check if it looks right)
+# 3. Deploy
+terraform apply -var-file="../configs.private/envprod/ring0.tfvars"
 
-# 4. Deploy
-terraform apply -var-file="../configs.private/ring0/ring0.tfvars"
-
-# 5. Verify
+# 4. Verify
 terraform output
 incus list -p prodlayer0
 ```
 
-→ **Documentation:** [QUICKSTART.md](QUICKSTART.md)
+Documentation: [QUICKSTART.md](QUICKSTART.md)
 
-### Path 2: I Need to Understand the Design First (30 minutes)
+### Path 2: Understand First (30 minutes)
 
-```
 1. Read: DESIGN_SUMMARY.md (10 min)
 2. Read: ARCHITECTURE.md (10 min)
 3. Skim: TERRAFORM-README.md for specifics (10 min)
 4. Then proceed with Path 1 (10 min)
-```
 
-→ **Start:** [DESIGN_SUMMARY.md](DESIGN_SUMMARY.md)
+Start: [DESIGN_SUMMARY.md](DESIGN_SUMMARY.md)
 
-### Path 3: I'm Migrating from Ansible (2 hours)
+### Path 3: Migrating from Ansible (2 hours)
 
-```
 1. Read: DESIGN_SUMMARY.md (10 min)
-2. Read: COMPARISON.md - understand differences (20 min)
-3. Read: MIGRATION_GUIDE.md - detailed steps (30 min)
-4. Review: Current Ansible playbooks
-5. Setup: Terraform configuration
-6. Test: Plan deployment
-7. Execute: Gradual migration strategy
-```
+2. Read: MIGRATION_GUIDE.md — detailed steps (30 min)
+3. Review: Current Ansible playbooks
+4. Setup: Terraform configuration
+5. Test: Plan deployment
+6. Execute: Gradual migration strategy
 
-→ **Start:** [MIGRATION_GUIDE.md](MIGRATION_GUIDE.md)
-
-### Path 4: I'm Building Something New (1 hour)
-
-```
-1. Understand: QUICKSTART.md (10 min)
-2. Study: ../terraform/modules/vm/README.md (15 min)
-3. Copy: Example from ../configs/ring0/ring0.tfvars
-4. Modify: For your VM needs
-5. Plan: terraform plan
-6. Apply: terraform apply
-7. Reference: TERRAFORM-README.md for advanced features
-```
-
-→ **Start:** [QUICKSTART.md](QUICKSTART.md)
+Start: [MIGRATION_GUIDE.md](MIGRATION_GUIDE.md)
 
 ---
 
-## 📊 Architecture Overview
+## Architecture Overview
 
 ```
 ┌─────────────────────────────────────────┐
@@ -207,20 +183,20 @@ incus list -p prodlayer0
 
 ---
 
-## 🎯 Core Concepts
+## Core Concepts
 
 ### What Gets Managed by Terraform?
 
-✅ **Storage Volumes** (ISO files, data disks)
-✅ **VM Instances** (Virtual machines)
-✅ **Instance Devices** (Network, disk attachments, PCI passthrough)
+- **Storage Volumes** (ISO files, data disks)
+- **VM Instances** (Virtual machines)
+- **Instance Devices** (Network, disk attachments, PCI passthrough)
 
 ### What is Pre-existing (Not Managed)?
 
-❌ **Networks** (phys-br, iso-nat)
-❌ **Storage Pools** (incus-images, incus-instances)
-❌ **Projects** (default, prodlayer0, prodlayer1)
-❌ **Profiles** (default, defaultlan, production)
+- **Networks** (phys-br, iso-nat)
+- **Storage Pools** (incus-images, incus-instances)
+- **Projects** (default, prodlayer0, prodlayer1)
+- **Profiles** (default, defaultlan, production)
 
 ### How Does It Work?
 
@@ -231,22 +207,20 @@ incus list -p prodlayer0
 5. **Update** by editing tfvars and applying again
 6. **Destroy** with `terraform destroy` (cleanup)
 
-→ **Details:** [README.md](README.md)
+→ **Details:** [TERRAFORM-README.md](TERRAFORM-README.md)
 
 ---
 
-## 📖 Documentation Map
+## Documentation Map
 
 ```
 Start Here
     │
     ├─→ DESIGN_SUMMARY.md ────→ (Understand what was built)
     │       │
-    │       ├─→ COMPARISON.md  ─→ (Why Terraform over Ansible?)
-    │       │
     │       ├─→ ARCHITECTURE.md ─→ (How does it work internally?)
     │       │
-    │       └─→ README.md ────→ (Detailed usage guide)
+    │       └─→ TERRAFORM-README.md ─→ (Detailed usage guide)
     │
     ├─→ QUICKSTART.md ─────────→ (Get hands-on in 10 min)
     │       │
@@ -261,7 +235,7 @@ Start Here
 
 ---
 
-## 🔍 Finding Specific Information
+## Finding Specific Information
 
 ### "How do I...?"
 
@@ -269,101 +243,82 @@ Start Here
 |------|----------|
 | Deploy a new VM | [QUICKSTART.md](QUICKSTART.md#common-tasks) |
 | Modify VM resources | [QUICKSTART.md](QUICKSTART.md#modify-a-vm) |
-| Handle ISO files | [modules/vm/README.md](modules/vm/README.md#iso-handling) |
-| Enable PCIe passthrough | [README.md](README.md) - Variable Files section |
-| Add data disks | [tfvars/ring0.tfvars](tfvars/ring0.tfvars) - example |
+| Handle ISO files | [../../terraform/modules/vm/README.md](../../terraform/modules/vm/README.md#iso-handling) |
+| Enable PCIe passthrough | [TERRAFORM-README.md](TERRAFORM-README.md) — Variable Files section |
+| Add data disks | [configs/envtest/ring0.tfvars](../../configs/envtest/ring0.tfvars) — example |
 | Migrate from Ansible | [MIGRATION_GUIDE.md](MIGRATION_GUIDE.md) |
 | Understand the architecture | [ARCHITECTURE.md](ARCHITECTURE.md) |
-| Compare Ansible vs Terraform | [COMPARISON.md](COMPARISON.md) |
 | Troubleshoot errors | [QUICKSTART.md](QUICKSTART.md#troubleshooting) |
-| Set up remote state | [MIGRATION_GUIDE.md](MIGRATION_GUIDE.md#remote-state) |
 
 ### "I'm getting an error..."
 
 1. Check: [QUICKSTART.md](QUICKSTART.md#troubleshooting)
 2. Check: [MIGRATION_GUIDE.md](MIGRATION_GUIDE.md#troubleshooting) (longer list)
-3. Check: [README.md](README.md#troubleshooting)
+3. Check: [terraform/README.md](../../terraform/README.md)
 4. Check: Terraform docs at https://www.terraform.io/docs
 
 ---
 
-## 🗂️ File Structure
+## File Structure
 
 ```
 homelabinfracode/
-├── terraform/                    ← YOU ARE HERE
+├── terraform/                    ← Core Terraform config
 │   ├── versions.tf               (Provider versions)
-│   ├── providers.tf              (Incus connection)
+│   ├── providers.tf              (Incus + 1Password)
 │   ├── variables.tf              (Input variables)
 │   ├── locals.tf                 (Internal values)
 │   ├── main.tf                   (Module instantiation)
 │   ├── outputs.tf                (Export values)
-│   ├── .gitignore                (Exclude tfstate, etc)
-│   │
-│   ├── modules/
-│   │   └── vm/                   (VM creation module)
-│   │       ├── main.tf
-│   │       ├── variables.tf
-│   │       ├── outputs.tf
-│   │       ├── locals.tf
-│   │       ├── versions.tf
-│   │       └── README.md
-│   │
-│   ├── tfvars/                   (Environment configs)
-│   │   ├── ring0.tfvars          (Infrastructure layer)
-│   │   ├── ring1.tfvars          (Applications - future)
-│   │   └── ring2.tfvars          (Utilities - future)
-│   │
-│   └── docs/                     (Documentation)
-│       ├── INDEX.md              ← YOU ARE HERE
-│       ├── DESIGN_SUMMARY.md     (Overview)
-│       ├── QUICKSTART.md         (Quick setup)
-│       ├── README.md             (Full guide)
-│       ├── MIGRATION_GUIDE.md    (Ansible→Terraform)
-│       ├── COMPARISON.md         (Detailed comparison)
-│       └── ARCHITECTURE.md       (Diagrams)
+│   └── modules/
+│       └── vm/                   (VM creation module)
 │
-├── playbooks/                    (Keep these, use with Terraform)
-├── configs/                      (Reference configs)
-├── configs.private/              (Sensitive configs)
-└── ... (other files)
+├── configs/envtest/               ← Test tfvars
+│   ├── ring0.tfvars
+│   ├── ring1.tfvars
+│   └── ring2.tfvars
+│
+├── configs.private/envprod/       ← Production tfvars
+│   ├── ring0.tfvars
+│   ├── ring1.tfvars
+│   └── ring2.tfvars
+│
+└── docs/terraform/               ← This directory
+    ├── INDEX.md                  (Navigation)
+    ├── DESIGN_SUMMARY.md         (Overview)
+    ├── QUICKSTART.md             (Quick setup)
+    ├── TERRAFORM-README.md       (Full guide)
+    ├── MIGRATION_GUIDE.md        (Ansible→Terraform)
+    ├── TFVARS_ORGANIZATION.md    (Tfvars layout)
+    └── ARCHITECTURE.md           (Diagrams)
 ```
 
 ---
 
-## ✅ Implementation Checklist
+## Implementation Checklist
 
-### Phase 1: Setup (Week 1)
+### Phase 1: Setup
 - [ ] Review [DESIGN_SUMMARY.md](DESIGN_SUMMARY.md)
 - [ ] Read [QUICKSTART.md](QUICKSTART.md)
 - [ ] Run `terraform init`
-- [ ] Run `terraform plan -var-file="tfvars/ring0.tfvars"`
+- [ ] Run `terraform plan -var-file="../configs.private/envprod/ring0.tfvars"`
 - [ ] Review plan output
-- [ ] Update documentation for team
 
-### Phase 2: Testing (Week 2)
-- [ ] Run `terraform apply -var-file="tfvars/ring0.tfvars"` (test environment)
+### Phase 2: Testing
+- [ ] Run `terraform apply -var-file="../configs/envtest/ring0.tfvars"` (test environment)
 - [ ] Verify VMs are created: `incus list -p prodlayer0`
 - [ ] Verify outputs: `terraform output`
 - [ ] Test modifying a VM
 - [ ] Test destroying a VM
 
-### Phase 3: Migration (Week 3-4)
-- [ ] Read [MIGRATION_GUIDE.md](MIGRATION_GUIDE.md)
-- [ ] Plan migration strategy
-- [ ] Import existing Ansible-created VMs (optional)
-- [ ] Archive Ansible playbooks
+### Phase 3: Production
+- [ ] Run `terraform apply -var-file="../configs.private/envprod/ring0.tfvars"`
+- [ ] Verify production VMs
 - [ ] Update CI/CD pipelines
-
-### Phase 4: Optimization (Week 5+)
-- [ ] Set up remote state backend (optional)
-- [ ] Add container module (future)
-- [ ] Add automation scripts
-- [ ] Document team workflows
 
 ---
 
-## 💡 Key Takeaways
+## Key Takeaways
 
 1. **Modular**: VM module can be reused for any VM
 2. **State-Tracked**: Know exactly what's deployed
@@ -375,48 +330,35 @@ homelabinfracode/
 
 ---
 
-## 🤝 Common Questions
+## Common Questions
 
 **Q: Do I have to migrate all at once?**
-A: No. Use parallel setup - Terraform for new VMs while keeping Ansible running.
+A: No. Use parallel setup — Terraform for new VMs while keeping Ansible running.
 
 **Q: What if something goes wrong?**
 A: Run `terraform destroy` to clean up, or `git revert` to undo tfvars changes.
 
 **Q: How do I handle sensitive data?**
-A: Use `.tfvars.auto` files (not in git) or environment variables.
+A: Secrets are managed via the 1Password Terraform provider. See [Architecture — Secrets Management](../02-architecture.md).
 
 **Q: Can I use this with existing Ansible playbooks?**
-A: Yes! Terraform creates VMs, Ansible configures them.
-
-**Q: How do I set up a remote state backend?**
-A: See [MIGRATION_GUIDE.md - Remote State](MIGRATION_GUIDE.md#remote-state-production-optional)
+A: Yes. Terraform creates VMs, Ansible configures them. This is the standard workflow.
 
 ---
 
-## 📞 Getting Help
+## Getting Help
 
 1. **Local Troubleshooting**: [QUICKSTART.md#troubleshooting](QUICKSTART.md#troubleshooting)
 2. **Migration Issues**: [MIGRATION_GUIDE.md#troubleshooting](MIGRATION_GUIDE.md#troubleshooting)
 3. **Understanding Architecture**: [ARCHITECTURE.md](ARCHITECTURE.md)
-4. **Comparing Approaches**: [COMPARISON.md](COMPARISON.md)
-5. **Terraform Docs**: https://www.terraform.io/docs
-6. **Incus Provider Docs**: https://registry.terraform.io/providers/lxc/incus/latest/docs
+4. **Terraform Docs**: https://www.terraform.io/docs
+5. **Incus Provider Docs**: https://registry.terraform.io/providers/lxc/incus/latest/docs
 
 ---
 
-## 📝 Next Steps
-
-**Choose your starting point above and dive in!**
+## Next Steps
 
 - **Want to deploy in 10 minutes?** → [QUICKSTART.md](QUICKSTART.md)
 - **Want to understand everything?** → [DESIGN_SUMMARY.md](DESIGN_SUMMARY.md)
 - **Want to plan a migration?** → [MIGRATION_GUIDE.md](MIGRATION_GUIDE.md)
 - **Want to see diagrams?** → [ARCHITECTURE.md](ARCHITECTURE.md)
-
----
-
-**Happy Terraforming! 🚀**
-
-Last Updated: December 2025
-Status: ✅ Complete and Ready for Use

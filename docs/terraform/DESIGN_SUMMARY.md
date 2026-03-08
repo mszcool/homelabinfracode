@@ -1,4 +1,8 @@
-# Terraform Incus Refactor - Complete Design Summary
+# Terraform Incus Refactor — Design Summary
+
+> **Context**: For the master architecture overview, see [Architecture](../02-architecture.md). This document provides the detailed Terraform-specific design summary.
+>
+> **Path conventions**: Tfvars are at `configs/envtest/` (test) or `configs.private/envprod/` (production). Docs location: `docs/terraform/` (this directory). See [Architecture](../02-architecture.md) for the full model.
 
 ## Overview
 
@@ -21,10 +25,6 @@ terraform/
 ├── locals.tf                      # Local computed values
 ├── main.tf                        # Root module instantiation
 ├── outputs.tf                     # Infrastructure outputs
-├── README.md                      # Architecture and usage
-├── QUICKSTART.md                  # 10-minute quick start
-├── MIGRATION_GUIDE.md             # Step-by-step migration
-├── COMPARISON.md                  # Ansible vs Terraform analysis
 ├── modules/
 │   └── vm/                        # VM module (reusable)
 │       ├── versions.tf
@@ -33,10 +33,15 @@ terraform/
 │       ├── outputs.tf
 │       ├── locals.tf
 │       └── README.md
-└── tfvars/
-    ├── ring0.tfvars               # Ring0 infrastructure
-    ├── ring1.tfvars               # Ring1 workloads (future)
-    └── ring2.tfvars               # Ring2 utilities (future)
+configs/envtest/
+├── ring0.tfvars                   # Ring0 infrastructure (test)
+├── ring1.tfvars                   # Ring1 workloads (future)
+└── ring2.tfvars                   # Ring2 utilities (future)
+docs/terraform/
+├── TERRAFORM-README.md            # Architecture and usage
+├── QUICKSTART.md                  # 10-minute quick start
+├── MIGRATION_GUIDE.md             # Step-by-step migration
+└── DESIGN_SUMMARY.md              # This document
 ```
 
 ## Key Design Principles
@@ -44,17 +49,17 @@ terraform/
 ### 1. **Non-Interference with Pre-existing Resources**
 
 The following are managed externally and NOT touched by Terraform:
-- ✅ Networks (`phys-br`, `iso-nat`)
-- ✅ Storage pools (`incus-images`, `incus-instances`)
-- ✅ Projects (`default`, `prodlayer0`, `prodlayer1`)
-- ✅ Profiles (`default`, `defaultlan`, `production`)
+- Networks (`phys-br`, `iso-nat`)
+- Storage pools (`incus-images`, `incus-instances`)
+- Projects (`default`, `prodlayer0`, `prodlayer1`)
+- Profiles (`default`, `defaultlan`, `production`)
 
 These are created via preseed files and managed separately.
 
 **Terraform manages:**
-- ❌ Storage volumes (ISO, data disks) - Custom created volumes only
-- ❌ VM instances
-- ❌ Instance devices (disks, NICs, PCI)
+- Storage volumes (ISO, data disks) - Custom created volumes only
+- VM instances
+- Instance devices (disks, NICs, PCI)
 
 ### 2. **Modularity for Growth**
 
@@ -79,7 +84,7 @@ Ring 2 (User Services)      ← Terraform containers + services
 ### Configuration Flow
 
 ```
-tfvars/ring0.tfvars
+configs/envtest/ring0.tfvars (or configs.private/envprod/ring0.tfvars)
     ↓
     ├── Defines VMs
     └── Maps to modules/vm/ module
@@ -94,7 +99,7 @@ tfvars/ring0.tfvars
 ### Practical Example: Deploy Test Ubuntu VM
 
 ```hcl
-# 1. Define in configs/ring0/ring0.tfvars (public sample)
+# 1. Define in configs/envtest/ring0.tfvars (public sample)
 vms = {
   "test-ubuntu-dual" = {
     target_remote           = "incusdualdisk"
@@ -116,14 +121,14 @@ vms = {
 }
 
 # 2. Deploy
-terraform plan -var-file="tfvars/ring0.tfvars"
-terraform apply -var-file="tfvars/ring0.tfvars"
+terraform plan -var-file="../configs.private/envprod/ring0.tfvars"
+terraform apply -var-file="../configs.private/envprod/ring0.tfvars"
 
 # 3. Results
-# ✓ incus_storage_volume.iso created
-# ✓ incus_instance.vm created
-# ✓ ISO imported via local-exec
-# ✓ terraform.tfstate tracks everything
+# - incus_storage_volume.iso created
+# - incus_instance.vm created
+# - ISO imported via local-exec
+# - terraform.tfstate tracks everything
 ```
 
 ## File-by-File Description
@@ -149,7 +154,7 @@ terraform apply -var-file="tfvars/ring0.tfvars"
 | **locals.tf** | Internal logic: ISO config validation, disk configuration |
 | **README.md** | Module documentation and examples |
 
-### Configuration: `tfvars/`
+### Configuration: `configs/envtest/`
 
 | File | Purpose |
 |------|---------|
@@ -157,14 +162,14 @@ terraform apply -var-file="tfvars/ring0.tfvars"
 | **ring1.tfvars** | Application VMs (future): databases, services |
 | **ring2.tfvars** | Utility containers (future): DNS, backups |
 
-### Documentation
+### Documentation: `docs/terraform/`
 
 | File | Purpose |
-|------|---------|
-| **README.md** | Architecture overview, provider setup, usage |
+|------|---------||
+| **TERRAFORM-README.md** | Architecture overview, provider setup, usage |
 | **QUICKSTART.md** | 10-minute hands-on guide |
 | **MIGRATION_GUIDE.md** | Detailed steps to migrate from Ansible |
-| **COMPARISON.md** | Ansible vs Terraform analysis |
+| **DESIGN_SUMMARY.md** | This document |
 
 ## Core Features
 
@@ -260,7 +265,7 @@ Outputs
 ### Local State (Development)
 
 ```bash
-terraform apply -var-file="tfvars/ring0.tfvars"
+terraform apply -var-file="../configs.private/envprod/ring0.tfvars"
 # Creates: terraform.tfstate, terraform.tfstate.backup
 # Only on your machine
 ```
@@ -278,17 +283,17 @@ terraform {
 ```
 
 Benefits:
-- ✓ Team access
-- ✓ Automatic backups
-- ✓ Concurrent access prevention (locking)
-- ✓ Version history
+- Team access
+- Automatic backups
+- Concurrent access prevention (locking)
+- Version history
 
 ## Common Operations
 
 ### Plan Changes (Safe Preview)
 
 ```bash
-terraform plan -var-file="tfvars/ring0.tfvars"
+terraform plan -var-file="../configs.private/envprod/ring0.tfvars"
 # Shows exactly what will change
 # No actual changes made
 ```
@@ -296,7 +301,7 @@ terraform plan -var-file="tfvars/ring0.tfvars"
 ### Apply Changes
 
 ```bash
-terraform apply -var-file="tfvars/ring0.tfvars"
+terraform apply -var-file="../configs.private/envprod/ring0.tfvars"
 # Executes planned changes
 # Updates terraform.tfstate
 ```
@@ -304,7 +309,7 @@ terraform apply -var-file="tfvars/ring0.tfvars"
 ### Destroy Resources
 
 ```bash
-terraform destroy -var-file="tfvars/ring0.tfvars"
+terraform destroy -var-file="../configs.private/envprod/ring0.tfvars"
 # Removes all managed resources
 # Careful: Data loss possible
 ```
@@ -312,14 +317,14 @@ terraform destroy -var-file="tfvars/ring0.tfvars"
 ### Scale a VM
 
 ```hcl
-# Edit tfvars/ring0.tfvars
+# Edit configs.private/envprod/ring0.tfvars (or configs/envtest/ring0.tfvars for test)
 "truenas-primary" = {
   cpu_cores = 8  # Changed from 4
   # ...
 }
 
 # Apply
-terraform apply -var-file="tfvars/ring0.tfvars"
+terraform apply -var-file="../configs.private/envprod/ring0.tfvars"
 # VM automatically updated
 ```
 
@@ -374,7 +379,7 @@ terraform fmt -recursive
 ### Dry Run
 
 ```bash
-terraform plan -var-file="tfvars/ring0.tfvars"
+terraform plan -var-file="../configs.private/envprod/ring0.tfvars"
 # Shows changes without applying
 ```
 
@@ -437,21 +442,21 @@ containers = {
 
 ## Documentation Structure
 
-1. **README.md** - Start here for overview and architecture
+1. **TERRAFORM-README.md** - Start here for overview and architecture
 2. **QUICKSTART.md** - Hands-on 10-minute guide
 3. **MIGRATION_GUIDE.md** - Detailed migration steps and examples
-4. **COMPARISON.md** - Deep dive: Ansible vs Terraform
+4. **DESIGN_SUMMARY.md** - This document
 5. **modules/vm/README.md** - VM module documentation
 
 ## Next Steps
 
-1. ✅ **Review this design** - Understand the architecture
-2. ⬜ **Read QUICKSTART.md** - Hands-on setup
-3. ⬜ **Run terraform init** - Initialize workspace
-4. ⬜ **Run terraform plan** - Preview first deployment
-5. ⬜ **Run terraform apply** - Deploy infrastructure
-6. ⬜ **Verify with `incus list`** - Confirm VMs exist
-7. ⬜ **Read MIGRATION_GUIDE.md** - Plan full migration
+1. **Review this design** - Understand the architecture
+2. **Read QUICKSTART.md** - Hands-on setup
+3. **Run terraform init** - Initialize workspace
+4. **Run terraform plan** - Preview first deployment
+5. **Run terraform apply** - Deploy infrastructure
+6. **Verify with `incus list`** - Confirm VMs exist
+7. **Read MIGRATION_GUIDE.md** - Plan full migration
 
 ## Reference Information
 
@@ -471,6 +476,6 @@ containers = {
 
 ---
 
-**Status:** ✅ Complete Design Ready for Implementation
+**Status:** Complete Design Ready for Implementation
 
 This refactor provides a solid foundation for managing your Incus infrastructure with Terraform while maintaining compatibility with existing Ansible workflows and respecting pre-existing infrastructure constraints.

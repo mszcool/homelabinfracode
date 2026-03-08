@@ -1,33 +1,27 @@
-# Samba 4 AD DC - Example Configurations
+# Samba4 AD DC — Example Configurations
+
+> **Context**: These are example configurations for different deployment scenarios. For the master setup workflow, see [Ring 0 Setup — Samba4 AD DC](../04-ring0-setup.md#4-samba4-active-directory-domain-controller-setup). For the full navigation index, see [INDEX.md](./INDEX.md).
+>
+> **Path conventions**: Uses directory-based inventory (`configs/envbase/` + `configs.private/envprod/inventory/`). Secrets via 1Password. See [Architecture](../02-architecture.md).
 
 This file contains example configurations for different deployment scenarios.
 
-## Example 1: Default Configuration (mszlocal domain)
+## Example 1: Default Configuration (yourlab.local domain)
 
-### Environment Variables
+### Secrets
+
+Admin password and DNS forwarders are resolved from 1Password at runtime:
+
 ```bash
-export SAMBA4_ADMIN_PASSWORD="ComplexPass123!@#"
-export SAMBA4_DNS_FORWARDER_1="10.0.0.1"
-export SAMBA4_DNS_FORWARDER_2="8.8.8.8"
+eval $(./scripts/op-session.sh 2h prod)
 ```
 
 ### Inventory Customization
-```yaml
-samba4_addc:
-  realm: "MSZLOCAL"
-  domain: "MSZLOCAL"
-  dns_domain: "mszlocal"
-  ip_address: "10.0.0.10"
-  dns_forwarders:
-    - "10.0.0.1"
-    - "8.8.8.8"
-```
 
-### Terraform Variables
-Already configured in `ring0.tfvars`:
+Edit `configs/envbase/group_vars/identityprovider/vars.yaml`:
 ```hcl
 "samba4-addc" = {
-  target_remote            = "incus.aoostar.mszlocal"
+  target_remote            = "incus.aoostar.yourlab.local"
   incus_project            = "prodlayer0"
   incus_profile            = "production"
   cpu_cores                = 2
@@ -78,7 +72,7 @@ For organizations needing more resources:
 ### Terraform Configuration
 ```hcl
 "samba4-addc-prod" = {
-  target_remote            = "incus.peladin.mszlocal"   # Different host
+  target_remote            = "incus.peladin.yourlab.local"   # Different host
   incus_project            = "prodlayer1"               # Different project
   incus_profile            = "production"
   cpu_cores                = 4          # Increased
@@ -176,7 +170,7 @@ all:
 ### Terraform Configuration
 ```hcl
 "samba4-addc-test" = {
-  target_remote            = "incus.odyssey.mszlocal"   # Test host
+  target_remote            = "incus.odyssey.yourlab.local"   # Test host
   incus_project            = "test"
   incus_profile            = "default"
   cpu_cores                = 1
@@ -219,36 +213,27 @@ samba4_addc:
 
 ### Deploy Example 1 (Default)
 ```bash
-# Set environment
-export SAMBA4_ADMIN_PASSWORD="ComplexPass123!@#"
-export SAMBA4_DNS_FORWARDER_1="10.0.0.1"
+# Start 1Password session
+eval $(./scripts/op-session.sh 2h prod)
 
 # Provision VM
-terraform apply -var-file=../configs.private/ring0/ring0.tfvars
+terraform apply -var-file=../configs.private/envprod/ring0.tfvars
 
 # Configure with Ansible
 ansible-playbook \
-  -i configs.private/ring0/samba4-addc-inventory.yaml \
-  playbooks/ring0/samba4-addc-setup.yaml
+  -i configs/envbase/ -i configs.private/envprod/inventory/ \
+  playbooks/ring0/identity-samba4-addc-setup.yaml
 ```
 
 ### Deploy Example 2 (Production)
 ```bash
-# Use custom inventory file
-cp configs.private/ring0/samba4-addc-inventory.yaml \
-   configs.private/ring0/samba4-addc-prod-inventory.yaml
-
-# Edit production values
-vi configs.private/ring0/samba4-addc-prod-inventory.yaml
-
-# Set environment
-export SAMBA4_ADMIN_PASSWORD="YourProductionPassword!@#123"
-export SAMBA4_DNS_FORWARDER_1="172.20.0.1"
+# Start 1Password session
+eval $(./scripts/op-session.sh 2h prod)
 
 # Deploy
 ansible-playbook \
-  -i configs.private/ring0/samba4-addc-prod-inventory.yaml \
-  playbooks/ring0/samba4-addc-setup.yaml
+  -i configs/envbase/ -i configs.private/envprod/inventory/ \
+  playbooks/ring0/identity-samba4-addc-setup.yaml
 ```
 
 ## Configuration Best Practices
@@ -300,8 +285,8 @@ ansible-playbook \
 ### Planning Additional DCs
 ```bash
 # Join additional DC to existing forest
-samba-tool domain join dc2.mszlocal dc \
-  -U MSZLOCAL\\administrator \
+samba-tool domain join dc2.yourlab.local dc \
+  -U YOURLAB.LOCAL\\administrator \
   --dns-backend=SAMBA_INTERNAL
 ```
 
@@ -326,7 +311,7 @@ echo "=== NTP Status ==="
 ntpstat || echo "ALERT: NTP not synchronized"
 
 echo "=== DNS Records ==="
-host -t SRV _ldap._tcp.mszlocal. || echo "ALERT: DNS not resolving"
+host -t SRV _ldap._tcp.yourlab.local. || echo "ALERT: DNS not resolving"
 
 echo "=== LDAP Connectivity ==="
 ldapsearch -H ldap://localhost -x -b "" -s base 2>/dev/null || echo "ALERT: LDAP not responding"
@@ -345,13 +330,13 @@ date
 
 ### DNS Issues
 1. Verify Samba is listening on port 53: `netstat -tlnp | grep :53`
-2. Test direct query: `dig @10.0.0.10 dc1.mszlocal.`
+2. Test direct query: `dig @10.0.0.10 dc1.yourlab.local.`
 3. Check DNS forwarders in smb.conf: `grep "dns forwarder" /etc/samba/smb.conf`
 4. Review Samba logs: `journalctl -u samba | grep -i dns`
 
 ### Authentication Issues
 1. Verify Kerberos config: `cat /etc/krb5.conf`
-2. Test KDC: `kinit -v administrator@MSZLOCAL`
+2. Test KDC: `kinit -v administrator@YOURLAB.LOCAL`
 3. Check NTP: `ntpstat`
 4. Verify LDAP: `ldapsearch -H ldap://localhost -x`
 
@@ -363,7 +348,7 @@ date
 
 ## Single Playbook Approach
 
-This implementation uses a single, monolithic playbook (`samba4-addc-setup.yaml`) rather than separate roles. This approach:
+This implementation uses a single playbook (`identity-samba4-addc-setup.yaml`) rather than separate roles. This approach:
 - Simplifies deployment and maintenance
 - Makes the entire setup process transparent and easy to modify
 - Eliminates unnecessary abstraction layers for a single-use automation

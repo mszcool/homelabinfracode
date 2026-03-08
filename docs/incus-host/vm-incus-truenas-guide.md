@@ -1,4 +1,8 @@
-# TrueNAS Scale VM on Incus - Deployment Guide
+# TrueNAS Scale VM on Incus — Deployment Guide
+
+> **Context**: This is a detailed reference for TrueNAS VM deployment with PCIe passthrough on Incus. For the high-level setup workflow, see [Ring 0 Setup — TrueNAS](../04-ring0-setup.md#3-truenas-scale-setup). For continuous TrueNAS configuration, see [Ring 0a — Storage Configuration](../05-ring0a-automated.md#3-continuous-truenas-configuration).
+>
+> **Note on paths**: This document uses `configs/host-incus-cluster.yaml` in examples. In the current directory-based inventory structure, use `-i configs/envbase/ -i configs.private/envprod/inventory/` instead. Adapt paths to your environment.
 
 This guide walks you through deploying a TrueNAS Scale virtual machine on an Incus-based virtualization host with full PCIe/SATA controller passthrough support.
 

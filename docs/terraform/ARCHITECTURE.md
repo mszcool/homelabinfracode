@@ -1,4 +1,8 @@
-# Terraform Incus Architecture Diagram
+# Terraform — Architecture
+
+> **Context**: For the master architecture overview (including Terraform's role in the overall system), see [Architecture](../02-architecture.md). This document provides detailed Terraform-specific architecture diagrams and data flows.
+>
+> **Path conventions**: Tfvars at `configs/envtest/` (test) or `configs.private/envprod/` (production). Documentation is in `docs/terraform/` (this directory).
 
 ## High-Level Architecture
 
@@ -123,7 +127,7 @@
 ## Data Flow: Planning and Applying
 
 ```
-User Action: terraform plan -var-file="tfvars/ring0.tfvars"
+User Action: terraform plan -var-file="configs/envtest/ring0.tfvars"
                               ↓
                     ┌─────────────────┐
                     │  Load tfvars    │
@@ -154,7 +158,7 @@ User Action: terraform plan -var-file="tfvars/ring0.tfvars"
 ```
 
 ```
-User Action: terraform apply -var-file="tfvars/ring0.tfvars"
+User Action: terraform apply -var-file="configs/envtest/ring0.tfvars"
                               ↓
                          Plan Phase
                          (same as above)
@@ -219,22 +223,22 @@ User Action: terraform apply -var-file="tfvars/ring0.tfvars"
 ├─────────────────────────────────────────────────────────┤
 │                                                         │
 │  Development/Test                                       │
-│  ├── tfvars/ring0.tfvars (Small configs)                │
+│  ├── configs/envtest/ring0.tfvars (Small configs)       │
 │  ├── terraform.tfstate                                  │
 │  └── Quick iteration, low cost                          │
 │                                                         │
 │  Production/Ring0                                       │
-│  ├── tfvars/ring0.tfvars (Full configs)                 │
+│  ├── configs.private/envprod/ring0.tfvars (Full configs)│
 │  ├── terraform.tfstate (or remote backend)              │
 │  └── Stable, backed up                                  │
 │                                                         │
 │  Ring1 (Applications)                                   │
-│  ├── tfvars/ring1.tfvars (Future)                       │
+│  ├── configs/envtest/ring1.tfvars (Future)              │
 │  ├── terraform.tfstate                                  │
 │  └── App VMs and services                               │
 │                                                         │
 │  Ring2 (Utilities)                                      │
-│  ├── tfvars/ring2.tfvars (Future)                       │
+│  ├── configs/envtest/ring2.tfvars (Future)              │
 │  ├── terraform.tfstate                                  │
 │  └── Container utilities                                │
 │                                                         │
@@ -286,12 +290,12 @@ Minute  Event
 0      User: terraform init
        → Download provider, setup modules
 
-1      User: terraform plan -var-file="tfvars/ring0.tfvars"
+1      User: terraform plan -var-file="configs/envtest/ring0.tfvars"
        → Analyze configuration
        → Compare with state (empty)
        → Show 8+ resources to create
 
-3      User: terraform apply -var-file="tfvars/ring0.tfvars"
+3      User: terraform apply -var-file="configs/envtest/ring0.tfvars"
        → Create incus_storage_volume (ISO) - 0.5s
        → Create incus_storage_volume (data disk) - 0.5s
        → Create incus_instance (VM) - 10-15s

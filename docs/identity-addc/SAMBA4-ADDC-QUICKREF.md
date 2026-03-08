@@ -1,13 +1,17 @@
-# Samba 4 AD DC - Quick Reference
+# Samba4 AD DC — Quick Reference
+
+> **Context**: This is a quick-reference card for the Samba4 AD DC subsystem. For the master setup workflow, see [Ring 0 Setup](../04-ring0-setup.md#4-samba4-active-directory-domain-controller-setup). For the full navigation index, see [INDEX.md](./INDEX.md).
+>
+> **Path conventions**: Uses directory-based inventory (`configs/envbase/` + `configs.private/envprod/inventory/`). Secrets via 1Password. See [Architecture](../02-architecture.md) for details.
 
 ## Deployment Checklist
 
-- [ ] Customize `configs.private/ring0/samba4-addc-inventory.yaml` with your environment
-- [ ] Set environment variables: `SAMBA4_ADMIN_PASSWORD`, `SAMBA4_DNS_FORWARDER_1`
-- [ ] Run Terraform: `terraform apply -var-file=../configs.private/ring0/ring0.tfvars`
-- [ ] Configure DHCP reservation in Mikrotik for MAC `00:16:3e:11:00:10`
-- [ ] Run Ansible: `ansible-playbook -i configs.private/ring0/samba4-addc-inventory.yaml playbooks/ring0/samba4-addc-setup.yaml`
-- [ ] Verify DNS: `host -t SRV _ldap._tcp.mszlocal.`
+- [ ] Customize group variables in `configs/envbase/group_vars/identityprovider/`
+- [ ] Start 1Password session: `eval $(./scripts/op-session.sh 2h prod)`
+- [ ] Run Terraform: `terraform apply -var-file=../configs.private/envprod/ring0.tfvars`
+- [ ] Configure DHCP reservation in MikroTik for MAC `00:16:3e:11:00:10`
+- [ ] Run Ansible: `ansible-playbook -i configs/envbase/ -i configs.private/envprod/inventory/ playbooks/ring0/identity-samba4-addc-setup.yaml`
+- [ ] Verify DNS: `host -t SRV _ldap._tcp.yourlab.local.`
 - [ ] Test auth: `kinit administrator`
 
 ## Configuration Values
@@ -15,8 +19,8 @@
 | Parameter | Default | Notes |
 |-----------|---------|-------|
 | Hostname | `dc1` | Max 15 characters |
-| Realm | `MSZLOCAL` | Uppercase, must match DNS domain |
-| Domain | `MSZLOCAL` | NetBIOS domain, max 15 chars, no dots |
+| Realm | `YOURLAB.LOCAL` | Uppercase, must match DNS domain |
+| Domain | `YOURLAB.LOCAL` | NetBIOS domain, max 15 chars, no dots |
 | IP Address | `10.0.0.10` | Must match DHCP reservation |
 | MAC Address | `00:16:3e:11:00:10` | For DHCP reservation |
 | CPU Cores | `2` | Minimum recommended |
@@ -28,31 +32,40 @@
 ### Terraform
 ```bash
 # View plan
-terraform plan -var-file=../configs.private/ring0/ring0.tfvars
+terraform plan -var-file=../configs.private/envprod/ring0.tfvars
 
 # Apply changes
-terraform apply -var-file=../configs.private/ring0/ring0.tfvars
+terraform apply -var-file=../configs.private/envprod/ring0.tfvars
 
 # Destroy VM
-terraform destroy -var-file=../configs.private/ring0/ring0.tfvars
+terraform destroy -var-file=../configs.private/envprod/ring0.tfvars
 ```
 
 ### Ansible
 ```bash
-# Run full setup
-ansible-playbook -i configs.private/ring0/samba4-addc-inventory.yaml playbooks/ring0/samba4-addc-setup.yaml
+# Start 1Password session first
+eval $(./scripts/op-session.sh 2h prod)
 
-# Run only package installation
-ansible-playbook -i configs.private/ring0/samba4-addc-inventory.yaml -e "samba4_update_system=true" playbooks/ring0/samba4-addc-setup.yaml
+# Run full setup (Ring 0 — initial)
+ansible-playbook \
+  -i configs/envbase/ -i configs.private/envprod/inventory/ \
+  playbooks/ring0/identity-samba4-addc-setup.yaml
 
-# Use verbose output
-ansible-playbook -vv -i configs.private/ring0/samba4-addc-inventory.yaml playbooks/ring0/samba4-addc-setup.yaml
+# Run identity lifecycle (Ring 0a — ongoing)
+ansible-playbook \
+  -i configs/envbase/ -i configs.private/envprod/inventory/ \
+  playbooks/ring0a/identity-lifecycle.yaml
+
+# Run with verbose output
+ansible-playbook -vv \
+  -i configs/envbase/ -i configs.private/envprod/inventory/ \
+  playbooks/ring0/identity-samba4-addc-setup.yaml
 ```
 
 ### Samba Tools
 ```bash
 # Domain information
-samba-tool domain info mszlocal
+samba-tool domain info yourlab.local
 
 # List users
 samba-tool user list
@@ -73,25 +86,25 @@ samba-tool domain join --help
 ### DNS Verification
 ```bash
 # Test LDAP SRV record
-host -t SRV _ldap._tcp.mszlocal.
+host -t SRV _ldap._tcp.yourlab.local.
 
 # Test Kerberos SRV record
-host -t SRV _kerberos._udp.mszlocal.
+host -t SRV _kerberos._udp.yourlab.local.
 
 # Test A record
-host -t A dc1.mszlocal.
+host -t A dc1.yourlab.local.
 
 # Test reverse lookup
 host -t PTR 10.0.0.10
 
 # Full DNS validation
-dig @10.0.0.10 -t SRV _ldap._tcp.mszlocal.
+dig @10.0.0.10 -t SRV _ldap._tcp.yourlab.local.
 ```
 
 ### Kerberos Testing
 ```bash
 # Request ticket for administrator
-kinit administrator@MSZLOCAL
+kinit administrator@YOURLAB.LOCAL
 
 # List cached tickets
 klist
@@ -100,7 +113,7 @@ klist
 kdestroy
 
 # Test with verbose output
-kinit -v administrator@MSZLOCAL
+kinit -v administrator@YOURLAB.LOCAL
 ```
 
 ### Service Management
@@ -118,33 +131,33 @@ journalctl -u samba -n 100 -f
 ntpstat
 ```
 
-## Environment Variables
+## Secrets Management
+
+All sensitive data is managed through **1Password** using the `community.general.onepassword` lookup plugin:
 
 ```bash
-# Required
-export SAMBA4_ADMIN_PASSWORD="Passw0rd123!"
-export SAMBA4_DNS_FORWARDER_1="10.0.0.1"
-
-# Optional
-export SAMBA4_DNS_FORWARDER_2="1.1.1.1"
+# Start a 1Password session before running playbooks
+eval $(./scripts/op-session.sh 2h prod)
 ```
+
+Secrets (admin passwords, DNS forwarders) are resolved at runtime from 1Password vaults. See [Environment Setup](../03-environment-setup.md) for details.
 
 ## Files Created/Modified
 
-### New Files
-- `configs.private/ring0/samba4-addc-inventory.yaml` - Ansible inventory
-- `playbooks/ring0/samba4-addc-setup.yaml` - Main setup playbook
-- `docs/identity-addc/README-SAMBA4-ADDC.md` - Full documentation
-- `docs/identity-addc/SAMBA4-ADDC-QUICKREF.md` - Quick reference
-- `docs/identity-addc/SAMBA4-ADDC-EXAMPLES.md` - Example configurations
-- `docs/identity-addc/SAMBA4-DEPLOYMENT-CHECKLIST.md` - Deployment checklist
+### Configuration
+- `configs.private/envprod/ring0.tfvars` — Terraform VM definition
+- `configs/envbase/group_vars/identityprovider/` — Ansible group variables
 
-### Modified Files
-- `configs.private/ring0/ring0.tfvars` - Added samba4-addc VM definition
+### Playbooks
+- `playbooks/ring0/identity-samba4-addc-setup.yaml` — Initial AD DC setup
+- `playbooks/ring0a/identity-lifecycle.yaml` — Ongoing user/group management
+
+### Documentation
+- `docs/identity-addc/` — This directory (see [INDEX.md](./INDEX.md))
 
 ## Ansible Inventory Customization
 
-Edit `configs.private/ring0/samba4-addc-inventory.yaml`:
+Edit group variables in `configs/envbase/group_vars/identityprovider/vars.yaml`:
 
 ```yaml
 samba4_addc:
@@ -185,7 +198,7 @@ systemctl status samba
 netstat -tlnp | grep :53
 
 # Query DNS directly
-dig @10.0.0.10 dc1.mszlocal.
+dig @10.0.0.10 dc1.yourlab.local.
 ```
 
 ### NTP Out of Sync
@@ -212,6 +225,8 @@ systemctl restart ntp
 
 ## Related Documentation
 
-- [Main README](./README-SAMBA4-ADDC.md) - Comprehensive guide
-- [Terraform Module](../../terraform/modules/vm/README.md) - VM module documentation
-- [Samba Official Wiki](https://wiki.samba.org/index.php/Samba_Wiki) - Official documentation
+- [Ring 0 Setup — Samba4 AD DC](../04-ring0-setup.md#4-samba4-active-directory-domain-controller-setup) — Master setup workflow
+- [Ring 0a — Identity Configuration](../05-ring0a-automated.md#4-continuous-identity-configuration) — Ongoing management
+- [Full Guide](./README-SAMBA4-ADDC.md) — Comprehensive documentation
+- [Terraform Module](../../terraform/modules/vm/README.md) — VM module documentation
+- [Samba Official Wiki](https://wiki.samba.org/index.php/Samba_Wiki)

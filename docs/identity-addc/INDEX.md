@@ -1,48 +1,30 @@
-# Samba 4 Active Directory Domain Controller Documentation
+# Samba4 Active Directory Domain Controller — Reference
 
-This directory contains comprehensive documentation for deploying and managing a Samba 4 based Active Directory Domain Controller on your homelab infrastructure.
+> **Start here**: For the high-level setup workflow, see [Ring 0 Setup — Samba4 AD DC](../04-ring0-setup.md#4-samba4-active-directory-domain-controller-setup). For ongoing identity management (users, groups, OUs), see [Ring 0a — Identity Configuration](../05-ring0a-automated.md#4-continuous-identity-configuration). This directory contains detailed reference material for the Samba4 AD DC subsystem.
 
 ## Quick Navigation
 
-### 🚀 **Getting Started**
-Start here if you're new to this setup:
-1. [SAMBA4-IMPLEMENTATION-SUMMARY.md](./SAMBA4-IMPLEMENTATION-SUMMARY.md) - Overview of what was implemented (10 min read)
-2. [SAMBA4-DEPLOYMENT-CHECKLIST.md](./SAMBA4-DEPLOYMENT-CHECKLIST.md) - Step-by-step deployment guide with checklist
+### Getting Started
+1. [Ring 0 Setup — Samba4 AD DC](../04-ring0-setup.md#4-samba4-active-directory-domain-controller-setup) — Master setup workflow (start here)
+2. [SAMBA4-IMPLEMENTATION-SUMMARY.md](./SAMBA4-IMPLEMENTATION-SUMMARY.md) — Overview of the implementation
+3. [SAMBA4-DEPLOYMENT-CHECKLIST.md](./SAMBA4-DEPLOYMENT-CHECKLIST.md) — Detailed step-by-step checklist
 
-### 📖 **Comprehensive Guides**
-Detailed documentation for specific topics:
-- [README-SAMBA4-ADDC.md](./README-SAMBA4-ADDC.md) - Full deployment and operations guide
-  - Architecture overview
-  - Detailed setup instructions
-  - Post-deployment verification
-  - Troubleshooting guide
-  - Administrative tasks
+### Comprehensive Guides
+- [README-SAMBA4-ADDC.md](./README-SAMBA4-ADDC.md) — Full deployment and operations guide (architecture, verification, troubleshooting, admin tasks)
 
-### ⚡ **Quick References**
-Fast lookups when you need specific information:
-- [SAMBA4-ADDC-QUICKREF.md](./SAMBA4-ADDC-QUICKREF.md) - Handy quick reference with:
-  - Deployment checklist
-  - Key commands
-  - Configuration values
-  - Quick troubleshooting
+### Quick References
+- [SAMBA4-ADDC-QUICKREF.md](./SAMBA4-ADDC-QUICKREF.md) — Key commands, configuration values, troubleshooting
 
-### 📋 **Examples & Scenarios**
-Real-world configurations for different use cases:
-- [SAMBA4-ADDC-EXAMPLES.md](./SAMBA4-ADDC-EXAMPLES.md) - 6 example configurations:
-  1. Default configuration (mszlocal domain)
-  2. Production domain setup
-  3. High-capacity configuration
-  4. Multi-site deployment
-  5. Development/test setup
-  6. Custom network configuration
+### Examples and Scenarios
+- [SAMBA4-ADDC-EXAMPLES.md](./SAMBA4-ADDC-EXAMPLES.md) — 6 example configurations (default, production, high-capacity, multi-site, dev/test, custom network)
 
 ## File Organization
 
 ```
 docs/identity-addc/
-├── INDEX.md                            (this file)
-├── SAMBA4-IMPLEMENTATION-SUMMARY.md    (overview & architecture)
-├── SAMBA4-DEPLOYMENT-CHECKLIST.md      (step-by-step guide)
+├── INDEX.md                            (this file — navigation hub)
+├── SAMBA4-IMPLEMENTATION-SUMMARY.md    (overview and architecture)
+├── SAMBA4-DEPLOYMENT-CHECKLIST.md      (step-by-step deployment guide)
 ├── README-SAMBA4-ADDC.md               (comprehensive guide)
 ├── SAMBA4-ADDC-QUICKREF.md             (quick reference)
 └── SAMBA4-ADDC-EXAMPLES.md             (example configurations)
@@ -50,88 +32,31 @@ docs/identity-addc/
 
 ## Implementation Files
 
-These files are used for actual deployment:
+These are the actual files used for deployment:
 
-- **Configuration**: 
-  - `configs.private/ring0/ring0.tfvars` - Terraform VM definition
-  - `configs.private/ring0/samba4-addc-inventory.yaml` - Ansible inventory
+- **Terraform VM definition**: `configs.private/envprod/ring0.tfvars` (or `configs/envtest/ring0.tfvars` for testing)
+- **Ansible inventory**: Directory-based at `configs/envbase/` + `configs.private/envprod/inventory/`
+- **Group variables**: `configs/envbase/group_vars/identityprovider/` (Samba4 config and identity definitions)
+- **Initial setup playbook** (Ring 0): `playbooks/ring0/identity-samba4-addc-setup.yaml`
+- **Lifecycle playbook** (Ring 0a): `playbooks/ring0a/identity-lifecycle.yaml`
 
-- **Automation**:
-  - `playbooks/ring0/samba4-addc-setup.yaml` - Monolithic deployment playbook
+## Secrets Management
 
-## Quick Start
-
-### For First-Time Setup
-1. Read [SAMBA4-IMPLEMENTATION-SUMMARY.md](./SAMBA4-IMPLEMENTATION-SUMMARY.md) to understand what will be deployed
-2. Follow [SAMBA4-DEPLOYMENT-CHECKLIST.md](./SAMBA4-DEPLOYMENT-CHECKLIST.md) step-by-step
-3. Reference [README-SAMBA4-ADDC.md](./README-SAMBA4-ADDC.md) for detailed explanations
-
-### For Troubleshooting
-1. Check [SAMBA4-ADDC-QUICKREF.md](./SAMBA4-ADDC-QUICKREF.md#troubleshooting)
-2. Review [README-SAMBA4-ADDC.md](./README-SAMBA4-ADDC.md#troubleshooting)
-3. Check [SAMBA4-ADDC-EXAMPLES.md](./SAMBA4-ADDC-EXAMPLES.md#troubleshooting-by-scenario)
-
-### For Custom Configuration
-1. Review your scenario in [SAMBA4-ADDC-EXAMPLES.md](./SAMBA4-ADDC-EXAMPLES.md)
-2. Customize [configs.private/ring0/samba4-addc-inventory.yaml](../../configs.private/ring0/samba4-addc-inventory.yaml)
-3. Adjust [configs.private/ring0/ring0.tfvars](../../configs.private/ring0/ring0.tfvars) if needed
-4. Run deployment as documented in the checklist
-
-## Key Concepts
-
-### What Gets Deployed
-- **VM**: Incus virtual machine running Ubuntu 24.04 LTS
-- **Samba 4**: Active Directory Domain Controller
-- **DNS**: Internal DNS with forwarders to your Mikrotik router
-- **Kerberos**: Authentication system with NTP synchronization
-- **LDAP**: Directory service for user/group management
-
-### Key Files in the Setup
-- `ring0.tfvars` - Defines the AD DC VM in Terraform
-- `samba4-addc-inventory.yaml` - Ansible configuration with domain parameters
-- `samba4-addc-setup.yaml` - Main playbook that automates everything
-
-### Important Addresses & Parameters
-- **MAC Address**: `00:16:3e:11:00:10` - Used for DHCP reservation
-- **IP Address**: `10.0.0.10` (configurable, must match DHCP reservation)
-- **Domain**: `mszlocal` (customizable in inventory)
-- **Realm**: `MSZLOCAL` (must be uppercase domain)
-- **DNS Forwarder**: `10.0.0.1` (your Mikrotik router)
-
-## Environment Variables Required
+All sensitive data (admin passwords, DNS forwarders) is managed through **1Password** using the `community.general.onepassword` lookup plugin. Before running playbooks, start a session:
 
 ```bash
-export SAMBA4_ADMIN_PASSWORD="YourSecurePassword123!"  # Min 8 chars, uppercase, number, special char
-export SAMBA4_DNS_FORWARDER_1="10.0.0.1"               # Your router IP
-export SAMBA4_DNS_FORWARDER_2="8.8.8.8"                # Optional: secondary forwarder
+eval $(./scripts/op-session.sh 2h prod)
 ```
 
-## Next Steps After Deployment
+See [Environment Setup](../03-environment-setup.md) and [Architecture — Secrets Management](../02-architecture.md) for details.
 
-Once the AD DC is running:
+## Next Steps After Initial Deployment
 
-1. **Change Administrator Password**
-   ```bash
-   samba-tool user setpassword administrator --newpassword='NewPassword123!'
-   ```
+Once the AD DC is running (via Ring 0 setup):
 
-2. **Create Domain Users**
-   ```bash
-   samba-tool user create john.smith
-   ```
-
-3. **Set Password Policies**
-   ```bash
-   samba-tool domain passwordsettings set --min-pwd-length=12 --complexity=on
-   ```
-
-4. **Join Domain Members**
-   - Configure other machines to join the domain
-   - Set their DNS to point to the AD DC
-
-5. **Set Up Backups**
-   - Backup the AD database regularly
-   - Store off-site
+1. **Manage users and groups** via the Ring 0a identity lifecycle playbook — see [Ring 0a — Identity Configuration](../05-ring0a-automated.md#4-continuous-identity-configuration)
+2. **Join domain members** (TrueNAS, other services) — configure their DNS to point to the AD DC
+3. **Verify DNS and Kerberos** — see [SAMBA4-ADDC-QUICKREF.md](./SAMBA4-ADDC-QUICKREF.md)
 
 ## Troubleshooting Quick Links
 
@@ -139,27 +64,12 @@ Once the AD DC is running:
 |-------|-----------|
 | DNS not resolving | [README Troubleshooting](./README-SAMBA4-ADDC.md#troubleshooting) |
 | Kerberos authentication fails | [QUICKREF Troubleshooting](./SAMBA4-ADDC-QUICKREF.md#troubleshooting) |
-| Playbook fails | [Checklist - Issues & Fixes](./SAMBA4-DEPLOYMENT-CHECKLIST.md#common-issues--quick-fixes) |
+| Playbook fails | [Checklist — Issues and Fixes](./SAMBA4-DEPLOYMENT-CHECKLIST.md#common-issues--quick-fixes) |
 | Specific scenario help | [EXAMPLES Troubleshooting](./SAMBA4-ADDC-EXAMPLES.md#troubleshooting-by-scenario) |
 
 ## Official Resources
 
-- [Samba Wiki - AD DC Setup](https://wiki.samba.org/index.php/Setting_up_Samba_as_an_Active_Directory_Domain_Controller)
+- [Samba Wiki — AD DC Setup](https://wiki.samba.org/index.php/Setting_up_Samba_as_an_Active_Directory_Domain_Controller)
 - [Samba Tool Reference](https://manpages.ubuntu.com/manpages/focal/man8/samba-tool.8.html)
 - [Active Directory Naming FAQ](https://wiki.samba.org/index.php/Active_Directory_Naming_FAQ)
 - [Kerberos Configuration](https://web.mit.edu/kerberos/krb5-latest/doc/user/user_config/index.html)
-
-## Document Status
-
-- **Created**: January 2026
-- **Implementation**: Complete and ready for deployment
-- **Tested**: Follows official Samba documentation
-- **Updated**: Documentation consolidated to `docs/identity-addc/`
-
-## Need Help?
-
-1. **Quick answers**: Check [SAMBA4-ADDC-QUICKREF.md](./SAMBA4-ADDC-QUICKREF.md)
-2. **Detailed help**: Review [README-SAMBA4-ADDC.md](./README-SAMBA4-ADDC.md)
-3. **Step-by-step**: Follow [SAMBA4-DEPLOYMENT-CHECKLIST.md](./SAMBA4-DEPLOYMENT-CHECKLIST.md)
-4. **Examples**: Look up your scenario in [SAMBA4-ADDC-EXAMPLES.md](./SAMBA4-ADDC-EXAMPLES.md)
-5. **Official**: Check [Samba Wiki](https://wiki.samba.org/)

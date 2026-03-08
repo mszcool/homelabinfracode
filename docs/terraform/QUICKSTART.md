@@ -1,4 +1,8 @@
-# Terraform Incus Quick Start Guide
+# Terraform — Quick Start Guide
+
+> **Context**: For the master setup workflow, see [Ring 0 Setup](../04-ring0-setup.md). For Terraform installation, see [Environment Setup](../03-environment-setup.md). For the full Terraform documentation index, see [INDEX.md](./INDEX.md).
+>
+> **Path conventions**: Tfvars at `configs/envtest/` (test) or `configs.private/envprod/` (production). See [Architecture](../02-architecture.md).
 
 Get up and running with Terraform for Incus in 10 minutes.
 
@@ -42,20 +46,20 @@ Terraform has been successfully configured!
 
 ### 2. Review Example Configuration
 
-Sample configurations are provided in the public `configs/` directory for reference:
-- `configs/ring0/ring0.tfvars` - Infrastructure layer examples
-- `configs/ring1/ring1.tfvars` - Application layer examples  
-- `configs/ring2/ring2.tfvars` - Utility services examples
+Sample configurations are provided in the public `configs/envtest/` directory for reference:
+- `configs/envtest/ring0.tfvars` - Infrastructure layer examples
+- `configs/envtest/ring1.tfvars` - Application layer examples  
+- `configs/envtest/ring2.tfvars` - Utility services examples
 
-**Actual configuration** is stored in the private `configs.private/` repository:
-- `configs.private/ring0/ring0.tfvars` - Your Ring0 infrastructure
-- `configs.private/ring1/ring1.tfvars` - Your Ring1 applications
-- `configs.private/ring2/ring2.tfvars` - Your Ring2 utilities
+**Actual configuration** is stored in the private `configs.private/envprod/` repository:
+- `configs.private/envprod/ring0.tfvars` - Your Ring0 infrastructure
+- `configs.private/envprod/ring1.tfvars` - Your Ring1 applications
+- `configs.private/envprod/ring2.tfvars` - Your Ring2 utilities
 
 ### 3. Plan the Deployment
 
 ```bash
-terraform plan -var-file="../configs.private/ring0/ring0.tfvars"
+terraform plan -var-file="../configs.private/envprod/ring0.tfvars"
 ```
 
 **What to expect:**
@@ -82,10 +86,10 @@ Plan: 3 to add, 0 to change, 0 to destroy.
 
 ```bash
 # Dry run (shows what would happen)
-terraform apply -var-file="../configs.private/ring0/ring0.tfvars" -auto-approve
+terraform apply -var-file="../configs.private/envprod/ring0.tfvars" -auto-approve
 
 # Or interactive (review before applying)
-terraform apply -var-file="../configs.private/ring0/ring0.tfvars"
+terraform apply -var-file="../configs.private/envprod/ring0.tfvars"
 ```
 
 ### 5. View Outputs
@@ -122,31 +126,31 @@ terraform state show 'module.vm["truenas-primary"].incus_instance.vm'
 
 ### Modify a VM
 
-1. Edit `../configs.private/ring0/ring0.tfvars`
+1. Edit `../configs.private/envprod/ring0.tfvars`
 2. Change a value (e.g., `cpu_cores = 4` → `cpu_cores = 8`)
 3. Plan to see changes:
    ```bash
-   terraform plan -var-file="../configs.private/ring0/ring0.tfvars"
+   terraform plan -var-file="../configs.private/envprod/ring0.tfvars"
    ```
 4. Apply:
    ```bash
-   terraform apply -var-file="../configs.private/ring0/ring0.tfvars"
+   terraform apply -var-file="../configs.private/envprod/ring0.tfvars"
    ```
 
 ### Destroy a VM
 
 ```bash
 # Destroy specific VM
-terraform destroy -var-file="../configs.private/ring0/ring0.tfvars" \
+terraform destroy -var-file="../configs.private/envprod/ring0.tfvars" \
   -target='module.vm["truenas-primary"].incus_instance.vm'
 
 # Or destroy everything
-terraform destroy -var-file="../configs.private/ring0/ring0.tfvars"
+terraform destroy -var-file="../configs.private/envprod/ring0.tfvars"
 ```
 
 ### Create a New VM
 
-1. Add to `../configs.private/ring0/ring0.tfvars`:
+1. Add to `../configs.private/envprod/ring0.tfvars`:
    ```hcl
    "new-ubuntu-vm" = {
      target_remote = "incussingledisk"  # Use your test or production server
@@ -160,8 +164,8 @@ terraform destroy -var-file="../configs.private/ring0/ring0.tfvars"
 
 2. Plan and apply:
    ```bash
-   terraform plan -var-file="../configs.private/ring0/ring0.tfvars"
-   terraform apply -var-file="../configs.private/ring0/ring0.tfvars"
+   terraform plan -var-file="../configs.private/envprod/ring0.tfvars"
+   terraform apply -var-file="../configs.private/envprod/ring0.tfvars"
    ```
 
 ## Understanding the Files
@@ -205,7 +209,7 @@ module "vm" {
 }
 ```
 
-### `tfvars/ring0.tfvars`
+### `configs/envtest/ring0.tfvars`
 Environment-specific values
 ```hcl
 vms = {
@@ -279,10 +283,10 @@ terraform plan
 
 ```bash
 # Review what will change
-terraform plan -var-file="tfvars/ring0.tfvars"
+terraform plan -var-file="../configs.private/envprod/ring0.tfvars"
 
 # Then apply if satisfied
-terraform apply -var-file="tfvars/ring0.tfvars"
+terraform apply -var-file="../configs.private/envprod/ring0.tfvars"
 ```
 
 ### 2. Use Version Control
@@ -300,17 +304,21 @@ If using sensitive data:
 export TF_VAR_incus_token="<token>"
 
 # Or use separate secrets file (not in git)
-terraform apply -var-file="tfvars/ring0.tfvars" \
+terraform apply -var-file="../configs.private/envprod/ring0.tfvars" \
   -var-file="secrets.tfvars.auto"
 ```
 
 ### 4. Organize by Environment
 
 ```
-tfvars/
-├── ring0.tfvars    # Infrastructure layer
-├── ring1.tfvars    # Application layer
-└── ring2.tfvars    # User services
+configs/envtest/                    # Test environment
+├── ring0.tfvars                    # Infrastructure layer
+├── ring1.tfvars                    # Application layer
+└── ring2.tfvars                    # User services
+configs.private/envprod/            # Production environment
+├── ring0.tfvars
+├── ring1.tfvars
+└── ring2.tfvars
 ```
 
 ### 5. Document Changes
@@ -328,7 +336,7 @@ tfvars/
 
 1. **Test with a simple VM** (all files already set up)
 2. **Review MIGRATION_GUIDE.md** for detailed migration steps
-3. **Check COMPARISON.md** for architectural details
+3. **Check DESIGN_SUMMARY.md** for architectural details
 4. **Explore modules/vm/README.md** for module documentation
 5. **Set up remote state** (optional, for team collaboration)
 
@@ -345,13 +353,13 @@ terraform validate
 terraform fmt -recursive
 
 # Plan changes
-terraform plan -var-file="tfvars/ring0.tfvars"
+terraform plan -var-file="../configs.private/envprod/ring0.tfvars"
 
 # Apply changes
-terraform apply -var-file="tfvars/ring0.tfvars"
+terraform apply -var-file="../configs.private/envprod/ring0.tfvars"
 
 # Destroy resources
-terraform destroy -var-file="tfvars/ring0.tfvars"
+terraform destroy -var-file="../configs.private/envprod/ring0.tfvars"
 
 # View state
 terraform state list
@@ -378,17 +386,17 @@ export TF_LOG=DEBUG
 
 You've successfully set up Terraform when:
 
-✅ `terraform init` completes without errors
-✅ `terraform validate` shows "Valid configuration"
-✅ `terraform plan` shows planned resources without errors
-✅ `terraform apply` creates resources successfully
-✅ `incus list -p prodlayer0` shows the created VMs
-✅ `terraform output` displays VM information
+- `terraform init` completes without errors
+- `terraform validate` shows "Valid configuration"
+- `terraform plan` shows planned resources without errors
+- `terraform apply` creates resources successfully
+- `incus list -p prodlayer0` shows the created VMs
+- `terraform output` displays VM information
 
 ---
 
 **Ready to deploy?** Run:
 ```bash
 cd terraform
-terraform plan -var-file="tfvars/ring0.tfvars"
+terraform plan -var-file="../configs.private/envprod/ring0.tfvars"
 ```

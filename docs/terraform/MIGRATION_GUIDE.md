@@ -1,4 +1,8 @@
-# Terraform Incus Refactor - Migration Guide
+# Terraform Incus Refactor — Migration Guide
+
+> **Context**: For the master architecture overview, see [Architecture](../02-architecture.md). For Ring 0 setup workflow, see [Ring 0 Setup](../04-ring0-setup.md). For the full Terraform documentation index, see [INDEX.md](./INDEX.md).
+>
+> **Path conventions**: Tfvars at `configs/envtest/` (test) or `configs.private/envprod/` (production). Secrets via 1Password. See [Architecture](../02-architecture.md).
 
 This guide helps migrate from the Ansible-based VM management to Terraform.
 
@@ -45,18 +49,22 @@ Terraform
     │   │   ├── outputs.tf
     │   │   └── README.md
     │   └── container/                (Future: Container module)
-    └── tfvars/
-        ├── ring0.tfvars              (Ring0 infrastructure)
-        ├── ring1.tfvars              (Ring1 workloads)
-        └── ring2.tfvars              (Ring2 utilities)
+configs/envtest/
+    ├── ring0.tfvars                  (Ring0 test infrastructure)
+    ├── ring1.tfvars                  (Ring1 test workloads)
+    └── ring2.tfvars                  (Ring2 test utilities)
+configs.private/envprod/
+    ├── ring0.tfvars                  (Ring0 production infrastructure)
+    ├── ring1.tfvars                  (Ring1 production workloads)
+    └── ring2.tfvars                  (Ring2 production utilities)
 ```
 
 **Advantages:**
-- ✅ Infrastructure state tracked in `terraform.tfstate`
-- ✅ `terraform plan` shows changes before applying
-- ✅ `terraform destroy` for cleanup
-- ✅ Version control for infrastructure definitions
-- ✅ Modular and reusable components
+- Infrastructure state tracked in `terraform.tfstate`
+- `terraform plan` shows changes before applying
+- `terraform destroy` for cleanup
+- Version control for infrastructure definitions
+- Modular and reusable components
 
 ## Migration Path
 
@@ -72,11 +80,11 @@ Terraform
 cd terraform
 terraform init
 
-# Plan Ring0 deployment
-terraform plan -var-file="tfvars/ring0.tfvars"
+# Plan Ring0 deployment (test)
+terraform plan -var-file="../configs/envtest/ring0.tfvars"
 
 # Apply in test environment
-terraform apply -var-file="tfvars/ring0.tfvars"
+terraform apply -var-file="../configs/envtest/ring0.tfvars"
 ```
 
 ### Phase 2: Production Migration (Weeks 3-4)
@@ -111,13 +119,13 @@ all:
     incus:
       # Test servers from public configs
       hosts:
-        incussingledisk.mszlocaltest:
+        incussingledisk.yourlab.localtest:
           hostname: incussingledisk
-        incusdualdisk.mszlocaltest:
+        incusdualdisk.yourlab.localtest:
           hostname: incusdualdisk
 ```
 
-**Becomes** in `configs/ring0/ring0.tfvars`:
+**Becomes** in `configs/envtest/ring0.tfvars`:
 
 ```hcl
 vms = {
@@ -214,8 +222,8 @@ resource "incus_instance" "vm" {
 
 ```bash
 cd terraform
-terraform plan -var-file="tfvars/ring0.tfvars"
-terraform apply -var-file="tfvars/ring0.tfvars"
+terraform plan -var-file="../configs.private/envprod/ring0.tfvars"
+terraform apply -var-file="../configs.private/envprod/ring0.tfvars"
 
 # View state
 terraform state list
@@ -252,7 +260,7 @@ terraform init -backend-config="bucket=homelab-terraform-state" \
 
 ```bash
 ansible-playbook playbooks/ring0/vm-incus-truenas-find-disk-pci.yaml \
-  -i configs.private/ring0/host-incus-cluster.yaml
+  -i configs/envbase/ -i configs.private/envprod/inventory/
 ```
 
 ### Terraform Approach
@@ -267,7 +275,7 @@ ansible-playbook playbooks/ring0/vm-incus-truenas-find-disk-pci.yaml
 # pcie_controller = "0000:07:00.1"
 
 # 3. Apply Terraform
-terraform apply -var-file="tfvars/ring0.tfvars"
+terraform apply -var-file="../configs.private/envprod/ring0.tfvars"
 ```
 
 Or create a Terraform data source for discovery (advanced):
@@ -282,13 +290,13 @@ Or create a Terraform data source for discovery (advanced):
 ### Deploy a New Ring0 VM
 
 ```bash
-# 1. Update tfvars/ring0.tfvars with VM definition
+# 1. Update configs.private/envprod/ring0.tfvars with VM definition
 # 2. Plan the deployment
-terraform plan -var-file="tfvars/ring0.tfvars"
+terraform plan -var-file="../configs.private/envprod/ring0.tfvars"
 
 # 3. Review output
 # 4. Apply
-terraform apply -var-file="tfvars/ring0.tfvars"
+terraform apply -var-file="../configs.private/envprod/ring0.tfvars"
 
 # 5. Get output
 terraform output
@@ -297,11 +305,11 @@ terraform output
 ### Scale VM Resources
 
 ```bash
-# Edit tfvars/ring0.tfvars
+# Edit configs.private/envprod/ring0.tfvars
 # Change: cpu_cores = 4 -> cpu_cores = 8
 
-terraform plan -var-file="tfvars/ring0.tfvars"
-terraform apply -var-file="tfvars/ring0.tfvars"
+terraform plan -var-file="../configs.private/envprod/ring0.tfvars"
+terraform apply -var-file="../configs.private/envprod/ring0.tfvars"
 
 # Note: Some changes require VM restart
 ```
@@ -310,11 +318,11 @@ terraform apply -var-file="tfvars/ring0.tfvars"
 
 ```bash
 # Plan destroy
-terraform destroy -var-file="tfvars/ring0.tfvars" \
+terraform destroy -var-file="../configs.private/envprod/ring0.tfvars" \
   -target='module.vm["truenas-primary"].incus_instance.vm'
 
 # Apply destroy
-terraform destroy -var-file="tfvars/ring0.tfvars"
+terraform destroy -var-file="../configs.private/envprod/ring0.tfvars"
 ```
 
 ### Import Existing Resources
@@ -354,7 +362,7 @@ tfsec terraform/
 
 ```bash
 # Save plan to file
-terraform plan -var-file="tfvars/ring0.tfvars" -out=tfplan
+terraform plan -var-file="../configs.private/envprod/ring0.tfvars" -out=tfplan
 
 # Review in JSON format
 terraform show -json tfplan > plan.json
@@ -414,7 +422,7 @@ incus admin trust <remote_name>
 
 ```bash
 # If something goes wrong:
-terraform destroy -var-file="tfvars/ring0.tfvars"
+terraform destroy -var-file="../configs.private/envprod/ring0.tfvars"
 
 # Manually restore from backups or recreate via Ansible
 ```
@@ -423,10 +431,10 @@ terraform destroy -var-file="tfvars/ring0.tfvars"
 
 ```bash
 # Revert tfvars to previous version
-git checkout HEAD~ terraform/tfvars/ring0.tfvars
+git checkout HEAD~ configs.private/envprod/ring0.tfvars
 
 # Apply previous state
-terraform apply -var-file="tfvars/ring0.tfvars"
+terraform apply -var-file="../configs.private/envprod/ring0.tfvars"
 ```
 
 ## Monitoring and Maintenance
@@ -453,10 +461,10 @@ cp terraform/terraform.tfstate terraform/terraform.tfstate.backup
 
 ## Next Steps
 
-1. ✅ Review this refactor design
-2. ⬜ Set up Terraform files in workspace
-3. ⬜ Test with new VM deployments
-4. ⬜ Import existing VMs into state
-5. ⬜ Update CI/CD pipelines
-6. ⬜ Document team processes
-7. ⬜ Archive Ansible playbooks
+1. Review this refactor design
+2. Set up Terraform files in workspace
+3. Test with new VM deployments
+4. Import existing VMs into state
+5. Update CI/CD pipelines
+6. Document team processes
+7. Archive Ansible playbooks

@@ -1,5 +1,7 @@
 # Yescrypt Password Hashing for Ubuntu 24.04
 
+> **Context**: This is a reference document for password hashing on Ubuntu 24.04 VMs provisioned via Terraform on Incus. For the full VM provisioning workflow, see [Ring 0 Setup](../04-ring0-setup.md). For Terraform details, see [Architecture Overview](../02-architecture.md).
+
 ## The Issue
 
 Ubuntu 24.04 uses **yescrypt** as the default password hashing algorithm, not SHA-512 (even though SHA-512 is a valid crypt format).
@@ -69,7 +71,7 @@ Once you have a yescrypt hash:
 export TF_VAR_root_password='$y$j9T$QoxxlrhWpPrL.RHUrBXtL.$yxOB1Yw6VIcfnmsVdhNWeclhHz6cIR6RxrMqD.Dozh4'
 
 # Deploy
-terraform apply --var-file="../configs.private/ring0/ring0.tfvars"
+terraform apply --var-file="../configs.private/envprod/ring0.tfvars"
 ```
 
 ## Troubleshooting
@@ -78,7 +80,7 @@ terraform apply --var-file="../configs.private/ring0/ring0.tfvars"
 This usually means cloud-init created the user successfully (SSH key worked) but the password hash format is wrong:
 ```bash
 # Check what hash is actually in the system
-incus exec samba4-addc -- grep mszidmaster /etc/shadow
+incus exec samba4-addc -- grep yourdomainadmin /etc/shadow
 
 # If it starts with $6$, you used SHA-512 instead of yescrypt
 # If it starts with $y$, the hash is in the right format
@@ -91,10 +93,10 @@ incus exec samba4-addc -- tail -50 /var/log/cloud-init.log | grep -i "user\|pass
 
 # Manually test with a yescrypt hash
 NEWHASH=$(mkpasswd -m yescrypt)
-incus exec samba4-addc -- usermod --password "$NEWHASH" mszidmaster
+incus exec samba4-addc -- usermod --password "$NEWHASH" yourdomainadmin
 
 # Try logging in
-incus exec samba4-addc -- su - mszidmaster
+incus exec samba4-addc -- su - yourdomainadmin
 # Enter your password
 ```
 
