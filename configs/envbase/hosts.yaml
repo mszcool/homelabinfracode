@@ -13,8 +13,19 @@
 
 all:
   children:
-    # Incus bare-metal cluster nodes
-    incus:
+    # Parent group: incus nodes + localhost (for ISO build playbooks).
+    # localhost needs access to incus cluster variables (host_configs, incus_root_user, etc.)
+    # but is not member of the 'incus' group. This parent group allows
+    # group_vars/incus_scope/ to be visible to both localhost and incus nodes.
+    incus_scope:
+      hosts:
+        localhost:
+          ansible_connection: local
+          # Override interpreter: ansible.cfg's ~/pythonvenv path doesn't expand ~
+          # in the module execution context for explicit inventory hosts.
+          ansible_python_interpreter: "{{ ansible_playbook_python }}"
+      children:
+        incus:
 
     # Samba4 Active Directory Domain Controller
     identityprovider:
@@ -28,12 +39,5 @@ all:
     # MikroTik main router (managed via localhost API)
     mainrouter:
 
-    # Raspberry Pi edge devices - individual site groups
-    garage:
-    pool:
-
-    # Parent group for all edge devices
+    # Raspberry Pi edge devices (garage-edge, pool-edge are hosts)
     edge_devices:
-      children:
-        garage:
-        pool:

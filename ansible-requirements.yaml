@@ -2,10 +2,12 @@
 ---
 collections:
   - name: community.general
-    version: 10.5.0
+    version: ">=10.5.0"
+  - name: community.routeros
+    version: ">=3.16.0"
   - name: pfsensible.core
-    version: 0.6.1
+    version: ">=0.6.1"
   - name: ansible.netcommon
-    version: 7.1.0
+    version: ">=8.0.0"
   - name: arensb.truenas
     version: ">=0.1.0"

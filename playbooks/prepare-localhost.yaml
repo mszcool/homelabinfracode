@@ -35,9 +35,3 @@
           - genisoimage
         state: present
         update_cache: true
-
-    - name: Install packages required for Mikrotik router management
-      ansible.builtin.apt:
-        name:
-          - python3-paramiko
-        state: present

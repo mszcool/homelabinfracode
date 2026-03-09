@@ -1,4 +1,8 @@
-# Samba 4 Active Directory Domain Controller - Setup Guide
+# Samba4 Active Directory Domain Controller — Setup Guide
+
+> **Context**: This is the comprehensive deployment and operations guide for the Samba4 AD DC. For the master setup workflow, see [Ring 0 Setup — Samba4 AD DC](../04-ring0-setup.md#4-samba4-active-directory-domain-controller-setup). For ongoing identity management, see [Ring 0a — Identity Configuration](../05-ring0a-automated.md#4-continuous-identity-configuration).
+>
+> **Path conventions**: This document uses the current directory-based inventory model (`configs/envbase/` + `configs.private/envprod/inventory/`). Secrets are managed via 1Password. See [Architecture](../02-architecture.md) for the full inventory model.
 
 ## Overview
 
@@ -7,10 +11,10 @@ This guide provides complete automation for deploying a Samba 4 based Active Dir
 ## Architecture
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                    Ring0 Infrastructure                       │
-├─────────────────────────────────────────────────────────────┤
-│                                                               │
+┌────────────────────────────────────────────────────────────┐
+│                    Ring0 Infrastructure                    │
+├────────────────────────────────────────────────────────────┤
+│                                                            │
 │  ┌───────────────────────┐      ┌──────────────────────┐   │
 │  │   Mikrotik Router     │      │   Incus Cluster      │   │
 │  │  (DNS Forwarder)      │◄────►│  (compute hosts)     │   │
@@ -18,13 +22,13 @@ This guide provides complete automation for deploying a Samba 4 based Active Dir
 │  └───────────────────────┘      │  ┌────────────────┐  │   │
 │                                 │  │ Samba4 AD DC   │  │   │
 │                                 │  │ 10.0.0.10      │  │   │
-│                                 │  │ MAC:            │  │   │
+│                                 │  │ MAC:           │  │   │
 │                                 │  │ 00:16:3e:11:.. │  │   │
 │                                 │  └────────────────┘  │   │
 │                                 │                      │   │
 │                                 └──────────────────────┘   │
-│                                                               │
-└─────────────────────────────────────────────────────────────┘
+│                                                            │
+└────────────────────────────────────────────────────────────┘
 ```
 
 ## Prerequisites
@@ -51,37 +55,31 @@ This guide provides complete automation for deploying a Samba 4 based Active Dir
 
 ## Quick Start
 
-### Step 1: Customize the Inventory
+### Step 1: Customize the Configuration
 
-Edit the Ansible inventory file to match your environment:
+Edit the group variables for the identity provider:
 
 ```bash
-vi configs.private/ring0/samba4-addc-inventory.yaml
+vi configs/envbase/group_vars/identityprovider/vars.yaml
 ```
 
 Key customization points:
 - `hostname`: Change from `dc1` to your preferred hostname (max 15 characters)
-- `samba4_addc.realm`: Change `MSZLOCAL` to your DNS domain in uppercase
-- `samba4_addc.domain`: Change `MSZLOCAL` to your NetBIOS domain (15 chars max, no dots)
-- `samba4_addc.dns_domain`: Change `mszlocal` to your DNS domain
+- `samba4_addc.realm`: Change `YOURLAB.LOCAL` to your DNS domain in uppercase
+- `samba4_addc.domain`: Change `YOURLAB.LOCAL` to your NetBIOS domain (15 chars max, no dots)
+- `samba4_addc.dns_domain`: Change `yourlab.local` to your DNS domain
 - `samba4_addc.ip_address`: Set to the static IP you'll assign in your router
 - `samba4_addc.dns_forwarders`: Update with your router's IP address
 
-### Step 2: Set Environment Variables
+### Step 2: Start 1Password Session
 
-Configure the required environment variables:
+Secrets (admin password, DNS forwarders) are resolved from 1Password at runtime:
 
 ```bash
-export SAMBA4_ADMIN_PASSWORD="YourSecurePassword123!"
-export SAMBA4_DNS_FORWARDER_1="10.0.0.1"  # Your Mikrotik router IP
-export SAMBA4_DNS_FORWARDER_2="1.1.1.1"    # Optional: secondary forwarder
+eval $(./scripts/op-session.sh 2h prod)
 ```
 
-**Password Requirements:**
-- Minimum 8 characters
-- At least one uppercase letter
-- At least one number
-- At least one special character (!@#$%^&*()_+\-=[]{}; etc.)
+See [Environment Setup](../03-environment-setup.md) for 1Password configuration details.
 
 ### Step 3: Provision the VM with Terraform
 
@@ -94,10 +92,10 @@ cd terraform
 terraform init
 
 # Review the Terraform plan
-terraform plan -var-file=../configs.private/ring0/ring0.tfvars
+terraform plan -var-file=../configs.private/envprod/ring0.tfvars
 
 # Apply the configuration to create the VM
-terraform apply -var-file=../configs.private/ring0/ring0.tfvars
+terraform apply -var-file=../configs.private/envprod/ring0.tfvars
 ```
 
 Terraform will:
@@ -124,24 +122,18 @@ IP → DHCP Server → Leases
 
 Verify the VM has obtained the correct IP:
 ```bash
-incus info samba4-addc --remote incus.aoostar.mszlocal
+incus info samba4-addc --remote incus.aoostar.yourlab.local
 ```
 
 ### Step 5: Run the Ansible Playbook
 
-Once the VM is running and has the correct static IP, configure Samba 4:
+Once the VM is running and has the correct static IP, configure Samba4:
 
 ```bash
-# Using the monolithic playbook (recommended for first-time setup)
+# Run the identity setup playbook with directory-based inventory
 ansible-playbook \
-  -i configs.private/ring0/samba4-addc-inventory.yaml \
-  playbooks/ring0/samba4-addc-setup.yaml
-
-# Or using individual roles (for more control)
-ansible-playbook \
-  -i configs.private/ring0/samba4-addc-inventory.yaml \
-  -e "ansible_user=root" \
-  playbooks/ring0/samba4-addc-setup.yaml
+  -i configs/envbase/ -i configs.private/envprod/inventory/ \
+  playbooks/ring0/identity-samba4-addc-setup.yaml
 ```
 
 The playbook will:
@@ -157,12 +149,18 @@ The playbook will:
 ### File Structure
 
 ```
-configs.private/ring0/
-├── ring0.tfvars                        # Updated with samba4-addc VM definition
-└── samba4-addc-inventory.yaml          # Ansible inventory for AD DC configuration
+configs/envbase/
+├── group_vars/
+│   └── identityprovider/       # Samba4 AD DC group variables
+configs.private/envprod/
+├── ring0.tfvars                    # Terraform VM definition
+└── inventory/                      # Host-to-group assignments
 
 playbooks/ring0/
-└── samba4-addc-setup.yaml              # Main playbook (all-in-one setup)
+└── identity-samba4-addc-setup.yaml  # Initial AD DC setup playbook
+
+playbooks/ring0a/
+└── identity-lifecycle.yaml          # Ongoing identity management
 ```
 
 ### Configuration Parameters
@@ -210,11 +208,11 @@ systemctl status bind9
 
 ```bash
 # Query DNS SRV records
-host -t SRV _ldap._tcp.mszlocal.
-host -t SRV _kerberos._udp.mszlocal.
+host -t SRV _ldap._tcp.yourlab.local.
+host -t SRV _kerberos._udp.yourlab.local.
 
 # Query A record
-host -t A dc1.mszlocal.
+host -t A dc1.yourlab.local.
 
 # Query reverse DNS (if configured)
 host -t PTR 10.0.0.10
@@ -224,7 +222,7 @@ host -t PTR 10.0.0.10
 
 ```bash
 # Request Kerberos ticket
-kinit administrator@MSZLOCAL
+kinit administrator@YOURLAB.LOCAL
 
 # List cached tickets
 klist
@@ -237,7 +235,7 @@ smbclient -L localhost -N
 
 ```bash
 # Check LDAP configuration
-ldapsearch -H ldap://localhost -x -b "DC=mszlocal,DC=dc" -s base
+ldapsearch -H ldap://localhost -x -b "DC=yourlab.local,DC=dc" -s base
 
 # List domain users
 samba-tool user list
@@ -278,7 +276,7 @@ net ads testjoin
 # Set DNS to point to AD DC
 # Edit /etc/resolv.conf:
 # nameserver 10.0.0.10
-# search mszlocal
+# search yourlab.local
 ```
 
 ## Backup and Recovery
@@ -336,7 +334,7 @@ journalctl -u samba -n 50 --no-pager
 cat /etc/krb5.conf
 
 # Test Kerberos
-kinit -v administrator@MSZLOCAL
+kinit -v administrator@YOURLAB.LOCAL
 
 # Check ticket cache
 klist -a
@@ -346,7 +344,7 @@ klist -a
 
 ```bash
 # Test LDAP with ldapsearch
-ldapsearch -H ldap://localhost -x -b "DC=mszlocal,DC=dc" -s base
+ldapsearch -H ldap://localhost -x -b "DC=yourlab.local,DC=dc" -s base
 
 # Check LDAP service
 netstat -tlnp | grep 389
@@ -402,7 +400,7 @@ systemctl restart samba
 samba-tool dns zonecreate 10.0.0.10 0.0.10.in-addr.arpa -U administrator
 
 # Add reverse record for DC
-samba-tool dns add 10.0.0.10 0.0.10.in-addr.arpa 10 PTR dc1.mszlocal. -U administrator
+samba-tool dns add 10.0.0.10 0.0.10.in-addr.arpa 10 PTR dc1.yourlab.local. -U administrator
 ```
 
 ## Security Considerations
@@ -442,7 +440,7 @@ Allow the following ports from domain members to the AD DC:
 
 ### Ansible Playbook Structure
 
-The main playbook (`samba4-addc-setup.yaml`) includes all setup steps in a single, easy-to-follow structure with clear sections for each phase of the deployment.
+The main playbook (`identity-samba4-addc-setup.yaml`) includes all setup steps in a single, easy-to-follow structure with clear sections for each phase of the deployment.
 
 ## Additional Resources
 

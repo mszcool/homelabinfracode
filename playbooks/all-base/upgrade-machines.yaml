@@ -3,7 +3,6 @@
   hosts: all
   gather_facts: false
   become: true
-  remote_user: "{{ root_user }}"
 
   tasks:
     - name: Update apt cache {{ inventory_hostname }}

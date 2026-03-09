@@ -1,5 +1,7 @@
 # Unified ISO Generation for Multiple Server Configurations
 
+> **Context**: This is a reference document for the unified ISO build process. For the high-level setup workflow, see [Ring 0 Setup — Incus Compute Nodes](../04-ring0-setup.md#2-incus-compute-node-setup). For architecture context, see [Architecture Overview](../02-architecture.md).
+
 ## Overview
 
 This directory contains the optimized approach for generating a single Ubuntu ISO image that supports multiple server configurations through a GRUB boot menu selection.
@@ -46,13 +48,17 @@ This directory contains the optimized approach for generating a single Ubuntu IS
 ### Generate Unified ISO
 
 ```bash
-# Using default config directory
-ansible-playbook -i configs/host-incus-cluster.yaml playbooks/ring0/host-incus-image-unified.yaml
+# Using directory-based inventory (test environment)
+ansible-playbook \
+    -i configs/envbase/ \
+    -i configs/envtest/inventory/ \
+    playbooks/ring0/host-incus-image-unified.yaml
 
-# Using private configs
-ansible-playbook -i configs.private/infra-bootstrap/host-incus-cluster.yaml \
-                 -e preseed_output_dir=configs.private/infra-bootstrap \
-                 playbooks/ring0/host-incus-image-unified.yaml
+# Using production configs
+ansible-playbook \
+    -i configs/envbase/ \
+    -i configs.private/envprod/inventory/ \
+    playbooks/ring0/host-incus-image-unified.yaml
 ```
 
 ### Boot Process

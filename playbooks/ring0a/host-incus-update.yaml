@@ -3,38 +3,36 @@
   hosts: incus
   become: true
   gather_facts: true
-  remote_user: "{{ root_user }}"
 
   vars:
     param_incus_config: "{{ incus_config }}"
 
   tasks:
-    - name: Set the SSH user name and hostname in case it is not the default.
+    - name: Set the hostname from inventory.
       ansible.builtin.set_fact:
-        ansible_user: "{{ root_user }}"
         param_hostname: "{{ hostvars[inventory_hostname]['hostname'] }}"
 
     - name: Set the hostname to the value from inventory.
       ansible.builtin.hostname:
         name: "{{ param_hostname }}"
 
-    - name: If the environment variable for the password is set, set input variable for the password generation tasks.
+    - name: If the root user password is provided, set input variable for the password generation tasks.
       ansible.builtin.set_fact:
-        generate_password_input: "{{ lookup('env', root_user_password_env) | default('') }}"
-      when: lookup('env', root_user_password_env) | default('') | length > 0
+        generate_password_input: "{{ incus_root_user_password | default('') }}"
+      when: incus_root_user_password is defined and incus_root_user_password | default('') | length > 0
       no_log: true
 
-    - name: If the environment variable in root_user_password_env is set, update the password.
+    - name: If the root user password is set, update the password.
       ansible.builtin.user:
-        name: "{{ root_user }}"
+        name: "{{ incus_root_user }}"
         password: "{{ generate_password_input | password_hash('sha512') }}"
       when: generate_password_input is defined and generate_password_input | length > 0
 
     - name: Set the Incus server admin SSH Key exclusively.
       ansible.posix.authorized_key:
-        user: "{{ root_user }}"
+        user: "{{ incus_root_user }}"
         state: present
-        key: "{{ root_user_publickey }}"
+        key: "{{ incus_root_user_publickey }}"
         exclusive: true
 
     - name: Allow inbound SSH on port 22.

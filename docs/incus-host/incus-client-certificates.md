@@ -1,8 +1,8 @@
 # Incus Remote Client Certificate Management
 
-Complete guide for managing TLS client certificates for secure remote access to Incus servers.
+> **Context**: This is a detailed reference for Incus TLS client certificate management. For the high-level setup workflow, see [Ring 0a — Continuous Incus Configuration](../05-ring0a-automated.md#2-continuous-incus-cluster-configuration). For initial environment setup, see [Environment Setup](../03-environment-setup.md#step-6-install-and-configure-the-incus-client).
 
-**Last Updated:** October 10, 2025
+Complete guide for managing TLS client certificates for secure remote access to Incus servers.
 
 ---
 
@@ -29,7 +29,7 @@ Complete guide for managing TLS client certificates for secure remote access to 
 
 Incus uses TLS client certificates for authentication and authorization. This system allows you to:
 
-- **Store public certificates** in Git (in `configs.private/infra-bootstrap/incus/trusted-client-certs/`)
+- **Store public certificates** in Git (in `configs.private/envprod/incus/trusted-client-certs/`)
 - **Keep private keys secure** in your password manager (KeePass, 1Password, etc.)
 - **Restrict client access** to specific projects (default, production, etc.)
 - **Automate certificate deployment** via Ansible
@@ -45,11 +45,11 @@ Incus uses TLS client certificates for authentication and authorization. This sy
 
 ### Key Benefits
 
-- ✅ Certificate-based authentication (no passwords)
-- ✅ Project-level access control
-- ✅ Infrastructure as Code - all config in Git
-- ✅ Automated deployment
-- ✅ Secure key management
+- Certificate-based authentication (no passwords)
+- Project-level access control
+- Infrastructure as Code — all config in Git
+- Automated deployment via Ansible
+- Secure key management (private keys in password manager)
 
 ---
 
@@ -95,13 +95,13 @@ Incus uses TLS client certificates for authentication and authorization. This sy
 
 # 3. Save public cert to file
 ./scripts/manage-incus-client-certs.sh extract > \
-  configs.private/infra-bootstrap/incus/trusted-client-certs/my-workstation.crt
+  configs.private/envprod/incus/trusted-client-certs/my-workstation.crt
 
 # 4. Add to inventory (edit host-incus-cluster.yaml)
 # Add under incus_trusted_clients: section
 
 # 5. Deploy to servers
-ansible-playbook -i configs.private/infra-bootstrap/host-incus-cluster.yaml \
+ansible-playbook -i configs/envbase/ -i configs.private/envprod/inventory/ \
   playbooks/ring0a/host-incus-update.yaml
 
 # 6. Configure remote
@@ -118,8 +118,12 @@ incus list
 
 ```
 homelabinfracode/
-├── configs.private/infra-bootstrap/
-│   ├── host-incus-cluster.yaml              # Main inventory (includes cert config)
+├── configs/
+│   └── envbase/
+│       └── group_vars/incus_scope/
+│           └── host-incus-cluster.yaml      # Inventory config (includes cert config)
+│
+├── configs.private/envprod/
 │   └── incus/
 │       └── trusted-client-certs/            # Public certificate files
 │           ├── README.md
@@ -155,7 +159,7 @@ Incus Certificates/
 
 ### Inventory Configuration
 
-**File:** `configs.private/infra-bootstrap/host-incus-cluster.yaml`
+**File:** `configs/envbase/group_vars/incus_scope/host-incus-cluster.yaml`
 
 ```yaml
 all:
@@ -179,7 +183,7 @@ all:
 |-----------|----------|------|-------------|
 | `name` | Yes | string | Unique identifier for the certificate in Incus |
 | `description` | Yes | string | Human-readable description for documentation |
-| `certificate_file` | Yes | string | Relative path from `configs.private/infra-bootstrap/` to the certificate file |
+| `certificate_file` | Yes | string | Relative path from `configs.private/envprod/` to the certificate file |
 | `restricted` | No | boolean | `false` (default) = full admin access; `true` = limited to specified projects |
 | `projects` | No | array | List of project names this certificate can access. Empty = all projects (when `restricted: false`) |
 
@@ -229,20 +233,20 @@ Then:
 4. Add notes: server IPs, date generated, purpose
 5. Delete the backup directory: `rm -rf ~/incus-cert-backup-*`
 
-**⚠️ CRITICAL: Never commit `client.key` to Git!**
+**CRITICAL: Never commit `client.key` to Git!**
 
 ### Step 3: Save Public Certificate to File
 
 ```bash
 ./scripts/manage-incus-client-certs.sh extract > \
-  configs.private/infra-bootstrap/incus/trusted-client-certs/workstation-admin-mszcool.crt
+  configs.private/envprod/incus/trusted-client-certs/workstation-admin-mszcool.crt
 ```
 
 This saves the public certificate as a file in your repository.
 
 ### Step 4: Add Certificate to Inventory
 
-Edit `configs.private/infra-bootstrap/host-incus-cluster.yaml`:
+Edit your environment inventory (e.g., `configs/envbase/group_vars/incus_scope/host-incus-cluster.yaml`):
 
 ```yaml
 all:
@@ -271,8 +275,8 @@ For restricted access:
 ### Step 5: Commit to Git
 
 ```bash
-git add configs.private/infra-bootstrap/host-incus-cluster.yaml
-git add configs.private/infra-bootstrap/incus/trusted-client-certs/workstation-admin-mszcool.crt
+git add configs/envbase/group_vars/incus_scope/host-incus-cluster.yaml
+git add configs.private/envprod/incus/trusted-client-certs/workstation-admin-mszcool.crt
 git commit -m "Add admin workstation certificate for Incus remote access"
 git push
 ```
@@ -281,13 +285,15 @@ git push
 
 ```bash
 # Deploy to all Incus servers
-ansible-playbook -i configs.private/infra-bootstrap/host-incus-cluster.yaml \
+ansible-playbook \
+  -i configs/envbase/ -i configs.private/envprod/inventory/ \
   playbooks/ring0a/host-incus-update.yaml
 
 # Or deploy to a single server
-ansible-playbook -i configs.private/infra-bootstrap/host-incus-cluster.yaml \
+ansible-playbook \
+  -i configs/envbase/ -i configs.private/envprod/inventory/ \
   playbooks/ring0a/host-incus-update.yaml \
-  --limit incus.aoostar.mszlocal
+  --limit incus[0]
 ```
 
 Certificate management is automatically included in the update playbook.
@@ -441,7 +447,7 @@ The `scripts/manage-incus-client-certs.sh` script provides convenient commands f
 
 # Extract and save certificate
 ./scripts/manage-incus-client-certs.sh extract > \
-  configs.private/infra-bootstrap/incus/trusted-client-certs/workstation-admin-mszcool.crt
+  configs.private/envprod/incus/trusted-client-certs/workstation-admin-mszcool.crt
 
 # Add remote server
 ./scripts/manage-incus-client-certs.sh add-remote incus-aoostar 10.10.0.20 8443
@@ -457,7 +463,7 @@ The `scripts/manage-incus-client-certs.sh` script provides convenient commands f
 
 ## Security Best Practices
 
-### DO ✅
+### DO
 
 - **Store private keys in password manager** (KeePass, 1Password)
 - **Commit public certificates to Git** (in `incus/trusted-client-certs/` directory)
@@ -470,7 +476,7 @@ The `scripts/manage-incus-client-certs.sh` script provides convenient commands f
 - **Back up private keys** securely before deployment
 - **Test certificate access** after deployment
 
-### DON'T ❌
+### DON'T
 
 - **Never commit `client.key`** (private key) to Git
 - **Never share private keys** via email/chat
@@ -504,7 +510,7 @@ Before deployment:
 
 1. **Verify certificate is deployed:**
    ```bash
-   ssh mszmaster@10.10.0.20
+   ssh youradmin@10.10.0.20
    incus config trust list
    ```
 
@@ -515,7 +521,7 @@ Before deployment:
 
 3. **Re-deploy certificates:**
    ```bash
-   ansible-playbook -i configs.private/infra-bootstrap/host-incus-cluster.yaml \
+   ansible-playbook -i configs/envbase/ -i configs.private/envprod/inventory/ \
      playbooks/ring0a/host-incus-update.yaml
    ```
 
@@ -527,13 +533,13 @@ Before deployment:
 
 1. **Check firewall allows port 8443:**
    ```bash
-   ssh mszmaster@10.10.0.20
+   ssh youradmin@10.10.0.20
    sudo ufw status | grep 8443
    ```
 
 2. **Verify Incus is listening:**
    ```bash
-   ssh mszmaster@10.10.0.20
+   ssh youradmin@10.10.0.20
    incus config get core.https_address
    ```
 
@@ -550,7 +556,7 @@ Before deployment:
 
 1. **Check certificate restrictions:**
    ```bash
-   ssh mszmaster@10.10.0.20
+   ssh youradmin@10.10.0.20
    incus config trust list
    incus config trust show <fingerprint>
    ```
@@ -569,16 +575,16 @@ Before deployment:
 
 **Solutions:**
 
-1. **Check file path** in inventory is relative to `configs.private/infra-bootstrap/`
+1. **Check file path** in inventory is relative to `configs.private/envprod/`
 
 2. **Verify file exists:**
    ```bash
-   ls -la configs.private/infra-bootstrap/incus/trusted-client-certs/
+   ls -la configs.private/envprod/incus/trusted-client-certs/
    ```
 
 3. **Check file permissions:**
    ```bash
-   ls -l configs.private/infra-bootstrap/incus/trusted-client-certs/*.crt
+   ls -l configs.private/envprod/incus/trusted-client-certs/*.crt
    ```
 
 ### Problem: Multiple certificates, wrong one used
@@ -612,13 +618,13 @@ Before deployment:
 
 **On server:**
 ```bash
-ssh mszmaster@10.10.0.20
+ssh youradmin@10.10.0.20
 incus config trust list
 ```
 
 **Via Ansible:**
 ```bash
-ansible -i configs.private/infra-bootstrap/host-incus-cluster.yaml \
+ansible -i configs/envbase/ -i configs.private/envprod/inventory/ \
   incus -m shell -a "incus config trust list"
 ```
 
@@ -629,7 +635,7 @@ ansible -i configs.private/infra-bootstrap/host-incus-cluster.yaml \
 
 2. **Remove from servers manually:**
    ```bash
-   ssh mszmaster@10.10.0.20
+   ssh youradmin@10.10.0.20
    incus config trust list
    incus config trust remove <fingerprint>
    ```
@@ -642,7 +648,7 @@ ansible -i configs.private/infra-bootstrap/host-incus-cluster.yaml \
 2. **Update certificate file** in `incus/trusted-client-certs/`
 3. **Deploy via Ansible:**
    ```bash
-   ansible-playbook -i configs.private/infra-bootstrap/host-incus-cluster.yaml \
+   ansible-playbook -i configs/envbase/ -i configs.private/envprod/inventory/ \
      playbooks/ring0a/host-incus-update.yaml
    ```
 4. **Update password manager** with new private key
@@ -708,21 +714,21 @@ incus config set core.https_address <ip>:<port> # Set listen address
 
 ```bash
 # Deploy certificates (automatic with update)
-ansible-playbook -i configs.private/infra-bootstrap/host-incus-cluster.yaml \
+ansible-playbook -i configs/envbase/ -i configs.private/envprod/inventory/ \
   playbooks/ring0a/host-incus-update.yaml
 
 # Deploy to single server
-ansible-playbook -i configs.private/infra-bootstrap/host-incus-cluster.yaml \
+ansible-playbook -i configs/envbase/ -i configs.private/envprod/inventory/ \
   playbooks/ring0a/host-incus-update.yaml \
-  --limit incus.aoostar.mszlocal
+  --limit incus.aoostar.yourlab.local
 
 # Dry run
-ansible-playbook -i configs.private/infra-bootstrap/host-incus-cluster.yaml \
+ansible-playbook -i configs/envbase/ -i configs.private/envprod/inventory/ \
   playbooks/ring0a/host-incus-update.yaml \
   --check
 
 # Test connectivity
-ansible -i configs.private/infra-bootstrap/host-incus-cluster.yaml \
+ansible -i configs/envbase/ -i configs.private/envprod/inventory/ \
   incus -m ping
 ```
 
@@ -734,8 +740,8 @@ ansible -i configs.private/infra-bootstrap/host-incus-cluster.yaml \
 - Server certs: `~/.config/incus/servercerts/`
 
 **Repository:**
-- Inventory: `configs.private/infra-bootstrap/host-incus-cluster.yaml`
-- Certificates: `configs.private/infra-bootstrap/incus/trusted-client-certs/*.crt`
+- Inventory: `configs/envbase/group_vars/incus_scope/host-incus-cluster.yaml`
+- Certificates: `configs.private/envprod/incus/trusted-client-certs/*.crt`
 - Tasks: `playbooks/tasks/host-incus-manage-client-cert-tasks.yaml`
 - Script: `scripts/manage-incus-client-certs.sh`
 
@@ -753,7 +759,7 @@ ansible -i configs.private/infra-bootstrap/host-incus-cluster.yaml \
 - [Incus Environment Variables](https://linuxcontainers.org/incus/docs/main/environment/)
 
 ### Related Files
-- Certificate Directory README: `configs.private/infra-bootstrap/incus/trusted-client-certs/README.md`
+- Certificate Directory README: `configs.private/envprod/incus/trusted-client-certs/README.md`
 - Main Playbook: `playbooks/ring0a/host-incus-update.yaml`
 - Certificate Tasks: `playbooks/tasks/host-incus-manage-client-cert-tasks.yaml`
 - Helper Script: `scripts/manage-incus-client-certs.sh`

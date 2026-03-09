@@ -37,8 +37,8 @@ truenas_country: "AT"
 truenas_state: "Upper Austria"
 truenas_city: "Gmunden"
 
-# Admin password environment variable name
-truenas_admin_pwd_env: "TRUENAS_ADMIN_PASSWORD"
+# Admin password — resolved via secrets-vault.yaml (1Password lookup or direct value)
+truenas_admin_password: "{{ vault_truenas_admin_password }}"
 
 # ---------- Templated from environment seeds ----------
 
@@ -49,4 +49,4 @@ truenas_ad:
   realm: "AD.{{ localdomain | upper }}"
   domain: "{{ ad_domain_short }}"
   admin_username: "Administrator"
-  admin_password: "{{ lookup('env', 'SAMBA4_DOMAIN_ADMIN_PASSWORD') }}"
+  admin_password: "{{ vault_samba4_admin_password }}"

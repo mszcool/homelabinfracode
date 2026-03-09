@@ -22,24 +22,36 @@
   register: user_create_result
   when: user_exists_check.rc != 0
 
-- name: Set password on user creation if PWD env var is provided
+- name: Resolve user password from secrets-vault
+  ansible.builtin.set_fact:
+    _resolved_user_password: "{{ vault_identity_user_passwords[user.name] | default('') }}"
+  no_log: true
+  when:
+    - vault_identity_user_passwords is defined
+    - user.name in vault_identity_user_passwords
+
+- name: Set password on user creation if password was resolved
   ansible.builtin.shell:
-    cmd: "samba-tool user setpassword '{{ user.name }}' --newpassword='{{ lookup('env', user.name + '_PWD') }}' "
+    cmd: "samba-tool user setpassword '{{ user.name }}' --newpassword='{{ _resolved_user_password }}' "
+  no_log: true
   when:
     - user_exists_check.rc != 0
-    - lookup('env', user.name + '_PWD', default='') | length > 0
+    - _resolved_user_password is defined
+    - _resolved_user_password | length > 0
 
 - name: Update user name and surname details if exists
   ansible.builtin.shell:
     cmd: "samba-tool user rename '{{ user.name }}' --given-name='{{ user.givenName }}' --surname='{{ user.surname }}' --display-name='{{ user.givenName }} {{ user.surname }}' "
   when: user_exists_check.rc == 0
 
-- name: Update password if user exists and PWD env var is provided
+- name: Update password if user exists and password was resolved
   ansible.builtin.shell:
-    cmd: "samba-tool user setpassword '{{ user.name }}' --newpassword='{{ lookup('env', user.name + '_PWD') }}' "
+    cmd: "samba-tool user setpassword '{{ user.name }}' --newpassword='{{ _resolved_user_password }}' "
+  no_log: true
   when:
     - user_exists_check.rc == 0
-    - lookup('env', user.name + '_PWD', default='') | length > 0
+    - _resolved_user_password is defined
+    - _resolved_user_password | length > 0
 
 - name: Add user to each assigned group
   ansible.builtin.shell:

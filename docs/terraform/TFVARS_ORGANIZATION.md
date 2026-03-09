@@ -1,4 +1,8 @@
-# Terraform Variable Files Organization
+# Terraform Variable Files — Organization
+
+> **Context**: For the master architecture overview, see [Architecture](../02-architecture.md). For the full Terraform documentation index, see [INDEX.md](./INDEX.md).
+>
+> **Path conventions**: Test tfvars in `configs/envtest/`, production in `configs.private/envprod/`. Documentation in `docs/terraform/` (this directory).
 
 ## Overview
 
@@ -14,12 +18,9 @@ Located in `configs/` directory of the public `homelabinfracode` repository:
 
 ```
 configs/
-├── ring0/
+├── envtest/
 │   ├── ring0.tfvars              # Sample Ring0 infrastructure
-│   └── networking-foundation.yaml
-├── ring1/
-│   └── ring1.tfvars              # Sample Ring1 applications
-├── ring2/
+│   ├── ring1.tfvars              # Sample Ring1 applications
 │   └── ring2.tfvars              # Sample Ring2 utilities
 ├── host-incus-cluster.yaml       # Sample host configuration
 ├── networking-foundation.yaml
@@ -43,17 +44,11 @@ Located in `configs.private/` directory (Git submodule pointing to `homelabinfra
 
 ```
 configs.private/
-├── ring0/
+├── envprod/
 │   ├── ring0.tfvars              # YOUR actual Ring0 configuration
-│   ├── host-incus-cluster.yaml
-│   ├── networking-foundation.yaml
-│   └── incus/                    # Generated preseed configurations
-├── ring1/
-│   └── ring1.tfvars              # YOUR actual Ring1 configuration
-├── ring1-test/
-│   └── networking-pi-edge-configs.yaml
-├── ring2/
+│   ├── ring1.tfvars              # YOUR actual Ring1 configuration
 │   └── ring2.tfvars              # YOUR actual Ring2 configuration
+├── incus/                        # Generated preseed configurations
 └── switch-infra-as-code/
     └── # Network switch configurations
 ```
@@ -77,16 +72,16 @@ configs.private/
 Example:
 ```bash
 # View sample Ring0 configuration
-cat configs/ring0/ring0.tfvars
+cat configs/envtest/ring0.tfvars
 
 # View sample Ring1 configuration
-cat configs/ring1/ring1.tfvars
+cat configs/envtest/ring1.tfvars
 ```
 
 ### For Actual Deployment
 
 1. Ensure `configs.private` submodule is initialized
-2. Create/edit actual configuration in `configs.private/ring*/`
+2. Create/edit actual configuration in `configs.private/envprod/`
 3. Always reference `configs.private` paths in Terraform commands
 
 Example:
@@ -96,10 +91,10 @@ cd terraform
 terraform init
 
 # Plan deployment with private configuration
-terraform plan -var-file="../configs.private/ring0/ring0.tfvars"
+terraform plan -var-file="../configs.private/envprod/ring0.tfvars"
 
 # Apply deployment with private configuration
-terraform apply -var-file="../configs.private/ring0/ring0.tfvars"
+terraform apply -var-file="../configs.private/envprod/ring0.tfvars"
 ```
 
 ## Configuration File Naming Convention
@@ -107,8 +102,8 @@ terraform apply -var-file="../configs.private/ring0/ring0.tfvars"
 Each ring has a `ring*.tfvars` file following this pattern:
 
 ```
-configs/ring{N}/ring{N}.tfvars       # PUBLIC sample
-configs.private/ring{N}/ring{N}.tfvars  # PRIVATE actual
+configs/envtest/ring{N}.tfvars          # PUBLIC sample
+configs.private/envprod/ring{N}.tfvars  # PRIVATE actual
 ```
 
 Where N is the ring number:
@@ -149,10 +144,10 @@ git clone https://github.com/mszcool/homelabinfraprivateconfig.git configs.priva
 cd configs.private
 
 # Make changes to ring0.tfvars, ring1.tfvars, etc
-# Edit: ring0/ring0.tfvars, ring1/ring1.tfvars, etc
+# Edit: envprod/ring0.tfvars, envprod/ring1.tfvars, etc
 
 # Commit changes
-git add ring0/ring0.tfvars
+git add envprod/ring0.tfvars
 git commit -m "Update Ring0 configuration"
 git push origin main
 
@@ -169,7 +164,7 @@ git push origin main
 
 ### What Goes in Configs.Private
 
-✅ **Sensitive Information (KEEP PRIVATE):**
+**Sensitive Information (KEEP PRIVATE):**
 - IP addresses and MAC addresses
 - ISO file paths and local file locations
 - PCIe controller addresses (hardware-specific)
@@ -179,7 +174,7 @@ git push origin main
 
 ### What Goes in Configs (Public)
 
-✅ **Reference Information (SAFE TO SHARE):**
+**Reference Information (SAFE TO SHARE):**
 - Configuration structure and format
 - Example values (with placeholders)
 - Helpful comments and explanations
@@ -189,12 +184,12 @@ git push origin main
 
 ## Example: Ring0 Configuration
 
-### Public Sample (`configs/ring0/ring0.tfvars`)
+### Public Sample (`configs/envtest/ring0.tfvars`)
 ```hcl
 incus_remotes = {
-  "aoostar" = "incus.aoostar.mszlocal:8443"
-  "peladin" = "incus.peladin.mszlocal:8443"
-  "odyssey" = "incus.odyssey.mszlocal:8443"
+  "aoostar" = "incus.aoostar.yourlab.local:8443"
+  "peladin" = "incus.peladin.yourlab.local:8443"
+  "odyssey" = "incus.odyssey.yourlab.local:8443"
 }
 
 vms = {
@@ -211,12 +206,12 @@ vms = {
 }
 ```
 
-### Private Actual (`configs.private/ring0/ring0.tfvars`)
+### Private Actual (`configs.private/envprod/ring0.tfvars`)
 ```hcl
 incus_remotes = {
-  "aoostar" = "incus.aoostar.mszlocal:8443"
-  "peladin" = "incus.peladin.mszlocal:8443"
-  "odyssey" = "incus.odyssey.mszlocal:8443"
+  "aoostar" = "incus.aoostar.yourlab.local:8443"
+  "peladin" = "incus.peladin.yourlab.local:8443"
+  "odyssey" = "incus.odyssey.yourlab.local:8443"
 }
 
 vms = {
@@ -241,10 +236,10 @@ vms = {
 **Solution:** Verify you're using the correct path:
 ```bash
 # From terraform/ directory, use:
-terraform plan -var-file="../configs.private/ring0/ring0.tfvars"
+terraform plan -var-file="../configs.private/envprod/ring0.tfvars"
 
 # NOT:
-terraform plan -var-file="tfvars/ring0.tfvars"  # ❌ Wrong path
+terraform plan -var-file="tfvars/ring0.tfvars"  # Wrong path
 ```
 
 ### Submodule appears empty
@@ -264,7 +259,7 @@ cd ..
 **Solution:** Ensure Terraform reads the updated file:
 ```bash
 # Force re-read of variables
-terraform apply -var-file="../configs.private/ring0/ring0.tfvars" -refresh=true
+terraform apply -var-file="../configs.private/envprod/ring0.tfvars" -refresh=true
 ```
 
 ## Best Practices
@@ -296,5 +291,5 @@ terraform apply -var-file="../configs.private/ring0/ring0.tfvars" -refresh=true
 ## See Also
 
 - [QUICKSTART.md](./QUICKSTART.md) - Get running in 10 minutes
-- [README.md](./README.md) - Complete architecture overview
+- [TERRAFORM-README.md](./TERRAFORM-README.md) - Complete architecture overview
 - [DESIGN_SUMMARY.md](./DESIGN_SUMMARY.md) - Design decisions and rationale

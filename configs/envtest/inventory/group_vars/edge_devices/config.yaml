@@ -1,14 +1,12 @@
 ---
 # Test environment - edge device group overrides
 #
-# These variables override group_vars/all/ values for edge devices.
-# Ansible group precedence: child group vars > all group vars
-#
-# In test, root_user happens to match the all-level value (testadmin),
-# but we define it here for consistency with the production pattern.
+# edge_root_user is the SSH admin user for Raspberry Pi edge devices.
+# This is group-specific and does not rely on Ansible group precedence overrides.
+# ansible_user resolves to edge_root_user for this group.
 
-# SSH user for Raspberry Pi edge devices (overrides all-level root_user)
-root_user: "testadmin"
+# SSH admin user for Raspberry Pi edge devices
+edge_root_user: "testadmin"
 
-# Environment variable name for WiFi password
-wifi_password_env: "TEST_WIFI_PASSWORD"
+# SSH connection user for this group (overrides all-level default)
+ansible_user: "{{ edge_root_user }}"

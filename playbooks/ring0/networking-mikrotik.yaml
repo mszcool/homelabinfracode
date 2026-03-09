@@ -6,14 +6,17 @@
   gather_facts: false
 
   vars:
+    # Override interpreter for connection: local — ansible.cfg's ~/pythonvenv path
+    # doesn't expand correctly when Ansible resolves it against the router host context.
+    ansible_python_interpreter: "{{ ansible_playbook_python }}"
     param_router_time_zone: "{{ timezone }}"
     param_firewall_rule_groups: "{{ firewall_rules }}"
-    param_root_user_name: "{{ users.root.name }}"
-    param_root_user_password_env: "{{ users.root.password_env }}"
-    param_root_user_ssh_pub_key: "{{ users.root.ssh_key }}"
-    param_automation_user_name: "{{ users.automation.name }}"
-    param_automation_user_password_env: "{{ users.automation.password_env }}"
-    param_automation_user_ssh_pub_key: "{{ users.automation.ssh_key }}"
+    param_root_user_name: "{{ router_root_name }}"
+    param_root_user_password: "{{ router_root_password }}"
+    param_root_user_ssh_pub_key: "{{ router_root_ssh_key }}"
+    param_automation_user_name: "{{ router_automation_name }}"
+    param_automation_user_password: "{{ router_automation_password }}"
+    param_automation_user_ssh_pub_key: "{{ router_automation_ssh_key }}"
     param_router_name: "{{ mainrouterconfig.hostname }}"
     param_wan_interface_list: "{{ mainrouterconfig.wan_interface_list }}"
     param_lan_interface_list: "{{ mainrouterconfig.lan_interface_list }}"
@@ -38,19 +41,16 @@
       ansible.builtin.set_fact:
         param_script_file_phase2_name: "{{ param_router_name }}-phase2-bootstrap.rsc"
 
-    - name: Check if the environment variable with the value from root_password is set
+    - name: Validate that router passwords are available
       ansible.builtin.assert:
         that:
-          - lookup('env', item)
-        fail_msg: "Please set the {{ item }} environment variable before executing this playbook!"
-      loop:
-        - "{{ param_root_user_password_env }}"
-        - "{{ param_automation_user_password_env }}"
-
-    - name: Get the password from the environment variable
-      ansible.builtin.set_fact:
-        param_root_user_password: "{{ lookup('env', param_root_user_password_env) }}"
-        param_automation_user_password: "{{ lookup('env', param_automation_user_password_env) }}"
+          - param_root_user_password | default('') | length > 0
+          - param_automation_user_password | default('') | length > 0
+        fail_msg: >
+          Router passwords not available.
+          Check group_vars/all/secrets-vault.yaml — ensure vault_router_root_password and
+          vault_router_automation_password resolve (via 1Password lookup or direct value
+          in an ansible-vault encrypted file).
 
     - name: Create SSL certificates directory if it doesn't exist
       ansible.builtin.file:

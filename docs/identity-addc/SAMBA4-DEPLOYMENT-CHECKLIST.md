@@ -1,4 +1,8 @@
-# Samba 4 AD DC - Deployment Checklist & Getting Started
+# Samba4 AD DC — Deployment Checklist
+
+> **Context**: This is a step-by-step deployment checklist. For the master setup workflow, see [Ring 0 Setup — Samba4 AD DC](../04-ring0-setup.md#4-samba4-active-directory-domain-controller-setup). For ongoing identity management, see [Ring 0a — Identity Configuration](../05-ring0a-automated.md#4-continuous-identity-configuration).
+>
+> **Path conventions**: Uses directory-based inventory (`configs/envbase/` + `configs.private/envprod/inventory/`). Secrets via 1Password. See [Architecture](../02-architecture.md).
 
 ## Pre-Deployment Checklist
 
@@ -20,21 +24,17 @@
 
 ## Configuration Phase (15-20 minutes)
 
-### 1. Customize Ansible Inventory
+### 1. Customize Group Variables
 ```bash
-# Copy to your own version (optional)
-cp configs.private/ring0/samba4-addc-inventory.yaml \
-   configs.private/ring0/samba4-addc-inventory.yaml.bak
-
-# Edit the inventory
-vi configs.private/ring0/samba4-addc-inventory.yaml
+# Edit AD DC configuration
+vi configs/envbase/group_vars/identityprovider/vars.yaml
 ```
 
 **MUST Customize:**
 - [ ] `hostname`: Your preferred DC hostname (e.g., `dc1`)
-- [ ] `samba4_addc.realm`: Uppercase domain (e.g., `MSZLOCAL`)
-- [ ] `samba4_addc.domain`: NetBIOS name (e.g., `MSZLOCAL`)
-- [ ] `samba4_addc.dns_domain`: Lowercase domain (e.g., `mszlocal`)
+- [ ] `samba4_addc.realm`: Uppercase domain (e.g., `YOURLAB.LOCAL`)
+- [ ] `samba4_addc.domain`: NetBIOS name (e.g., `YOURLAB.LOCAL`)
+- [ ] `samba4_addc.dns_domain`: Lowercase domain (e.g., `yourlab.local`)
 - [ ] `samba4_addc.ip_address`: Desired static IP (e.g., `10.0.0.10`)
 - [ ] `samba4_addc.dns_forwarders[0]`: Your router IP (e.g., `10.0.0.1`)
 
@@ -42,35 +42,20 @@ vi configs.private/ring0/samba4-addc-inventory.yaml
 - [ ] `samba4_addc.ntp_servers`: If you have specific NTP servers
 - [ ] `enable_group_policy`: Set to `true` if you need Group Policy
 
-### 2. Prepare Environment Variables
+### 2. Start 1Password Session
 ```bash
-# Create a script for easy setup
-cat > /tmp/samba4-env.sh << 'EOF'
-#!/bin/bash
-export SAMBA4_ADMIN_PASSWORD="MySecurePassword123!"
-export SAMBA4_DNS_FORWARDER_1="10.0.0.1"
-# Optional:
-# export SAMBA4_DNS_FORWARDER_2="8.8.8.8"
-
-echo "Environment variables set:"
-echo "  SAMBA4_ADMIN_PASSWORD: [hidden for security]"
-echo "  SAMBA4_DNS_FORWARDER_1: $SAMBA4_DNS_FORWARDER_1"
-EOF
-
-chmod +x /tmp/samba4-env.sh
-source /tmp/samba4-env.sh
+# Authenticate to 1Password for secrets resolution
+eval $(./scripts/op-session.sh 2h prod)
 ```
 
-**Password Requirements:**
-- [ ] Minimum 8 characters
-- [ ] At least one UPPERCASE letter
-- [ ] At least one number
-- [ ] At least one special character (!@#$%^&*)
+All sensitive data (admin password, DNS forwarders) is resolved at runtime from 1Password vaults via `community.general.onepassword`. See [Environment Setup](../03-environment-setup.md) for details.
+
+- [ ] 1Password session active
 
 ### 3. Verify Terraform Configuration
 ```bash
 # Check current Terraform variables
-grep -A20 '"samba4-addc"' configs.private/ring0/ring0.tfvars
+grep -A20 '"samba4-addc"' configs.private/envprod/ring0.tfvars
 
 # Terraform config should have:
 # - mac_address: 00:16:3e:11:00:10
@@ -93,7 +78,7 @@ grep -A20 '"samba4-addc"' configs.private/ring0/ring0.tfvars
 cd terraform
 
 # Verify the plan
-terraform plan -var-file=../configs.private/ring0/ring0.tfvars | grep samba4-addc
+terraform plan -var-file=../configs.private/envprod/ring0.tfvars | grep samba4-addc
 
 # Check the output includes:
 # - incus_instance.vm[\"samba4-addc\"] will be created
@@ -105,7 +90,7 @@ terraform plan -var-file=../configs.private/ring0/ring0.tfvars | grep samba4-add
 
 ```bash
 # Apply Terraform configuration
-terraform apply -var-file=../configs.private/ring0/ring0.tfvars
+terraform apply -var-file=../configs.private/envprod/ring0.tfvars
 ```
 
 When prompted: `Do you want to perform these actions?` → Type: `yes`
@@ -115,7 +100,7 @@ When prompted: `Do you want to perform these actions?` → Type: `yes`
 
 ```bash
 # Verify VM is running
-incus list --remote incus.aoostar.mszlocal | grep samba4-addc
+incus list --remote incus.aoostar.yourlab.local | grep samba4-addc
 ```
 
 - [ ] VM shows as RUNNING in Incus
@@ -142,22 +127,21 @@ Or via Mikrotik Web UI:
 6. Click: `OK`
 
 - [ ] DHCP reservation added in router
-- [ ] VM has obtained correct IP: `incus info samba4-addc --remote incus.aoostar.mszlocal | grep "eth0"`
+- [ ] VM has obtained correct IP: `incus info samba4-addc --remote incus.aoostar.yourlab.local | grep "eth0"`
 
 ### Phase 3: Ansible Configuration (20-30 minutes)
 
 ```bash
-# Verify environment variables are set
-echo $SAMBA4_ADMIN_PASSWORD
-echo $SAMBA4_DNS_FORWARDER_1
+# Verify 1Password session is active
+op whoami
 ```
 
-- [ ] Environment variables confirmed
+- [ ] 1Password session confirmed
 
 ```bash
 # Check ansible connectivity to the host
-ansible -i configs.private/ring0/samba4-addc-inventory.yaml \
-        samba4-addc -m ping
+ansible -i configs/envbase/ -i configs.private/envprod/inventory/ \
+        identityprovider -m ping
 
 # Should show: "pong" response
 ```
@@ -168,8 +152,9 @@ ansible -i configs.private/ring0/samba4-addc-inventory.yaml \
 # Run the Samba setup playbook
 cd /home/mszcool/src/personal/homelabinfracode
 
-ansible-playbook -i configs.private/ring0/samba4-addc-inventory.yaml \
-                  playbooks/ring0/samba4-addc-setup.yaml
+ansible-playbook \
+  -i configs/envbase/ -i configs.private/envprod/inventory/ \
+  playbooks/ring0/identity-samba4-addc-setup.yaml
 ```
 
 Expected output progression:
@@ -190,7 +175,7 @@ Expected output progression:
 ```bash
 ssh root@10.0.0.10
 # or
-ssh root@dc1.mszlocal  # if DNS is working
+ssh root@dc1.yourlab.local  # if DNS is working
 ```
 
 - [ ] SSH connection successful
@@ -219,30 +204,30 @@ Should show version 4.x.x
 ### Step 4: Test DNS Resolution
 ```bash
 # Test LDAP SRV record
-host -t SRV _ldap._tcp.mszlocal.
+host -t SRV _ldap._tcp.yourlab.local.
 
 # Expected output:
-# _ldap._tcp.mszlocal has SRV record 0 100 389 dc1.mszlocal.
+# _ldap._tcp.yourlab.local has SRV record 0 100 389 dc1.yourlab.local.
 ```
 
 - [ ] LDAP SRV record found
 
 ```bash
 # Test Kerberos SRV record
-host -t SRV _kerberos._udp.mszlocal.
+host -t SRV _kerberos._udp.yourlab.local.
 
 # Expected output:
-# _kerberos._udp.mszlocal has SRV record 0 100 88 dc1.mszlocal.
+# _kerberos._udp.yourlab.local has SRV record 0 100 88 dc1.yourlab.local.
 ```
 
 - [ ] Kerberos SRV record found
 
 ```bash
 # Test A record
-host -t A dc1.mszlocal.
+host -t A dc1.yourlab.local.
 
 # Expected output:
-# dc1.mszlocal has address 10.0.0.10
+# dc1.yourlab.local has address 10.0.0.10
 ```
 
 - [ ] A record resolves correctly
@@ -250,10 +235,10 @@ host -t A dc1.mszlocal.
 ### Step 5: Test Kerberos Authentication
 ```bash
 # Request Kerberos ticket
-kinit administrator@MSZLOCAL
+kinit administrator@YOURLAB.LOCAL
 
 # When prompted, enter the admin password
-# (The one from SAMBA4_ADMIN_PASSWORD environment variable)
+# (The one stored in 1Password for the Samba4 admin)
 ```
 
 - [ ] Ticket requested successfully (no errors)
@@ -264,7 +249,7 @@ klist
 
 # Expected output showing:
 # Ticket cache: FILE:/tmp/krb5cc_0
-# Default principal: administrator@MSZLOCAL
+# Default principal: administrator@YOURLAB.LOCAL
 # Valid starting ... Service principal ...
 ```
 
@@ -322,7 +307,7 @@ ntpstat
 # Solution: Restart NTP
 systemctl restart ntp
 sleep 5
-kinit administrator@MSZLOCAL
+kinit administrator@YOURLAB.LOCAL
 ```
 
 ### Issue: LDAP bind fails
@@ -381,17 +366,17 @@ samba-tool group list
 samba-tool user create john.smith
 
 # Get domain information
-samba-tool domain info mszlocal
+samba-tool domain info yourlab.local
 ```
 
 ### For Network Verification
 ```bash
 # Test DNS
-host -t SRV _ldap._tcp.mszlocal.
-dig @10.0.0.10 dc1.mszlocal.
+host -t SRV _ldap._tcp.yourlab.local.
+dig @10.0.0.10 dc1.yourlab.local.
 
 # Test connectivity
-kinit administrator@MSZLOCAL
+kinit administrator@YOURLAB.LOCAL
 klist
 
 # Test SMB
@@ -460,15 +445,9 @@ tcpdump -i eth0 port 53
 
 Once all checkboxes are complete, you have successfully:
 
-✅ Provisioned a Samba 4 Active Directory Domain Controller
-✅ Configured DNS and Kerberos authentication
-✅ Verified core functionality
-✅ Enabled domain member integration
+- Provisioned a Samba4 Active Directory Domain Controller
+- Configured DNS and Kerberos authentication
+- Verified core functionality
+- Enabled domain member integration
 
-**Congratulations! Your AD DC is ready for production use.**
-
----
-
-**Document Version**: 1.0
-**Last Updated**: January 3, 2026
-**Status**: Complete and Ready for Deployment
+For ongoing identity management (users, groups, OUs), use the Ring 0a lifecycle playbook — see [Ring 0a — Identity Configuration](../05-ring0a-automated.md#4-continuous-identity-configuration).

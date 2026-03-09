@@ -1,25 +1,24 @@
 ---
 # Base (shared) constants for Incus cluster hosts
 #
-# NOTE: This file is intentionally in group_vars/all/ (not group_vars/incus/)
-# because it is consumed by both:
-#   - hosts: localhost playbooks (ISO image builds run locally)
-#   - hosts: incus playbooks (import ISOs, update nodes, disk PCI mapping)
-# localhost is not a member of the incus group, so placing this in
-# group_vars/incus/ would break the localhost playbooks.
+# This file lives in group_vars/incus_scope/ — a parent group that contains:
+#   - localhost (for ISO image build playbooks that run locally)
+#   - incus (bare-metal cluster nodes, as a child group)
+# This scoping ensures both localhost and incus hosts see these variables
+# without polluting group_vars/all/ with incus-specific configuration.
 #
 # Environment-specific seeds are provided by:
-#   <env>/group_vars/all/host-incus-cluster.yaml
+#   <env>/group_vars/incus_scope/host-incus-cluster.yaml
 #   (e.g., configs/envtest/inventory/ or configs.private/envprod/inventory/)
 #
 # Required seed variables:
 #   From common-seeds.yaml:
 #     localdomain:                    Local domain name (e.g., mszlocal)
 #   From host-incus-cluster.yaml:
-#     root_user:                      Admin user name (e.g., mszmaster)
-#     root_user_fullname:             Admin user full name
-#     root_user_password_env:         Env var name for admin password
-#     root_user_publickey:            Admin SSH public key
+#     incus_root_user:                Admin user name (e.g., mszmaster)
+#     incus_root_user_fullname:       Admin user full name
+#     incus_root_user_password:       Admin password (from 1Password via op_vault_name)
+#     incus_root_user_publickey:      Admin SSH public key
 #     incus_profile_disk_production:  Disk size for production profile (e.g., 96GiB)
 #     incus_project_limit_production: Disk limit for production project (e.g., 1024GiB)
 #     incus_project_limit_default:    Disk limit for default project (e.g., 256GiB)

@@ -1,5 +1,7 @@
 # Cloud-Init chpasswd Module Fix
 
+> **Context**: This is a reference document for the Incus compute node setup. For the full setup workflow, see [Ring 0 Setup](../04-ring0-setup.md). For Terraform VM provisioning, see [Architecture Overview](../02-architecture.md).
+
 ## The Problem
 
 Previously, we were trying to set passwords directly in the `users` module using the `passwd` field, which was not working properly with yescrypt hashes.
@@ -21,7 +23,7 @@ The module now generates cloud-init YAML like this:
 
 ```yaml
 users:
-- name: mszidmaster
+- name: yourdomainadmin
   shell: /bin/bash
   sudo:
   - ALL=(ALL) NOPASSWD:ALL
@@ -30,7 +32,7 @@ users:
 
 chpasswd:
   list:
-  - mszidmaster:$y$j9T$QoxxlrhWpPrL.RHUrBXtL.$yxOB1Yw6VIcfnmsVdhNWeclhHz6cIR6RxrMqD.Dozh4
+  - yourdomainadmin:$y$j9T$QoxxlrhWpPrL.RHUrBXtL.$yxOB1Yw6VIcfnmsVdhNWeclhHz6cIR6RxrMqD.Dozh4
   expire: false
 ```
 
@@ -51,7 +53,7 @@ HASH=$(mkpasswd -m yescrypt)
 export TF_VAR_root_password="$HASH"
 
 # Deploy
-terraform apply --var-file="../configs.private/ring0/ring0.tfvars"
+terraform apply --var-file="../configs.private/envprod/ring0.tfvars"
 ```
 
 ## Why This Works

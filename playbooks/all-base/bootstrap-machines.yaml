@@ -3,7 +3,6 @@
   hosts: all
   become: true
   gather_facts: false
-  remote_user: "{{ root_user }}"
 
   tasks:
     # First, do a regular machine update/upgrade

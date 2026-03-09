@@ -8,6 +8,10 @@
 identity_admin_user: "testidmaster"
 
 # Organizational Unit definitions with users (test - minimal set)
+# Each user can specify their own 1Password vault and item for password retrieval:
+#   op_vault: The 1Password vault containing this user's password item
+#   op_item:  The 1Password item name (standard password entry)
+# The password is fetched from the 'password' field of the specified item.
 identity_organizational_units:
   - name: "familycore"
     description: "Core family members"
@@ -15,12 +19,16 @@ identity_organizational_units:
       - name: "testuser1"
         givenName: "Test"
         surname: "User1"
+        op_vault: "HomeLab-Test"
+        op_item: "testuser1 AD Account"
         memberships:
           - "Parents"
           - "Family"
       - name: "testuser2"
         givenName: "Test"
         surname: "User2"
+        op_vault: "HomeLab-Test"
+        op_item: "testuser2 AD Account"
         memberships:
           - "Kids"
           - "Family"

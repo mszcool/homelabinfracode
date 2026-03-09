@@ -2,8 +2,8 @@
 - name: Validate IP addresses in group are within range
   ansible.builtin.assert:
     that:
-      - "{{ device.static_dhcp.ip | ipaddr('address') | ipaddr('int') >= device_group.start_ip | ipaddr('address') | ipaddr('int') }}"
-      - "{{ device.static_dhcp.ip | ipaddr('address') | ipaddr('int') <= device_group.end_ip | ipaddr('address') | ipaddr('int') }}"
+      - (device.static_dhcp.ip | ansible.utils.ipaddr('address') | ansible.utils.ipaddr('int')) >= (device_group.start_ip | ansible.utils.ipaddr('address') | ansible.utils.ipaddr('int'))
+      - (device.static_dhcp.ip | ansible.utils.ipaddr('address') | ansible.utils.ipaddr('int')) <= (device_group.end_ip | ansible.utils.ipaddr('address') | ansible.utils.ipaddr('int'))
     fail_msg: "Device {{ device.alias }} IP {{ device.static_dhcp.ip }} is outside of group {{ device_group.group }} range ({{ device_group.start_ip }} - {{ device_group.end_ip }})"
   loop: "{{ device_group.members }}"
   loop_control:

@@ -1,15 +1,19 @@
 ---
 # Test environment seeds for Incus cluster hosts
 #
-# Note: root_user is defined here and applies to all hosts via group_vars/all.
-# Edge devices override root_user in group_vars/edge_devices/config.yaml.
+# This file lives in group_vars/incus_scope/ — a parent group that contains:
+#   - localhost (for ISO image build playbooks that run locally)
+#   - incus (bare-metal cluster nodes, as a child group)
+#
+# incus_root_user* variables are the admin credentials for Incus bare-metal hosts.
+# ansible_user for SSH connections to incus nodes is in group_vars/incus/connection.yaml.
 
 # ---------- Environment seed variables ----------
 # localdomain: provided by common-seeds.yaml
-root_user: "testadmin"
-root_user_fullname: "test admin user"
-root_user_password_env: "TEST_ROOT_PASSWORD"
-root_user_publickey: "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQCg0Y6vbXyN0q70R2Wkl6HhrH3GoE8163Uv19xFSmMrLJ2bFtzpGttlJ8tpHFWIh4eIKss0oq5TydCUC0p2c5v48Oj318y4CO9EBTtPafgzHyz6PkvBqL6uFv8NN8TvLZdwMaKdEpdVDLB+WD8dXqf+fPe8atY2YbIkd5XDIE1wjvjrA8Br6iSjNcaIW4jpsUNWKufEM+zkiYyVrTEIn/AMCA2E2eCJCasSq3sj/8R5ujJqTFxjo46XGhbjbsx4QRDzkApJVyKeA5+zv6DoRyBEFOmZ6MQjMqtPPtdtZwflRZ8GMKyRTMqgmnG0N6CFsd5aIHZ2plZljHF82U3LaX1D"
+incus_root_user: "testadmin"
+incus_root_user_fullname: "test admin user"
+incus_root_user_password: "{{ vault_incus_root_user_password }}"
+incus_root_user_publickey: "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQCg0Y6vbXyN0q70R2Wkl6HhrH3GoE8163Uv19xFSmMrLJ2bFtzpGttlJ8tpHFWIh4eIKss0oq5TydCUC0p2c5v48Oj318y4CO9EBTtPafgzHyz6PkvBqL6uFv8NN8TvLZdwMaKdEpdVDLB+WD8dXqf+fPe8atY2YbIkd5XDIE1wjvjrA8Br6iSjNcaIW4jpsUNWKufEM+zkiYyVrTEIn/AMCA2E2eCJCasSq3sj/8R5ujJqTFxjo46XGhbjbsx4QRDzkApJVyKeA5+zv6DoRyBEFOmZ6MQjMqtPPtdtZwflRZ8GMKyRTMqgmnG0N6CFsd5aIHZ2plZljHF82U3LaX1D"
 
 # Incus sizing seeds (test - smaller)
 incus_profile_disk_production: "50GiB"

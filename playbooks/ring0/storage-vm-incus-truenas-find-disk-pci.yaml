@@ -6,9 +6,8 @@
   gather_facts: no
   become: true
   tasks:
-    - name: Set the SSH user name and hostname in case it is not the default.
+    - name: Set the hostname from inventory.
       ansible.builtin.set_fact:
-        ansible_user: "{{ root_user }}"
         param_hostname: "{{ hostvars[inventory_hostname]['hostname'] }}"
       
     - name: List block devices as JSON
