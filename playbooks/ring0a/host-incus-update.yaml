@@ -28,12 +28,21 @@
         password: "{{ generate_password_input | password_hash('sha512') }}"
       when: generate_password_input is defined and generate_password_input | length > 0
 
-    - name: Set the Incus server admin SSH Key exclusively.
-      ansible.posix.authorized_key:
-        user: "{{ incus_root_user }}"
-        state: present
-        key: "{{ incus_root_user_publickey }}"
-        exclusive: true
+    - name: Ensure SSH directory exists for Incus admin user.
+      ansible.builtin.file:
+        path: "/{{ 'root' if incus_root_user == 'root' else 'home/' + incus_root_user }}/.ssh"
+        state: directory
+        owner: "{{ incus_root_user }}"
+        group: "{{ incus_root_user }}"
+        mode: "0700"
+
+    - name: Set the Incus server admin SSH key exclusively.
+      ansible.builtin.copy:
+        dest: "/{{ 'root' if incus_root_user == 'root' else 'home/' + incus_root_user }}/.ssh/authorized_keys"
+        content: "{{ incus_root_user_publickey | trim }}\n"
+        owner: "{{ incus_root_user }}"
+        group: "{{ incus_root_user }}"
+        mode: "0600"
 
     - name: Allow inbound SSH on port 22.
       community.general.ufw:
@@ -71,7 +80,7 @@
 
     - name: Gather IP address of the physical network adapter.
       ansible.builtin.set_fact:
-        param_incus_listen_address: "{{ hostvars[inventory_hostname]['ansible_' + param_network_adapter]['ipv4']['address'] }}"
+        param_incus_listen_address: "{{ ansible_facts[param_network_adapter]['ipv4']['address'] }}"
 
     - name: Configure Incus to listen on the network address and port.
       ansible.builtin.command:
@@ -96,6 +105,86 @@
         - incus_trusted_clients | length > 0
       tags:
         - client-certs
+
+    # ---------- Zabbly repository and Incus version management ----------
+    - name: Install Zabbly GPG key.
+      ansible.builtin.get_url:
+        url: https://pkgs.zabbly.com/key.asc
+        dest: /etc/apt/keyrings/zabbly.asc
+        mode: "0644"
+      when: incus_zabbly_enabled | default(false) | bool
+      tags:
+        - incus-upgrade
+        - zabbly
+
+    - name: Add Zabbly Incus repository.
+      ansible.builtin.copy:
+        dest: /etc/apt/sources.list.d/zabbly-incus-{{ incus_zabbly_channel | default('stable') }}.sources
+        mode: "0644"
+        content: |
+          Enabled: yes
+          Types: deb
+          URIs: https://pkgs.zabbly.com/incus/{{ incus_zabbly_channel | default('stable') }}
+          Suites: {{ ansible_facts['distribution_release'] }}
+          Components: main
+          Architectures: {{ ansible_facts['architecture'] | regex_replace('x86_64', 'amd64') }}
+          Signed-By: /etc/apt/keyrings/zabbly.asc
+      when: incus_zabbly_enabled | default(false) | bool
+      tags:
+        - incus-upgrade
+        - zabbly
+
+    - name: Update apt cache after adding Zabbly repository.
+      ansible.builtin.apt:
+        update_cache: true
+      when: incus_zabbly_enabled | default(false) | bool
+      tags:
+        - incus-upgrade
+        - zabbly
+
+    - name: Install specific Incus version from Zabbly.
+      ansible.builtin.apt:
+        name: "incus={{ incus_version }}*"
+        state: present
+        allow_change_held_packages: true
+      when:
+        - incus_zabbly_enabled | default(false) | bool
+        - incus_version | default('') | length > 0
+      tags:
+        - incus-upgrade
+        - zabbly
+
+    - name: Install latest Incus from Zabbly channel.
+      ansible.builtin.apt:
+        name: incus
+        state: latest
+        allow_change_held_packages: true
+      when:
+        - incus_zabbly_enabled | default(false) | bool
+        - incus_version | default('') | length == 0
+      tags:
+        - incus-upgrade
+        - zabbly
+
+    - name: Verify Incus version after upgrade.
+      ansible.builtin.command:
+        cmd: incus version
+      register: incus_version_result
+      changed_when: false
+      when: incus_zabbly_enabled | default(false) | bool
+      tags:
+        - incus-upgrade
+        - zabbly
+
+    - name: Display Incus version.
+      ansible.builtin.debug:
+        msg: "Incus version on {{ inventory_hostname }}: {{ incus_version_result.stdout }}"
+      when:
+        - incus_zabbly_enabled | default(false) | bool
+        - incus_version_result is defined
+      tags:
+        - incus-upgrade
+        - zabbly
 
     - name: Update and upgrade the operating system.
       ansible.builtin.include_tasks: ../tasks/upgrade_tasks.yaml
