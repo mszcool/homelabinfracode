@@ -1,3 +1,20 @@
+variable "incus_project" {
+  description = <<-EOT
+    The Incus project used for ALL instances (VMs and Docker containers) managed
+    by this Terraform state.
+    
+    This is a centralized, single-source-of-truth variable. No per-instance
+    override is possible — every resource in this state file lands in this project.
+    
+    This enforces ring isolation:
+      ring0.tfvars -> incus_project = "prodlayer0"
+      ring1.tfvars -> incus_project = "prodlayer1"
+    
+    For test environments, use "default".
+  EOT
+  type        = string
+}
+
 variable "incus_remotes" {
   description = "Map of Incus remotes and their addresses"
   type        = map(string)
@@ -13,32 +30,31 @@ variable "incus_remotes" {
 variable "vms" {
   description = "Map of VM configurations"
   type = map(object({
-    target_remote            = string
-    incus_project            = string
-    incus_profile            = optional(string, "production")
-    storage_pool             = optional(string, "incus-instances")
-    type                     = optional(string, "virtual-machine")
-    image                    = optional(string, "")
-    cpu_cores                = optional(number, 4)
-    memory_gb                = optional(number, 8)
-    system_disk_gb           = optional(number, 64)
-    network_bridge           = optional(string, "phys-br")
-    mac_address              = optional(string, "")
-    iso_volume_name          = optional(string, "")
-    iso_mounted              = optional(bool, false)
-    enable_pcie_passthrough  = optional(bool, false)
-    pcie_controller          = optional(string, "")
-    enable_boot_autostart    = optional(bool, false)
-    root_username            = optional(string, "admin")
-    ssh_public_key           = optional(string, "")
-    root_password            = optional(string, "")
-    root_pwd_vault           = optional(string, "")
-    root_pwd_vault_item      = optional(string, "")
-    root_pwd_vault_field     = optional(string, "password")  # 1Password field name containing the yescrypt hash
+    target_remote           = string
+    incus_profile           = optional(string, "production")
+    storage_pool            = optional(string, "incus-instances")
+    type                    = optional(string, "virtual-machine")
+    image                   = optional(string, "")
+    cpu_cores               = optional(number, 4)
+    memory_gb               = optional(number, 8)
+    system_disk_gb          = optional(number, 64)
+    network_bridge          = optional(string, "phys-br")
+    mac_address             = optional(string, "")
+    iso_volume_name         = optional(string, "")
+    iso_mounted             = optional(bool, false)
+    enable_pcie_passthrough = optional(bool, false)
+    pcie_controller         = optional(string, "")
+    enable_boot_autostart   = optional(bool, false)
+    root_username           = optional(string, "admin")
+    ssh_public_key          = optional(string, "")
+    root_password           = optional(string, "")
+    root_pwd_vault          = optional(string, "")
+    root_pwd_vault_item     = optional(string, "")
+    root_pwd_vault_field    = optional(string, "password") # 1Password field name containing the yescrypt hash
     data_disks = optional(list(object({
-      name  = string
-      size  = optional(number, 100) # in GB
-      pool  = optional(string, "incus-instances")
+      name = string
+      size = optional(number, 100) # in GB
+      pool = optional(string, "incus-instances")
     })), [])
   }))
   default = {}
@@ -48,7 +64,6 @@ variable "containers" {
   description = "Map of container configurations"
   type = map(object({
     target_remote         = string
-    incus_project         = optional(string, "default")
     incus_profile         = optional(string, "default")
     storage_pool          = optional(string, "incus-instances")
     image                 = optional(string, "images:ubuntu/24.04")
@@ -60,11 +75,54 @@ variable "containers" {
   default = {}
 }
 
+variable "docker_containers" {
+  description = <<-EOT
+    Map of Docker/OCI container configurations for Incus.
+    
+    These are OCI application containers (e.g., Eclipse Mosquitto, Home Assistant)
+    running natively on Incus. Requires an OCI-compatible remote configured in
+    your Incus client:
+      incus remote add docker https://docker.io --protocol=oci
+    
+    Containers get a bridged NIC on the specified network bridge and are directly
+    accessible on their own LAN IP address.
+  EOT
+  type = map(object({
+    target_remote         = string
+    incus_profile         = optional(string, "default")
+    storage_pool          = optional(string, "incus-instances")
+    image                 = string # OCI image ref, e.g., "docker:library/eclipse-mosquitto:2"
+    cpu_cores             = optional(number, 1)
+    memory_limit_mb       = optional(number, 512)
+    root_disk_gb          = optional(number, 0) # 0 = no explicit limit
+    network_bridge        = optional(string, "phys-br")
+    mac_address           = optional(string, "")
+    enable_boot_autostart = optional(bool, true)
+    environment           = optional(map(string), {})
+    volumes = optional(list(object({
+      name    = string
+      path    = string # Mount path inside container
+      size_gb = optional(number, 10)
+      pool    = optional(string, "") # Empty = use container's storage_pool
+      files = optional(list(object({
+        content            = optional(string, "")
+        source_path        = optional(string, "")
+        target_path        = string
+        mode               = optional(string, "0644")
+        uid                = optional(number, 0)
+        gid                = optional(number, 0)
+        create_directories = optional(bool, true)
+      })), [])
+    })), [])
+  }))
+  default = {}
+}
+
 variable "tags" {
   description = "Common tags for all resources"
   type        = map(string)
   default = {
-    managed_by = "terraform"
+    managed_by  = "terraform"
     environment = "homelab"
   }
 }

@@ -44,7 +44,31 @@ Initializing modules...
 Terraform has been successfully configured!
 ```
 
-### 2. Review Example Configuration
+### 2. Create and Select a Workspace
+
+Each ring uses a **separate Terraform workspace** for state isolation. This ensures that ring0 infrastructure state is completely separate from ring1/ring2 state — critical because each ring runs under a different Incus project with different identity and access permissions.
+
+```bash
+# Create workspaces (one-time setup)
+terraform workspace new ring0
+terraform workspace new ring1
+terraform workspace new ring2
+
+# Select the workspace for the ring you want to manage
+terraform workspace select ring0
+```
+
+**Verify current workspace:**
+```bash
+terraform workspace show
+# ring0
+```
+
+> **Note**: Terraform will warn you if you try to plan/apply without selecting a workspace (i.e., while in the "default" workspace). Always select a ring workspace first.
+
+State files are stored under `terraform.tfstate.d/<workspace>/terraform.tfstate`, keeping each ring's resources completely isolated.
+
+### 3. Review Example Configuration
 
 Sample configurations are provided in the public `configs/envtest/` directory for reference:
 - `configs/envtest/ring0.tfvars` - Infrastructure layer examples
@@ -56,9 +80,12 @@ Sample configurations are provided in the public `configs/envtest/` directory fo
 - `configs.private/envprod/ring1.tfvars` - Your Ring1 applications
 - `configs.private/envprod/ring2.tfvars` - Your Ring2 utilities
 
-### 3. Plan the Deployment
+### 4. Plan the Deployment
 
 ```bash
+# Ensure you are in the correct workspace
+terraform workspace select ring0
+
 terraform plan -var-file="../configs.private/envprod/ring0.tfvars"
 ```
 
@@ -82,7 +109,7 @@ Terraform will perform the following actions:
 Plan: 3 to add, 0 to change, 0 to destroy.
 ```
 
-### 4. Apply the Configuration (Optional - Testing)
+### 5. Apply the Configuration (Optional - Testing)
 
 ```bash
 # Dry run (shows what would happen)
@@ -92,7 +119,7 @@ terraform apply -var-file="../configs.private/envprod/ring0.tfvars" -auto-approv
 terraform apply -var-file="../configs.private/envprod/ring0.tfvars"
 ```
 
-### 5. View Outputs
+### 6. View Outputs
 
 ```bash
 terraform output

@@ -16,13 +16,13 @@ resource "incus_storage_volume" "data_disks" {
     disk.name => disk
   }
 
-  name        = "${var.instance_name}-${each.key}"
-  pool        = each.value.pool
-  project     = var.incus_project
-  remote      = var.target_remote
-  type        = "custom"
+  name         = "${var.instance_name}-${each.key}"
+  pool         = each.value.pool
+  project      = var.incus_project
+  remote       = var.target_remote
+  type         = "custom"
   content_type = "block"
-  
+
   config = {
     "size" = "${each.value.size}GiB"
   }
@@ -58,10 +58,10 @@ resource "incus_instance" "vm" {
       # CPU and Memory
       "limits.cpu"    = var.cpu_cores
       "limits.memory" = "${var.memory_gb}GB"
-      
+
       # Boot settings
       "boot.autostart" = var.enable_boot_autostart ? "true" : "false"
-      
+
       # Disable secure boot for ISO-based installations
       "security.secureboot" = "false"
     },
@@ -76,12 +76,12 @@ resource "incus_instance" "vm" {
   device {
     name = "root"
     type = "disk"
-    
+
     properties = {
-      path           = "/"
-      pool           = var.storage_pool
-      size           = "${var.system_disk_gb}GiB"
-      "boot.priority" = "1"  # Boot from disk first (when OS is installed)
+      path            = "/"
+      pool            = var.storage_pool
+      size            = "${var.system_disk_gb}GiB"
+      "boot.priority" = "1" # Boot from disk first (when OS is installed)
     }
   }
 
@@ -89,7 +89,7 @@ resource "incus_instance" "vm" {
   device {
     name = "eth0"
     type = "nic"
-    
+
     properties = merge(
       {
         network = var.network_bridge
@@ -105,11 +105,11 @@ resource "incus_instance" "vm" {
     content {
       name = "iso"
       type = "disk"
-      
+
       properties = {
         source          = var.iso_volume_name
         pool            = var.storage_pool
-        "boot.priority" = "2"  # Boot from ISO second (fallback/installation)
+        "boot.priority" = "2" # Boot from ISO second (fallback/installation)
       }
     }
   }
@@ -120,7 +120,7 @@ resource "incus_instance" "vm" {
     content {
       name = "data-${device.key}"
       type = "disk"
-      
+
       properties = {
         source = device.value.name
         pool   = device.value.pool
@@ -134,7 +134,7 @@ resource "incus_instance" "vm" {
     content {
       name = "pci-controller"
       type = "pci"
-      
+
       properties = {
         address = var.pcie_controller
       }

@@ -19,14 +19,14 @@ locals {
   op_vm_passwords = {
     for name, item in data.onepassword_item.vm_password : name => (
       var.vms[name].root_pwd_vault_field == "password"
-        ? item.password
-        : try(
-            one([
-              for section in item.section :
-              one([for f in section.field : f.value if f.label == var.vms[name].root_pwd_vault_field])
-            ]),
-            ""
-          )
+      ? item.password
+      : try(
+        one([
+          for section in item.section :
+          one([for f in section.field : f.value if f.label == var.vms[name].root_pwd_vault_field])
+        ]),
+        ""
+      )
     )
   }
 }
@@ -38,32 +38,32 @@ module "vm" {
 
   source = "./modules/vm"
 
-  instance_name            = each.key
-  target_remote            = each.value.target_remote
-  incus_project            = each.value.incus_project
-  incus_profile            = each.value.incus_profile
-  storage_pool             = each.value.storage_pool
-  type                     = each.value.type
-  image                    = each.value.image
-  cpu_cores                = each.value.cpu_cores
-  memory_gb                = each.value.memory_gb
-  system_disk_gb           = each.value.system_disk_gb
-  network_bridge           = each.value.network_bridge
-  mac_address              = each.value.mac_address
-  iso_volume_name          = each.value.iso_volume_name
-  iso_mounted              = each.value.iso_mounted
-  enable_pcie_passthrough  = each.value.enable_pcie_passthrough
-  pcie_controller          = each.value.pcie_controller
-  data_disks               = each.value.data_disks
-  enable_boot_autostart    = each.value.enable_boot_autostart
-  root_username            = each.value.root_username
-  ssh_public_key           = each.value.ssh_public_key
-  root_password            = (
+  instance_name           = each.key
+  target_remote           = each.value.target_remote
+  incus_project           = var.incus_project
+  incus_profile           = each.value.incus_profile
+  storage_pool            = each.value.storage_pool
+  type                    = each.value.type
+  image                   = each.value.image
+  cpu_cores               = each.value.cpu_cores
+  memory_gb               = each.value.memory_gb
+  system_disk_gb          = each.value.system_disk_gb
+  network_bridge          = each.value.network_bridge
+  mac_address             = each.value.mac_address
+  iso_volume_name         = each.value.iso_volume_name
+  iso_mounted             = each.value.iso_mounted
+  enable_pcie_passthrough = each.value.enable_pcie_passthrough
+  pcie_controller         = each.value.pcie_controller
+  data_disks              = each.value.data_disks
+  enable_boot_autostart   = each.value.enable_boot_autostart
+  root_username           = each.value.root_username
+  ssh_public_key          = each.value.ssh_public_key
+  root_password = (
     each.value.root_password != "" ? each.value.root_password :
     contains(keys(local.op_vm_passwords), each.key) ? local.op_vm_passwords[each.key] :
     lookup(var.root_passwords, each.key, "")
   )
-  tags                     = var.tags
+  tags = var.tags
 }
 
 # Container Instances (future module)
@@ -76,3 +76,39 @@ module "vm" {
 #   instance_name = each.key
 #   # ... additional configuration
 # }
+
+# Workspace validation
+# Ensures Terraform is running inside a named workspace (not "default").
+# Each ring uses its own workspace for state isolation (e.g., ring0, ring1, ring2).
+# This prevents accidentally applying a ring's tfvars against the wrong state file.
+check "workspace_not_default" {
+  assert {
+    condition     = terraform.workspace != "default"
+    error_message = "You must select a Terraform workspace before plan/apply. Run: terraform workspace select <ring> (e.g., ring0, ring1, ring2). See docs/terraform/QUICKSTART.md for details."
+  }
+}
+
+# Docker/OCI Container Instances
+# Deploy OCI application containers (e.g., Mosquitto MQTT broker) using the docker_container module.
+# Requires an OCI remote configured in Incus: incus remote add docker https://docker.io --protocol=oci
+module "docker_container" {
+  for_each = var.docker_containers
+
+  source = "./modules/docker_container"
+
+  instance_name         = each.key
+  target_remote         = each.value.target_remote
+  incus_project         = var.incus_project
+  incus_profile         = each.value.incus_profile
+  storage_pool          = each.value.storage_pool
+  image                 = each.value.image
+  cpu_cores             = each.value.cpu_cores
+  memory_limit_mb       = each.value.memory_limit_mb
+  root_disk_gb          = each.value.root_disk_gb
+  network_bridge        = each.value.network_bridge
+  mac_address           = each.value.mac_address
+  enable_boot_autostart = each.value.enable_boot_autostart
+  environment           = each.value.environment
+  volumes               = each.value.volumes
+  tags                  = var.tags
+}

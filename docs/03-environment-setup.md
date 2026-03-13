@@ -89,7 +89,14 @@ sudo apt update && sudo apt install terraform
 # Initialize the Terraform workspace
 cd terraform
 terraform init
+
+# Create per-ring workspaces (one-time setup)
+terraform workspace new ring0
+terraform workspace new ring1
+terraform workspace new ring2
 ```
+
+Each ring uses a separate Terraform workspace for state isolation. Always select the correct workspace before running plan/apply (e.g., `terraform workspace select ring0`). See [Terraform Quick Start](terraform/QUICKSTART.md) for details.
 
 ## Step 6: Install and Configure the Incus Client
 

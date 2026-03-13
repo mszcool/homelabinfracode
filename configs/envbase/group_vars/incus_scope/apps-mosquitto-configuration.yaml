@@ -1,0 +1,66 @@
+---
+# Base (shared) constants for Mosquitto MQTT Broker on Incus
+#
+# This file lives in group_vars/incus_scope/ because the Mosquitto container
+# is managed via Incus CLI from localhost (same scope as incus cluster vars).
+#
+# Environment-specific overrides are provided by:
+#   <env>/group_vars/incus_scope/apps-mosquitto-configuration.yaml
+#   (e.g., configs/envtest/inventory/ or configs.private/envprod/inventory/)
+#
+# Required seed variables from the environment layer:
+#   mosquitto_instance:       Container name in Incus (e.g., "mosquitto-broker")
+#   mosquitto_incus_remote:   Incus remote name (e.g., "incus.aoostar.mszlocal")
+#   mosquitto_incus_project:  Incus project (e.g., "prodlayer1")
+#   mosquitto_users:          List of {username, password} dicts (passwords from 1Password)
+#   mosquitto_acl_rules:      ACL rule blocks (can override defaults below)
+
+# ---------- Shared defaults ----------
+
+mosquitto_config:
+  # Network
+  listener_port: 1883
+  websocket_enabled: false
+  websocket_port: 9001
+
+  # Persistence
+  persistence_enabled: true
+
+  # Security
+  allow_anonymous: false
+
+  # Logging
+  log_type: warning
+
+  # Limits
+  max_connections: -1            # -1 = unlimited
+  max_inflight_messages: 20
+  max_queued_messages: 1000
+
+# ---------- Default ACL rules ----------
+# Override per-environment to add users and topic permissions.
+# Each entry can have: comment, user (optional), rules (list of topic lines).
+#
+# Example with user-specific rules:
+#   - comment: "Home Assistant full access"
+#     user: homeassistant
+#     rules:
+#       - "readwrite #"
+#
+#   - comment: "Sensor devices — publish only"
+#     user: sensor-device
+#     rules:
+#       - "write sensors/#"
+#       - "read sensors/config/#"
+
+mosquitto_acl_rules: []
+
+# ---------- Default users ----------
+# Override per-environment with actual credentials.
+# Passwords should be resolved from 1Password in the environment config:
+#
+#   mosquitto_users:
+#     - username: homeassistant
+#       password: "{{ lookup('community.general.onepassword', 'mqtt-homeassistant', field='password', vault=op_vault_name) }}"
+
+mosquitto_users: []

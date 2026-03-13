@@ -16,11 +16,11 @@ terraform/
 ├── providers.tf         # Incus provider configuration
 ├── variables.tf         # Global variables
 ├── locals.tf            # Local computed values
-├── main.tf              # Root module
+├── main.tf              # Root module (VM + docker_container loops, workspace check)
 ├── outputs.tf           # Output definitions
 ├── modules/
 │   ├── vm/              # Virtual machine module
-│   └── container/       # Container module (future)
+│   └── docker_container/ # Docker/OCI container module
 configs/envtest/
 ├── ring0.tfvars         # Ring0 test environment variables
 ├── ring1.tfvars         # Ring1 test environment variables
@@ -158,22 +158,40 @@ cd terraform
 terraform init
 ```
 
+### Create and Select a Workspace
+
+Each ring requires its own workspace for state isolation:
+
+```bash
+# One-time workspace creation
+terraform workspace new ring0
+terraform workspace new ring1
+terraform workspace new ring2
+
+# Select the ring you want to manage
+terraform workspace select ring0
+```
+
+A built-in `check` block will warn if you try to plan/apply in the "default" workspace.
+
 ### Plan Ring0 Deployment
 
 ```bash
-# Using configuration from configs.private/envprod/ring0.tfvars
+terraform workspace select ring0
 terraform plan -var-file="../configs.private/envprod/ring0.tfvars"
 ```
 
 ### Apply Ring0 Deployment
 
 ```bash
+terraform workspace select ring0
 terraform apply -var-file="../configs.private/envprod/ring0.tfvars"
 ```
 
 ### Destroy Resources
 
 ```bash
+terraform workspace select ring0
 terraform destroy -var-file="../configs.private/envprod/ring0.tfvars"
 ```
 
@@ -237,19 +255,41 @@ terraform apply -var-file="../configs.private/envprod/ring2.tfvars"
 
 ## State Management
 
-### Local State
+### Workspace-Based State Isolation (Default)
 
-For small deployments:
+Each ring uses a separate Terraform workspace, which stores state in an isolated directory:
 
 ```bash
-terraform apply -var-file="../configs/envtest/ring0.tfvars"
+# Create workspaces (one-time)
+terraform workspace new ring0
+terraform workspace new ring1
+terraform workspace new ring2
+
+# Select workspace before any plan/apply
+terraform workspace select ring0
+terraform plan -var-file="../configs.private/envprod/ring0.tfvars"
+terraform apply -var-file="../configs.private/envprod/ring0.tfvars"
+
+# Switch to ring1
+terraform workspace select ring1
+terraform plan -var-file="../configs.private/envprod/ring1.tfvars"
+terraform apply -var-file="../configs.private/envprod/ring1.tfvars"
 ```
 
-State is stored in `terraform.tfstate` (should be gitignored).
+State files are stored under:
+```
+terraform/
+├── terraform.tfstate.d/
+│   ├── ring0/terraform.tfstate    # Ring 0 state (prodlayer0)
+│   ├── ring1/terraform.tfstate    # Ring 1 state (prodlayer1)
+│   └── ring2/terraform.tfstate    # Ring 2 state (default)
+```
+
+**Why workspaces?** Each ring maps to a different Incus project with different identity and access permissions. Workspace isolation ensures that the ring1 identity (which can manage `prodlayer1`) cannot accidentally modify resources in `prodlayer0` (ring0). A built-in `check` block warns if you run plan/apply in the "default" workspace.
 
 ### Remote State (S3/HTTP Backend)
 
-For production:
+For production with a remote backend:
 
 ```hcl
 terraform {

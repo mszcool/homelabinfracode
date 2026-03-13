@@ -1,0 +1,23 @@
+# Mosquitto ACL (Access Control List)
+# Managed by Ansible — do not edit manually
+#
+# Template: playbooks/ring1/templates/mosquitto-acl.acl.j2
+# Variables: configs/envbase/group_vars/incus_scope/apps-mosquitto-configuration.yaml
+#
+# Pattern syntax:
+#   topic [read|write|readwrite|deny] <topic-filter>
+#   user <username>       — applies following rules to that user
+#   pattern <topic-filter> — supports %u (username) and %c (client id) substitutions
+
+{% for acl_entry in mosquitto_acl_rules | default([]) %}
+{% if acl_entry.comment is defined %}
+# {{ acl_entry.comment }}
+{% endif %}
+{% if acl_entry.user is defined %}
+user {{ acl_entry.user }}
+{% endif %}
+{% for rule in acl_entry.rules %}
+topic {{ rule }}
+{% endfor %}
+
+{% endfor %}

@@ -17,15 +17,28 @@
 #   - p7zip-full     : 7z archive tool   (host-incus-image-unified, host-incus-image-multiiso)
 #   - genisoimage    : ISO generation     (host-incus-image-unified, host-incus-image-multiiso)
 #   - python3-paramiko : SSH library      (networking-mikrotik-continuous-configure-all, cleanup)
+#   - skopeo         : OCI image tool    (incus image copy from docker: remote)
+#   - incus-client     : Incus CLI tool   (Zabbly repo)
+#
+# Incus repo variables (override with -e):
+#   incus_repo_channel : stable | lts-6.0 | daily  (default: lts-6.0)
+#   incus_client_version: package version pin       (default: latest)
+#     Example: "6.0.4-zabbly1-noble" for a specific version,
+#              or "6.0.*" for latest 6.0 patch.
+#     Run `apt-cache madison incus-client` to list available versions.
 #
 - name: Prepare localhost -- install all packages required by playbooks.
   hosts: localhost
   connection: local
   become: true
-  gather_facts: false
+  gather_facts: true
+
+  vars:
+    incus_repo_channel: "lts-6.0"
+    incus_client_version: ""
 
   tasks:
-    - name: Install packages required for Incus ISO image generation
+    - name: Install packages required for Incus ISO image generation and INCUS OCI image copying
       ansible.builtin.apt:
         name:
           - whois
@@ -33,5 +46,37 @@
           - isolinux
           - p7zip-full
           - genisoimage
+          - skopeo
         state: present
+        update_cache: true
+
+    - name: Ensure /etc/apt/keyrings directory exists
+      ansible.builtin.file:
+        path: /etc/apt/keyrings
+        state: directory
+        mode: "0755"
+
+    - name: Download Zabbly GPG key
+      ansible.builtin.get_url:
+        url: https://pkgs.zabbly.com/key.asc
+        dest: /etc/apt/keyrings/zabbly.asc
+        mode: "0644"
+
+    - name: Add Zabbly Incus repository ({{ incus_repo_channel }})
+      ansible.builtin.copy:
+        dest: /etc/apt/sources.list.d/zabbly-incus-{{ incus_repo_channel }}.sources
+        mode: "0644"
+        content: |
+          Enabled: yes
+          Types: deb
+          URIs: https://pkgs.zabbly.com/incus/{{ incus_repo_channel }}
+          Suites: {{ ansible_facts['distribution_release'] }}
+          Components: main
+          Architectures: {{ ansible_facts['architecture'] | regex_replace('x86_64', 'amd64') }}
+          Signed-By: /etc/apt/keyrings/zabbly.asc
+
+    - name: Install incus-client from Zabbly repo
+      ansible.builtin.apt:
+        name: "incus-client{{ '=' + incus_client_version if incus_client_version else '' }}"
+        state: "{{ 'present' if incus_client_version else 'latest' }}"
         update_cache: true

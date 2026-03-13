@@ -11,7 +11,7 @@ locals {
 
   # Validate pcie configuration
   pcie_required = var.enable_pcie_passthrough && var.pcie_controller == ""
-  
+
   # Data disks should only be used when pcie passthrough is disabled
   data_disks_config = var.enable_pcie_passthrough ? [] : var.data_disks
 

@@ -31,6 +31,14 @@ terraform/modules/vm/locals.tf        - Validation logic
 terraform/modules/vm/README.md        - Module docs
 ```
 
+### Docker/OCI Container Module (4 files)
+```
+terraform/modules/docker_container/versions.tf   - Module providers
+terraform/modules/docker_container/variables.tf  - Container parameters
+terraform/modules/docker_container/main.tf       - Container + volume resources
+terraform/modules/docker_container/outputs.tf    - Container outputs
+```
+
 ### Environment Configuration (3 files)
 ```
 configs/envtest/ring0.tfvars   - Infrastructure (TrueNAS) [test]
@@ -98,6 +106,10 @@ docs/terraform/00-START-HERE.md     - This overview
 ```bash
 cd /home/mszcool/src/personal/homelabinfracode/terraform
 terraform init
+
+# Create and select a workspace (required — one workspace per ring)
+terraform workspace new ring0
+terraform workspace select ring0
 ```
 
 ### Next 10 Minutes

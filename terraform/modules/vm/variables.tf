@@ -30,7 +30,7 @@ variable "type" {
   description = "Instance type: 'container' or 'virtual-machine'"
   type        = string
   default     = "virtual-machine"
-  
+
   validation {
     condition     = contains(["container", "virtual-machine"], var.type)
     error_message = "Instance type must be 'container' or 'virtual-machine'."
@@ -47,7 +47,7 @@ variable "cpu_cores" {
   description = "Number of CPU cores to allocate"
   type        = number
   default     = 4
-  
+
   validation {
     condition     = var.cpu_cores > 0 && var.cpu_cores <= 256
     error_message = "CPU cores must be between 1 and 256."
@@ -58,7 +58,7 @@ variable "memory_gb" {
   description = "Memory allocation in GB"
   type        = number
   default     = 8
-  
+
   validation {
     condition     = var.memory_gb > 0 && var.memory_gb <= 1024
     error_message = "Memory must be between 1 GB and 1024 GB."
@@ -69,7 +69,7 @@ variable "system_disk_gb" {
   description = "Size of the root disk in GB"
   type        = number
   default     = 64
-  
+
   validation {
     condition     = var.system_disk_gb > 0 && var.system_disk_gb <= 10240
     error_message = "System disk size must be between 1 GB and 10240 GB."
@@ -132,7 +132,7 @@ variable "root_username" {
   description = "Username for the privileged user (e.g., 'admin', 'sysadmin'). Only used with image-based VMs. Will be created with full sudo access."
   type        = string
   default     = "admin"
-  
+
   validation {
     condition     = can(regex("^[a-z_]([a-z0-9_-]{0,31}|[a-z0-9_-]{0,30}\\$)$", var.root_username))
     error_message = "root_username must be a valid Linux username (lowercase letters, numbers, underscore, hyphen)."

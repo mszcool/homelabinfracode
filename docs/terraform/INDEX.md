@@ -34,9 +34,9 @@ This document helps you navigate the Terraform documentation.
 terraform/
 ├── versions.tf              Terraform version constraints
 ├── providers.tf             Incus + 1Password provider authentication
-├── variables.tf             Input variable definitions
+├── variables.tf             Input variable definitions (incus_project, vms, docker_containers)
 ├── locals.tf                Local computed values
-├── main.tf                  Root module instantiation
+├── main.tf                  Root module instantiation + workspace validation check
 └── outputs.tf               Infrastructure outputs
 ```
 
@@ -44,10 +44,15 @@ terraform/
 ```bash
 cd terraform
 terraform init
+
+# Create and select a workspace (one per ring)
+terraform workspace new ring0
+terraform workspace select ring0
+
 terraform plan -var-file="../configs.private/envprod/ring0.tfvars"
 ```
 
-> **Note:** Variable files are organized in `configs/envtest/` (test samples) and `configs.private/envprod/` (actual production configs).
+> **Note:** Variable files are organized in `configs/envtest/` (test samples) and `configs.private/envprod/` (actual production configs). Each ring uses a separate Terraform workspace for state isolation. A `check` block warns if you run in the "default" workspace.
 > See [TFVARS_ORGANIZATION.md](TFVARS_ORGANIZATION.md) for details.
 
 ### Module Files (Reusable Components)
@@ -60,6 +65,12 @@ modules/vm/
 ├── locals.tf                Internal VM logic
 ├── versions.tf              Module dependencies
 └── README.md                Module documentation
+
+modules/docker_container/
+├── main.tf                  Container + volume resources
+├── variables.tf             Container input parameters
+├── outputs.tf               Container output values
+└── versions.tf              Module dependencies
 ```
 
 **Usage:** The VM module is self-contained. Use for creating any VM:
@@ -89,9 +100,12 @@ configs.private/envprod/
 └── ring2.tfvars             YOUR actual Ring 2 configuration
 ```
 
-**Usage:** Always use configs.private for real deployment:
+**Usage:** Always use configs.private for real deployment. Select the matching workspace first:
 ```bash
+terraform workspace select ring0
 terraform plan -var-file="../configs.private/envprod/ring0.tfvars"
+
+terraform workspace select ring1
 terraform apply -var-file="../configs.private/envprod/ring1.tfvars"
 ```
 

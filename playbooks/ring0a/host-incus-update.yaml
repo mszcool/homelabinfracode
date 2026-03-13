@@ -28,21 +28,12 @@
         password: "{{ generate_password_input | password_hash('sha512') }}"
       when: generate_password_input is defined and generate_password_input | length > 0
 
-    - name: Ensure SSH directory exists for Incus admin user.
-      ansible.builtin.file:
-        path: "/{{ 'root' if incus_root_user == 'root' else 'home/' + incus_root_user }}/.ssh"
-        state: directory
-        owner: "{{ incus_root_user }}"
-        group: "{{ incus_root_user }}"
-        mode: "0700"
-
-    - name: Set the Incus server admin SSH key exclusively.
-      ansible.builtin.copy:
-        dest: "/{{ 'root' if incus_root_user == 'root' else 'home/' + incus_root_user }}/.ssh/authorized_keys"
-        content: "{{ incus_root_user_publickey | trim }}\n"
-        owner: "{{ incus_root_user }}"
-        group: "{{ incus_root_user }}"
-        mode: "0600"
+    - name: Set the Incus server admin SSH Key exclusively.
+      ansible.posix.authorized_key:
+        user: "{{ incus_root_user }}"
+        state: present
+        key: "{{ incus_root_user_publickey }}"
+        exclusive: true
 
     - name: Allow inbound SSH on port 22.
       community.general.ufw:
@@ -80,7 +71,7 @@
 
     - name: Gather IP address of the physical network adapter.
       ansible.builtin.set_fact:
-        param_incus_listen_address: "{{ ansible_facts[param_network_adapter]['ipv4']['address'] }}"
+        param_incus_listen_address: "{{ hostvars[inventory_hostname]['ansible_' + param_network_adapter]['ipv4']['address'] }}"
 
     - name: Configure Incus to listen on the network address and port.
       ansible.builtin.command:
