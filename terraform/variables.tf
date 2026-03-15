@@ -118,6 +118,28 @@ variable "docker_containers" {
   default = {}
 }
 
+variable "mac_prefix_by_project" {
+  description = <<-EOT
+    Maps Incus project names to expected MAC address prefixes.
+    Used for validation only — does not affect infrastructure state.
+
+    Convention:
+      00:16:3e:11:xx:xx  → prodlayer0 (ring0: foundational infrastructure)
+      00:16:3e:12:xx:xx  → prodlayer1 (ring1: application workloads)
+      00:16:3e:13:xx:xx  → prodlayer2 (ring2: utility services) [reserved]
+
+    The OUI prefix 00:16:3e is the standard Xen/LXC locally-administered
+    range used by Incus. The 4th octet encodes the ring identity.
+    Set to empty map to disable prefix validation.
+  EOT
+  type    = map(string)
+  default = {
+    prodlayer0 = "00:16:3e:11:"
+    prodlayer1 = "00:16:3e:12:"
+    prodlayer2 = "00:16:3e:13:"
+  }
+}
+
 variable "tags" {
   description = "Common tags for all resources"
   type        = map(string)

@@ -119,6 +119,7 @@ terraform apply -var-file="../configs.private/envprod/ring1.tfvars"
 | [QUICKSTART.md](QUICKSTART.md) | Hands-on 10-minute setup | 10 min | Developers |
 | [TERRAFORM-README.md](TERRAFORM-README.md) | Architecture and usage guide | 15 min | DevOps/Arch |
 | [TFVARS_ORGANIZATION.md](TFVARS_ORGANIZATION.md) | Variable file organization (public vs private) | 10 min | Everyone |
+| [MAC_ADDRESS_CONVENTION.md](MAC_ADDRESS_CONVENTION.md) | MAC address scheme and allocation registry | 5 min | DevOps |
 | [MIGRATION_GUIDE.md](MIGRATION_GUIDE.md) | Step-by-step migration from Ansible | 30 min | DevOps |
 | [ARCHITECTURE.md](ARCHITECTURE.md) | Detailed diagrams and flows | 15 min | Architects |
 

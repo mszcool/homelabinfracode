@@ -88,6 +88,48 @@ check "workspace_not_default" {
   }
 }
 
+# ──────────────────────────────────────────────────────────────────────────────
+# MAC Address Validation
+# These check blocks run during plan but do NOT create any state resources.
+# Convention: 00:16:3e:11:xx:xx = ring0, 00:16:3e:12:xx:xx = ring1, etc.
+# ──────────────────────────────────────────────────────────────────────────────
+
+# Validate MAC address format: must be 00:16:3e:XX:YY:ZZ (Xen/LXC OUI)
+check "mac_address_format" {
+  assert {
+    condition = alltrue([
+      for id, mac in local.all_mac_addresses :
+      can(regex("^00:16:3e:[0-9a-f]{2}:[0-9a-f]{2}:[0-9a-f]{2}$", lower(mac)))
+    ])
+    error_message = "All MAC addresses must use format 00:16:3e:XX:YY:ZZ (Xen/LXC OUI). Offending entries: ${join(", ", [
+      for id, mac in local.all_mac_addresses :
+      "${id}=${mac}" if !can(regex("^00:16:3e:[0-9a-f]{2}:[0-9a-f]{2}:[0-9a-f]{2}$", lower(mac)))
+    ])}."
+  }
+}
+
+# Validate MAC prefix matches the ring (based on incus_project)
+check "mac_address_ring_prefix" {
+  assert {
+    condition = local.expected_mac_prefix == "" ? true : alltrue([
+      for id, mac in local.all_mac_addresses :
+      startswith(lower(mac), lower(local.expected_mac_prefix))
+    ])
+    error_message = "MAC addresses must use prefix '${local.expected_mac_prefix}' for project '${var.incus_project}'. Offending entries: ${join(", ", [
+      for id, mac in local.all_mac_addresses :
+      "${id}=${mac}" if local.expected_mac_prefix != "" && !startswith(lower(mac), lower(local.expected_mac_prefix))
+    ])}. See docs/terraform/MAC_ADDRESS_CONVENTION.md."
+  }
+}
+
+# Validate no duplicate MAC addresses across all instances
+check "mac_address_uniqueness" {
+  assert {
+    condition     = local.unique_mac_count == length(local.mac_values)
+    error_message = "Duplicate MAC addresses detected. Each instance must have a unique MAC. All MACs: ${join(", ", [for id, mac in local.all_mac_addresses : "${id}=${mac}"])}."
+  }
+}
+
 # Docker/OCI Container Instances
 # Deploy OCI application containers (e.g., Mosquitto MQTT broker) using the docker_container module.
 # Requires an OCI remote configured in Incus: incus remote add docker https://docker.io --protocol=oci
