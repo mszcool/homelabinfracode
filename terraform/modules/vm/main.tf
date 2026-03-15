@@ -61,14 +61,15 @@ resource "incus_instance" "vm" {
 
       # Boot settings
       "boot.autostart" = var.enable_boot_autostart ? "true" : "false"
-
-      # Disable secure boot for ISO-based installations
-      "security.secureboot" = "false"
     },
+    # Disable secure boot for VMs (not applicable to containers)
+    var.type == "virtual-machine" ? {
+      "security.secureboot" = "false"
+    } : {},
     # Add cloud-init user-data if SSH key or root password is provided
-    # Using cloud-init.user-data (not user.user-data) for newer images
+    # VMs use "cloud-init.user-data"; containers use "user.user-data"
     (var.ssh_public_key != "" || var.root_password != "") ? {
-      "cloud-init.user-data" = "#cloud-config\n${local.cloud_init_user_data}"
+      (var.type == "container" ? "user.user-data" : "cloud-init.user-data") = "#cloud-config\n${local.cloud_init_user_data}"
     } : {}
   )
 
@@ -77,12 +78,15 @@ resource "incus_instance" "vm" {
     name = "root"
     type = "disk"
 
-    properties = {
-      path            = "/"
-      pool            = var.storage_pool
-      size            = "${var.system_disk_gb}GiB"
-      "boot.priority" = "1" # Boot from disk first (when OS is installed)
-    }
+    properties = merge(
+      {
+        path = "/"
+        pool = var.storage_pool
+        size = "${var.system_disk_gb}GiB"
+      },
+      # boot.priority only applies to VMs
+      var.type == "virtual-machine" ? { "boot.priority" = "1" } : {}
+    )
   }
 
   # Primary network interface
@@ -141,13 +145,14 @@ resource "incus_instance" "vm" {
     }
   }
 
-  # Wait for VM to be ready
+  # Wait for instance to be ready
   # For image-based VMs: wait for agent to be ready
-  # For ISO-based VMs: just wait for the instance to be running (agent won't be available during OS installation)
+  # For containers: wait for IPv4 address (agent is not supported)
+  # For ISO-based VMs: skip (agent won't be available during OS installation)
   dynamic "wait_for" {
     for_each = var.image != "" && var.iso_volume_name == "" ? [1] : []
     content {
-      type = "agent"
+      type = var.type == "container" ? "ipv4" : "agent"
     }
   }
 
