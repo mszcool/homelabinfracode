@@ -46,15 +46,14 @@
           group_vars/incus_scope/apps-mosquitto-configuration.yaml is present
           in both envbase and your environment inventory.
 
-    - name: Set Incus remote target flag
+    - name: Set Incus remote prefix for instance addressing
       ansible.builtin.set_fact:
-        _incus_target_flag: "{{ ('--target ' + mosquitto_incus_remote) if mosquitto_incus_remote != 'local' else '' }}"
+        _incus_remote_prefix: "{{ (mosquitto_incus_remote + ':') if mosquitto_incus_remote != 'local' else '' }}"
 
     - name: Verify Mosquitto container exists on target remote
       ansible.builtin.shell: |
-        incus info {{ mosquitto_instance }} \
-          --project {{ mosquitto_incus_project }} \
-          {{ _incus_target_flag }}
+        incus info {{ _incus_remote_prefix }}{{ mosquitto_instance }} \
+          --project {{ mosquitto_incus_project }}
       args:
         executable: /bin/bash
       register: _mosquitto_exists
@@ -67,12 +66,13 @@
       ansible.builtin.include_tasks: tasks/apps-mosquitto-configure.yaml
 
   post_tasks:
-    - name: Verify Mosquitto is listening
+    - name: Verify Mosquitto is listening - this can take about 10 seconds after container restart as Mosquitto publishes to SYS every 10 seconds by default
       ansible.builtin.shell: |
-        incus exec {{ mosquitto_instance }} \
+        incus exec {{ _incus_remote_prefix }}{{ mosquitto_instance }} \
           --project {{ mosquitto_incus_project }} \
-          {{ _incus_target_flag }} \
-          -- mosquitto_sub -t '$SYS/broker/version' -C 1 -W 5
+          -T -- mosquitto_sub -t '$SYS/broker/version' -C 1 -W 15 \
+             -u '{{ mosquitto_users[0].username }}' \
+             -P '{{ mosquitto_users[0].password }}'
       args:
         executable: /bin/bash
       register: _mosquitto_verify

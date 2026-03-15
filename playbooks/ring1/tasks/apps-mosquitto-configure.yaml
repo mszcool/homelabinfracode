@@ -43,12 +43,10 @@
     # Hash all entries in-place using mosquitto_passwd
     # Run inside the Incus container which has the mosquitto_passwd binary
     incus file push "$PASSWD_FILE" \
-      {{ mosquitto_instance }}/mosquitto/config/passwd \
+      {{ _incus_remote_prefix }}{{ mosquitto_instance }}/mosquitto/config/passwd \
+      --project {{ mosquitto_incus_project }}
+    incus exec {{ _incus_remote_prefix }}{{ mosquitto_instance }} \
       --project {{ mosquitto_incus_project }} \
-      {{ _incus_target_flag }}
-    incus exec {{ mosquitto_instance }} \
-      --project {{ mosquitto_incus_project }} \
-      {{ _incus_target_flag }} \
       -- mosquitto_passwd -U /mosquitto/config/passwd
   args:
     executable: /bin/bash
@@ -57,34 +55,30 @@
 - name: Push mosquitto.conf into container
   ansible.builtin.shell: |
     incus file push "{{ _mosquitto_tmpdir.path }}/mosquitto.conf" \
-      {{ mosquitto_instance }}/mosquitto/config/mosquitto.conf \
-      --project {{ mosquitto_incus_project }} \
-      {{ _incus_target_flag }}
+      {{ _incus_remote_prefix }}{{ mosquitto_instance }}/mosquitto/config/mosquitto.conf \
+      --project {{ mosquitto_incus_project }}
   args:
     executable: /bin/bash
 
 - name: Push ACL file into container
   ansible.builtin.shell: |
     incus file push "{{ _mosquitto_tmpdir.path }}/acl.acl" \
-      {{ mosquitto_instance }}/mosquitto/config/acl.acl \
-      --project {{ mosquitto_incus_project }} \
-      {{ _incus_target_flag }}
+      {{ _incus_remote_prefix }}{{ mosquitto_instance }}/mosquitto/config/acl.acl \
+      --project {{ mosquitto_incus_project }}
   args:
     executable: /bin/bash
 
 - name: Restart Mosquitto container to apply configuration
   ansible.builtin.shell: |
-    incus restart {{ mosquitto_instance }} \
-      --project {{ mosquitto_incus_project }} \
-      {{ _incus_target_flag }}
+    incus restart {{ _incus_remote_prefix }}{{ mosquitto_instance }} \
+      --project {{ mosquitto_incus_project }}
   args:
     executable: /bin/bash
 
 - name: Wait for Mosquitto container to be running
   ansible.builtin.shell: |
-    incus info {{ mosquitto_instance }} \
+    incus info {{ _incus_remote_prefix }}{{ mosquitto_instance }} \
       --project {{ mosquitto_incus_project }} \
-      {{ _incus_target_flag }} \
       | grep -q "Status: RUNNING"
   args:
     executable: /bin/bash
