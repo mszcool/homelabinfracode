@@ -27,7 +27,7 @@ locals {
     merge(
       {
         name        = var.root_username
-        sudo        = ["ALL=(ALL) NOPASSWD:ALL"]
+        sudo        = var.sudo_passwordless ? ["ALL=(ALL) NOPASSWD:ALL"] : ["ALL=(ALL) ALL"]
         shell       = "/bin/bash"
         lock_passwd = false
       },

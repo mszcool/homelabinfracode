@@ -35,22 +35,6 @@ All Incus-managed instances (VMs, LXC containers, and Docker/OCI containers) use
 
 > **Reserved**: `xx:xx = 00:00` is not used (avoids ambiguity with "empty" values).
 
-## Current Allocations
-
-### Ring 0 (`prodlayer0`) — Foundational Infrastructure
-
-| Instance          | MAC Address          | Type            |
-|-------------------|----------------------|-----------------|
-| `samba4-addc`     | `00:16:3e:11:00:01`  | virtual-machine |
-| `truenas-primary` | `00:16:3e:11:00:02`  | virtual-machine |
-
-### Ring 1 (`prodlayer1`) — Application Workloads
-
-| Instance                        | MAC Address          | Type             |
-|---------------------------------|----------------------|------------------|
-| `app-remote-maintenance-shell`  | `00:16:3e:12:00:01`  | container (LXC)  |
-| `mosquitto-broker`              | `00:16:3e:12:00:02`  | container (OCI)  |
-
 ## Adding a New Instance
 
 1. Check this table for the last allocated host ID in the target ring.

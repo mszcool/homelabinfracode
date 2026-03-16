@@ -57,6 +57,7 @@ module "vm" {
   data_disks              = each.value.data_disks
   enable_boot_autostart   = each.value.enable_boot_autostart
   root_username           = each.value.root_username
+  sudo_passwordless       = each.value.sudo_passwordless
   ssh_public_key          = each.value.ssh_public_key
   root_password = (
     each.value.root_password != "" ? each.value.root_password :

@@ -139,6 +139,12 @@ variable "root_username" {
   }
 }
 
+variable "sudo_passwordless" {
+  description = "Whether the root_username user can use sudo without a password. Set to false to require password for sudo."
+  type        = bool
+  default     = false
+}
+
 variable "ssh_public_key" {
   description = "SSH public key to add to the instance for passwordless access (optional). Only used with image-based VMs."
   type        = string

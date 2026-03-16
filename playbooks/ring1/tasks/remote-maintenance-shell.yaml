@@ -1,0 +1,113 @@
+---
+# Task: Configure Remote Maintenance Shell container
+#
+# Installs packages, copies scripts, sets up environment variables,
+# creates a Python virtual environment, and installs cron jobs.
+#
+# Required variables (from group_vars/remote_maintenance/):
+#   remote_maint_scripts_src    - Local path to PoolRemoteAccessScripts directory
+#   remote_maint_depth_ip       - Depth sensor hostname/IP
+#   remote_maint_depth_secret   - Depth sensor API secret (from vault)
+#   remote_maint_mqtt_server    - MQTT broker hostname
+#   remote_maint_mqtt_user      - MQTT username
+#   remote_maint_mqtt_pwd       - MQTT password (from vault)
+#   remote_maint_packages       - List of apt packages to install
+
+# -- a. Install required packages ------------------------------------------
+
+- name: Install required packages
+  become: true
+  ansible.builtin.apt:
+    name: "{{ remote_maint_packages }}"
+    state: present
+    update_cache: true
+
+# -- b. Copy shell scripts to home directory --------------------------------
+
+- name: Copy shell scripts to home directory
+  ansible.builtin.copy:
+    src: "{{ remote_maint_scripts_src }}/{{ item }}"
+    dest: "{{ ansible_facts['env']['HOME'] }}/{{ item }}"
+    mode: "0755"
+  loop:
+    - depthMeasure.sh
+    - depthTime.sh
+    - phOn.sh
+    - poolOff.sh
+    - poolOn.sh
+    - poolStatus.sh
+    - pumpOn.sh
+    - redoxOn.sh
+
+# -- c. Copy depth/ subfolder (Python scripts + requirements) ---------------
+
+- name: Copy depth subfolder
+  ansible.builtin.copy:
+    src: "{{ remote_maint_scripts_src }}/depth/"
+    dest: "{{ ansible_facts['env']['HOME'] }}/depth/"
+
+# -- d. Replace hardcoded MQTT broker IP in shell scripts -------------------
+
+- name: Find shell scripts in home directory
+  ansible.builtin.find:
+    paths: "{{ ansible_facts['env']['HOME'] }}"
+    patterns: "*.sh"
+  register: _shell_scripts
+
+- name: Replace hardcoded MQTT broker IP with inventory value
+  ansible.builtin.replace:
+    path: "{{ item.path }}"
+    regexp: '192\.168\.99\.218'
+    replace: "{{ remote_maint_mqtt_server }}"
+  loop: "{{ _shell_scripts.files }}"
+  loop_control:
+    label: "{{ item.path | basename }}"
+
+# -- e. Template shared environment file ------------------------------------
+
+- name: Template shared environment file
+  ansible.builtin.template:
+    src: remote-maint-env.j2
+    dest: "{{ ansible_facts['env']['HOME'] }}/.remote-maint.env"
+    mode: "0600"
+  no_log: true
+
+# -- f. Ensure ~/.profile sources the shared env file ----------------------
+
+- name: Ensure .profile sources the shared env file
+  ansible.builtin.lineinfile:
+    path: "{{ ansible_facts['env']['HOME'] }}/.profile"
+    line: '. "$HOME/.remote-maint.env"'
+    create: true
+    mode: "0644"
+
+# -- g. Create Python virtual environment -----------------------------------
+
+- name: Create Python virtual environment for depth scripts
+  ansible.builtin.command:
+    cmd: "python3 -m venv {{ ansible_facts['env']['HOME'] }}/depth/pyenv"
+    creates: "{{ ansible_facts['env']['HOME'] }}/depth/pyenv/bin/python"
+
+# -- h. Install Python requirements into venv -------------------------------
+
+- name: Install Python requirements into virtual environment
+  ansible.builtin.pip:
+    requirements: "{{ ansible_facts['env']['HOME'] }}/depth/requirements.txt"
+    virtualenv: "{{ ansible_facts['env']['HOME'] }}/depth/pyenv"
+
+# -- i. Install crontab from template --------------------------------------
+
+- name: Set remote_maint_home fact for crontab template
+  ansible.builtin.set_fact:
+    remote_maint_home: "{{ ansible_facts['env']['HOME'] }}"
+
+- name: Template crontab file
+  ansible.builtin.template:
+    src: remote-maint-crontab.j2
+    dest: "{{ ansible_facts['env']['HOME'] }}/.remote-maint-crontab"
+    mode: "0644"
+
+- name: Install crontab from template
+  ansible.builtin.command:
+    cmd: "crontab {{ ansible_facts['env']['HOME'] }}/.remote-maint-crontab"
+  changed_when: true

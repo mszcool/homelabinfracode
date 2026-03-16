@@ -39,5 +39,8 @@ all:
     # MikroTik main router (managed via localhost API)
     mainrouter:
 
+    # Remote maintenance shell containers (SSH-accessible LXC)
+    remote_maintenance:
+
     # Raspberry Pi edge devices (garage-edge, pool-edge are hosts)
     edge_devices:

@@ -46,6 +46,7 @@ variable "vms" {
     pcie_controller         = optional(string, "")
     enable_boot_autostart   = optional(bool, false)
     root_username           = optional(string, "admin")
+    sudo_passwordless       = optional(bool, false)
     ssh_public_key          = optional(string, "")
     root_password           = optional(string, "")
     root_pwd_vault          = optional(string, "")
