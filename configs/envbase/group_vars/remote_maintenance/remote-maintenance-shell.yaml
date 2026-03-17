@@ -14,7 +14,7 @@
 # ---------- Shared defaults ----------
 
 # Source path for PoolRemoteAccessScripts (relative to playbook working directory)
-remote_maint_scripts_src: "../../../homelabservices/PoolRemoteAccessScripts"
+remote_maint_scripts_src: "../../../homelab.iotdevices/PoolRemoteAccessScripts"
 
 # Depth sensor address
 remote_maint_depth_ip: ""
