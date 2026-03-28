@@ -161,3 +161,54 @@ resource "incus_instance" "vm" {
   ]
 }
 
+# ──────────────────────────────────────────────────────────────────────────────
+# Ansible post-provisioning
+# Run an Ansible playbook after VM creation to configure the instance
+# (install packages, push scripts, set up credentials, etc.).
+#
+# Extra vars are passed via --extra-vars with highest Ansible precedence,
+# allowing Terraform-resolved values to override inventory group_vars.
+# ──────────────────────────────────────────────────────────────────────────────
+resource "null_resource" "ansible_configure" {
+  count = var.ansible_playbook != null ? 1 : 0
+
+  triggers = {
+    instance_id = incus_instance.vm.name
+    playbook    = var.ansible_playbook
+    extra_vars  = jsonencode(var.ansible_extra_vars)
+  }
+
+  provisioner "local-exec" {
+    command = <<-SCRIPT
+      set -e
+      cd ${jsonencode(var.repo_root_dir)}
+
+      # Wait for SSH to become available on newly created VM
+      if [ -n "$TARGET_IP" ]; then
+        echo "Waiting for SSH on $TARGET_IP..."
+        for i in $(seq 1 60); do
+          ssh-keyscan -T 5 "$TARGET_IP" 2>/dev/null | grep -q . && break
+          if [ "$i" -eq 60 ]; then echo "ERROR: SSH not available after 5 minutes"; exit 1; fi
+          sleep 5
+        done
+      fi
+
+      exec ansible-playbook \
+        ${join(" ", concat(
+          var.ansible_limit != null ? ["--limit", jsonencode(var.ansible_limit)] : [],
+          [for dir in var.ansible_inventory_dirs : "-i ${jsonencode(dir)}"],
+          var.ansible_instance_ip_var != null ? ["-e ${jsonencode("${var.ansible_instance_ip_var}=${incus_instance.vm.ipv4_address}")}"] : [],
+          [for k, v in var.ansible_extra_vars : "-e ${jsonencode("${k}=${v}")}"],
+          [jsonencode(var.ansible_playbook)]
+        ))}
+    SCRIPT
+
+    environment = {
+      ANSIBLE_HOST_KEY_CHECKING = "False"
+      TARGET_IP                 = var.ansible_instance_ip_var != null ? incus_instance.vm.ipv4_address : ""
+      OP_SERVICE_ACCOUNT_TOKEN  = var.op_service_account_token
+    }
+  }
+
+  depends_on = [incus_instance.vm]
+}

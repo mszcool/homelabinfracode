@@ -189,3 +189,53 @@ variable "tags" {
     managed_by = "terraform"
   }
 }
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Ansible post-provisioning
+# ──────────────────────────────────────────────────────────────────────────────
+
+variable "ansible_playbook" {
+  description = "Ansible playbook path (relative to repo root) to run after VM creation. Null = skip."
+  type        = string
+  default     = null
+}
+
+variable "ansible_inventory_dirs" {
+  description = "List of inventory directories passed as -i flags to ansible-playbook."
+  type        = list(string)
+  default     = []
+}
+
+variable "ansible_limit" {
+  description = "Ansible --limit pattern to restrict which hosts the playbook runs against."
+  type        = string
+  default     = null
+}
+
+variable "ansible_extra_vars" {
+  description = <<-EOT
+    Map of Ansible variable names to value strings.
+    Passed via --extra-vars with highest precedence to override inventory values.
+  EOT
+  type        = map(string)
+  default     = {}
+}
+
+variable "ansible_instance_ip_var" {
+  description = "When set, the instance's IPv4 address is injected as an --extra-var with this name (e.g., 'ansible_host')."
+  type        = string
+  default     = null
+}
+
+variable "repo_root_dir" {
+  description = "Absolute path to the repository root. Used to resolve playbook and inventory paths."
+  type        = string
+  default     = ""
+}
+
+variable "op_service_account_token" {
+  description = "1Password service account token. Passed through to ansible-playbook so 1Password lookups (e.g., ansible_become_pass) work in the provisioner."
+  type        = string
+  default     = ""
+  sensitive   = true
+}

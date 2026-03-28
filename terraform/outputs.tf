@@ -14,14 +14,26 @@ output "vms" {
 
 output "docker_containers" {
   description = "Information about created Docker/OCI containers"
-  value = {
-    for name, module_output in module.docker_container :
-    name => {
-      instance_name = module_output.instance_name
-      ipv4_address  = module_output.instance_ipv4_address
-      ipv6_address  = module_output.instance_ipv6_address
-      status        = module_output.instance_status
-      volume_names  = module_output.volume_names
+  value = merge(
+    {
+      for name, module_output in module.docker_container :
+      name => {
+        instance_name = module_output.instance_name
+        ipv4_address  = module_output.instance_ipv4_address
+        ipv6_address  = module_output.instance_ipv6_address
+        status        = module_output.instance_status
+        volume_names  = module_output.volume_names
+      }
+    },
+    {
+      for name, module_output in module.docker_container_with_deps :
+      name => {
+        instance_name = module_output.instance_name
+        ipv4_address  = module_output.instance_ipv4_address
+        ipv6_address  = module_output.instance_ipv6_address
+        status        = module_output.instance_status
+        volume_names  = module_output.volume_names
+      }
     }
-  }
+  )
 }

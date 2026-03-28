@@ -57,6 +57,19 @@ variable "vms" {
       size = optional(number, 100) # in GB
       pool = optional(string, "incus-instances")
     })), [])
+    # Optional Ansible playbook to run after VM creation.
+    # Terraform invokes ansible-playbook via local-exec, passing extra_vars
+    # with highest precedence to override inventory values.
+    ansible_playbook = optional(object({
+      playbook               = string            # Path from repo root, e.g., "playbooks/ring1/remote-maintenance-shell.yaml"
+      inventory_dirs         = list(string)      # Inventory directories for -i flags
+      limit                  = string            # Ansible --limit pattern (e.g., "remote_maintenance")
+      extra_vars             = optional(map(string), {}) # Variable name → value string (passed as --extra-vars)
+      # When set, the instance's Terraform-assigned IPv4 is injected as an
+      # --extra-var with this name.  Use "ansible_host" to override the
+      # inventory's ansible_host so Ansible connects to the fresh IP.
+      instance_ip_var        = optional(string, null)
+    }), null)
   }))
   default = {}
 }
@@ -99,7 +112,37 @@ variable "docker_containers" {
     network_bridge        = optional(string, "phys-br")
     mac_address           = optional(string, "")
     enable_boot_autostart = optional(bool, true)
+    running               = optional(bool, true) # Set false for containers configured by Ansible before first start
     environment           = optional(map(string), {})
+    # Map of environment variable names to other docker_container names.
+    # At deploy time Terraform resolves each referenced container's IPv4
+    # address and injects it as the named environment variable.
+    # Example: { "APP__Server" = "mosquitto-broker" }
+    container_ip_env_refs = optional(map(string), {})
+    # Map of environment variable names to 1Password item references.
+    # Terraform fetches each item and injects the resolved value as an
+    # environment variable, merged after `environment` (secrets win).
+    # Supported fields: "password", "username", or any custom section field label.
+    # Example: { "APP__Password" = { vault = "MyVault", item = "My Item", field = "password" } }
+    op_env_secrets = optional(map(object({
+      vault = string
+      item  = string
+      field = optional(string, "password")
+    })), {})
+    # Optional Ansible playbook to run after container creation.
+    # Terraform invokes ansible-playbook via local-exec, passing extra_vars
+    # with highest precedence to override inventory values (e.g., inject IPs).
+    ansible_playbook = optional(object({
+      playbook       = string            # Path from repo root, e.g., "playbooks/ring1/apps-mosquitto-configure.yaml"
+      inventory_dirs = list(string)       # Inventory directories for -i flags
+      limit          = string            # Ansible --limit pattern (e.g., "localhost")
+      extra_vars     = optional(map(string), {}) # Variable name → JSON value string (passed as --extra-vars)
+      # Map of Ansible variable names to Phase 1 container names.
+      # Terraform resolves the container's IPv4 address at apply time and
+      # passes it as a string --extra-var, overriding inventory values.
+      # Example: { "broker_ip" = "mosquitto-broker" } → -e 'broker_ip=192.168.10.158'
+      container_ip_vars = optional(map(string), {})
+    }), null)
     volumes = optional(list(object({
       name    = string
       path    = string # Mount path inside container
@@ -191,4 +234,19 @@ variable "op_vault_name" {
   EOT
   type        = string
   default     = ""
+}
+
+variable "op_service_account_token" {
+  description = <<-EOT
+    1Password service account token, passed through to Ansible provisioners so
+    that 1Password lookups (e.g., ansible_become_pass) work inside local-exec.
+    
+    Set via environment variable:
+      export TF_VAR_op_service_account_token="$OP_SERVICE_ACCOUNT_TOKEN"
+    
+    This keeps the token out of tfvars files.
+  EOT
+  type        = string
+  default     = ""
+  sensitive   = true
 }

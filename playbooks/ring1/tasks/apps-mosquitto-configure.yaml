@@ -31,6 +31,19 @@
     dest: "{{ _mosquitto_tmpdir.path }}/acl.acl"
     mode: "0644"
 
+- name: Ensure container is running before pushing config files
+  ansible.builtin.shell: |
+    STATUS=$(incus info {{ _incus_remote_prefix }}{{ mosquitto_instance }} \
+      --project {{ mosquitto_incus_project }} \
+      | grep '^Status:' | awk '{print $2}')
+    if [ "$STATUS" != "RUNNING" ]; then
+      incus start {{ _incus_remote_prefix }}{{ mosquitto_instance }} \
+        --project {{ mosquitto_incus_project }}
+      sleep 2
+    fi
+  args:
+    executable: /bin/bash
+
 - name: Generate passwd file with hashed passwords
   ansible.builtin.shell: |
     set -e
@@ -68,9 +81,11 @@
   args:
     executable: /bin/bash
 
-- name: Restart Mosquitto container to apply configuration
+- name: Start or restart Mosquitto container to apply configuration
   ansible.builtin.shell: |
-    incus restart {{ _incus_remote_prefix }}{{ mosquitto_instance }} \
+    incus stop {{ _incus_remote_prefix }}{{ mosquitto_instance }} \
+      --project {{ mosquitto_incus_project }} --force 2>/dev/null || true
+    incus start {{ _incus_remote_prefix }}{{ mosquitto_instance }} \
       --project {{ mosquitto_incus_project }}
   args:
     executable: /bin/bash

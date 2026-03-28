@@ -130,7 +130,7 @@ resource "incus_instance" "container" {
   remote  = var.target_remote
   type    = "container"
   image   = local.resolved_image
-  running = true
+  running = var.running
 
   profiles = [var.incus_profile]
 
@@ -182,4 +182,42 @@ resource "incus_instance" "container" {
   }
 
   depends_on = [incus_storage_volume.volumes, null_resource.oci_image_copy, null_resource.volume_file_seed]
+}
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Ansible post-provisioning
+# Run an Ansible playbook after container creation to push production config
+# (credentials, mapping files, etc.) and start/restart the container.
+#
+# Extra vars are passed via --extra-vars JSON with highest Ansible precedence,
+# allowing Terraform-resolved values (e.g., container IPs) to override
+# inventory group_vars without modifying any files.
+# ──────────────────────────────────────────────────────────────────────────────
+resource "null_resource" "ansible_configure" {
+  count = var.ansible_playbook != null ? 1 : 0
+
+  triggers = {
+    instance_id = incus_instance.container.name
+    playbook    = var.ansible_playbook
+    extra_vars  = jsonencode(var.ansible_extra_vars)
+  }
+
+  provisioner "local-exec" {
+    command = join(" ", concat(
+      [
+        "set -e && cd ${jsonencode(var.repo_root_dir)} &&",
+        "ansible-playbook",
+      ],
+      var.ansible_limit != null ? ["--limit", jsonencode(var.ansible_limit)] : [],
+      [for dir in var.ansible_inventory_dirs : "-i ${jsonencode(dir)}"],
+      [for k, v in var.ansible_extra_vars : "-e ${jsonencode("${k}=${v}")}"],
+      [jsonencode(var.ansible_playbook)]
+    ))
+
+    environment = {
+      OP_SERVICE_ACCOUNT_TOKEN = var.op_service_account_token
+    }
+  }
+
+  depends_on = [incus_instance.container]
 }

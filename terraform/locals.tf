@@ -1,4 +1,7 @@
 locals {
+  # Repository root is one level up from the terraform/ directory
+  repo_root_dir = abspath("${path.root}/..")
+
   # Convert instance names to resource-safe identifiers
   vm_names = {
     for name, config in var.vms :

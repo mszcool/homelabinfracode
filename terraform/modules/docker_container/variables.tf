@@ -86,6 +86,12 @@ variable "enable_boot_autostart" {
   default     = true
 }
 
+variable "running" {
+  description = "Whether the container should be started after creation. Set to false for containers that need configuration from Ansible before their first start."
+  type        = bool
+  default     = true
+}
+
 variable "environment" {
   description = "Environment variables passed to the OCI container (key = value pairs)"
   type        = map(string)
@@ -118,4 +124,49 @@ variable "tags" {
   default = {
     managed_by = "terraform"
   }
+}
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Ansible post-provisioning
+# ──────────────────────────────────────────────────────────────────────────────
+
+variable "ansible_playbook" {
+  description = "Ansible playbook path (relative to repo root) to run after container creation. Null = skip."
+  type        = string
+  default     = null
+}
+
+variable "ansible_inventory_dirs" {
+  description = "List of inventory directories passed as -i flags to ansible-playbook."
+  type        = list(string)
+  default     = []
+}
+
+variable "ansible_limit" {
+  description = "Ansible --limit pattern to restrict which hosts the playbook runs against."
+  type        = string
+  default     = null
+}
+
+variable "ansible_extra_vars" {
+  description = <<-EOT
+    Map of Ansible variable names to JSON-encoded value strings.
+    Passed via --extra-vars with highest precedence to override inventory values.
+    Example: { "mqtttranslator_config" = jsonencode({mqtt_server = "192.168.10.158", ...}) }
+  EOT
+  type        = map(string)
+  default     = {}
+}
+
+variable "repo_root_dir" {
+  description = "Absolute path to the repository root. Used to resolve playbook and inventory paths."
+  type        = string
+  default     = ""
+}
+
+variable "op_service_account_token" {
+  description = "1Password service account token. Passed through to ansible-playbook so 1Password lookups work in the provisioner."
+  type        = string
+  default     = ""
+  sensitive   = true
 }

@@ -31,6 +31,43 @@ locals {
   }
 }
 
+# 1Password integration for container environment secrets
+# Fetch each unique vault/item pair referenced by any docker_container's
+# op_env_secrets, then resolve the requested field to a concrete value.
+data "onepassword_item" "container_secret" {
+  for_each = { for key, val in merge([
+    for cname, c in var.docker_containers : {
+      for env_key, secret in c.op_env_secrets :
+      "${secret.vault}/${secret.item}" => { vault = secret.vault, item = secret.item }...
+    }
+  ]...) : key => val[0] }
+
+  vault = each.value.vault
+  title = each.value.item
+}
+
+locals {
+  # Resolve each container's op_env_secrets to actual env-var → value pairs.
+  container_resolved_secrets = {
+    for cname, c in var.docker_containers : cname => {
+      for env_key, secret in c.op_env_secrets :
+      env_key => (
+        secret.field == "password"
+        ? data.onepassword_item.container_secret["${secret.vault}/${secret.item}"].password
+        : secret.field == "username"
+        ? data.onepassword_item.container_secret["${secret.vault}/${secret.item}"].username
+        : try(
+            one([
+              for section in data.onepassword_item.container_secret["${secret.vault}/${secret.item}"].section :
+              one([for f in section.field : f.value if f.label == secret.field])
+            ]),
+            ""
+          )
+      )
+    }
+  }
+}
+
 # VM Instances
 # Deploy virtual machines using the vm module
 module "vm" {
@@ -65,6 +102,15 @@ module "vm" {
     lookup(var.root_passwords, each.key, "")
   )
   tags = var.tags
+
+  # Ansible post-provisioning
+  ansible_playbook             = try(each.value.ansible_playbook.playbook, null)
+  ansible_inventory_dirs       = try(each.value.ansible_playbook.inventory_dirs, [])
+  ansible_limit                = try(each.value.ansible_playbook.limit, null)
+  ansible_extra_vars           = try(each.value.ansible_playbook.extra_vars, {})
+  ansible_instance_ip_var      = try(each.value.ansible_playbook.instance_ip_var, null)
+  op_service_account_token     = var.op_service_account_token
+  repo_root_dir                = local.repo_root_dir
 }
 
 # Container Instances (future module)
@@ -134,8 +180,14 @@ check "mac_address_uniqueness" {
 # Docker/OCI Container Instances
 # Deploy OCI application containers (e.g., Mosquitto MQTT broker) using the docker_container module.
 # Requires an OCI remote configured in Incus: incus remote add docker https://docker.io --protocol=oci
+#
+# Containers are split into two phases:
+#   Phase 1 — Independent containers (no container_ip_env_refs)
+#   Phase 2 — Dependent containers (reference Phase 1 container IPs via container_ip_env_refs)
+# This avoids circular references while allowing cross-container IP injection.
+
 module "docker_container" {
-  for_each = var.docker_containers
+  for_each = { for k, v in var.docker_containers : k => v if length(v.container_ip_env_refs) == 0 }
 
   source = "./modules/docker_container"
 
@@ -151,7 +203,61 @@ module "docker_container" {
   network_bridge        = each.value.network_bridge
   mac_address           = each.value.mac_address
   enable_boot_autostart = each.value.enable_boot_autostart
-  environment           = each.value.environment
+  running               = each.value.running
+  environment = merge(
+    each.value.environment,
+    lookup(local.container_resolved_secrets, each.key, {})
+  )
   volumes               = each.value.volumes
   tags                  = var.tags
+
+  # Ansible post-provisioning
+  ansible_playbook       = try(each.value.ansible_playbook.playbook, null)
+  ansible_inventory_dirs = try(each.value.ansible_playbook.inventory_dirs, [])
+  ansible_limit          = try(each.value.ansible_playbook.limit, null)
+  ansible_extra_vars     = try(each.value.ansible_playbook.extra_vars, {})
+  op_service_account_token = var.op_service_account_token
+  repo_root_dir          = local.repo_root_dir
+}
+
+module "docker_container_with_deps" {
+  for_each = { for k, v in var.docker_containers : k => v if length(v.container_ip_env_refs) > 0 }
+
+  source = "./modules/docker_container"
+
+  instance_name         = each.key
+  target_remote         = each.value.target_remote
+  incus_project         = var.incus_project
+  incus_profile         = each.value.incus_profile
+  storage_pool          = each.value.storage_pool
+  image                 = each.value.image
+  cpu_cores             = each.value.cpu_cores
+  memory_limit_mb       = each.value.memory_limit_mb
+  root_disk_gb          = each.value.root_disk_gb
+  network_bridge        = each.value.network_bridge
+  mac_address           = each.value.mac_address
+  enable_boot_autostart = each.value.enable_boot_autostart
+  running               = each.value.running
+  environment = merge(
+    each.value.environment,
+    lookup(local.container_resolved_secrets, each.key, {}),
+    { for env_key, container_name in each.value.container_ip_env_refs :
+      env_key => module.docker_container[container_name].instance_ipv4_address
+    }
+  )
+  volumes = each.value.volumes
+  tags    = var.tags
+
+  # Ansible post-provisioning — resolve container_ip_vars to actual IPs
+  ansible_playbook       = try(each.value.ansible_playbook.playbook, null)
+  ansible_inventory_dirs = try(each.value.ansible_playbook.inventory_dirs, [])
+  ansible_limit          = try(each.value.ansible_playbook.limit, null)
+  ansible_extra_vars = merge(
+    try(each.value.ansible_playbook.extra_vars, {}),
+    { for var_name, container_name in try(each.value.ansible_playbook.container_ip_vars, {}) :
+      var_name => module.docker_container[container_name].instance_ipv4_address
+    }
+  )
+  op_service_account_token = var.op_service_account_token
+  repo_root_dir = local.repo_root_dir
 }

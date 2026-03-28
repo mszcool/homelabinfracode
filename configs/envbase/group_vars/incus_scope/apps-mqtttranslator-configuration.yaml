@@ -1,0 +1,34 @@
+---
+# Base (shared) constants for MQTT Topics Translator on Incus
+#
+# This file lives in group_vars/incus_scope/ because the translator container
+# is managed via Incus CLI from localhost (same scope as incus cluster vars).
+#
+# Environment-specific overrides are provided by:
+#   <env>/group_vars/incus_scope/apps-mqtttranslator-configuration.yaml
+#   (e.g., configs/envtest/inventory/ or configs.private/envprod/inventory/)
+#
+# Required seed variables from the environment layer:
+#   mqtttranslator_instance:       Container name in Incus (e.g., "mqtt-topics-translator")
+#   mqtttranslator_incus_remote:   Incus remote name (e.g., "incus.aoostar.mszlocal")
+#   mqtttranslator_incus_project:  Incus project (e.g., "prodlayer1")
+#   mqtttranslator_mqtt_username:  MQTT broker username
+#   mqtttranslator_mqtt_password:  MQTT broker password (from 1Password)
+#   mqtttranslator_mapping:        Topic mapping structure (translations list)
+
+# ---------- Shared defaults ----------
+
+mqtttranslator_config:
+  # MQTT broker connection — override mqtt_server per-environment with the
+  # actual broker IP or DNS name (Terraform injects it for the container;
+  # set it here for Ansible-managed appsettings).
+  mqtt_server: mosquitto-broker
+  mqtt_port: 1883
+  mqtt_client_id: MqttTranslator
+
+  # Path inside the container where the mapping file is mounted
+  mapping_config_file: /app/config/mapping.json
+
+# ---------- Default mapping ----------
+# Override per-environment with actual topic translations.
+mqtttranslator_mapping: {}

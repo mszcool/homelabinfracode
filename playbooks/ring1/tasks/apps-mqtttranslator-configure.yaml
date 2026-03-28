@@ -1,0 +1,102 @@
+---
+# Task: Configure MQTT Topics Translator running as Incus OCI container
+#
+# Generates the mapping JSON and appsettings override from Ansible variables,
+# pushes them into the running container via `incus file push`, and restarts
+# the container to apply the new configuration.
+#
+# Required variables:
+#   mqtttranslator_instance:       Incus container name (e.g., "mqtt-topics-translator")
+#   mqtttranslator_incus_remote:   Incus remote where the container runs
+#   mqtttranslator_incus_project:  Incus project (e.g., "prodlayer1")
+#   mqtttranslator_config:         Dict of connection settings (see envbase group_vars)
+#   mqtttranslator_mqtt_username:  MQTT username
+#   mqtttranslator_mqtt_password:  MQTT password
+#   mqtttranslator_mapping:        Topic mapping structure
+
+- name: Create local temp directory for MQTT Translator config
+  ansible.builtin.tempfile:
+    state: directory
+    prefix: mqtttranslator_
+  register: _mqtttranslator_tmpdir
+
+- name: Generate mapping.json from Ansible variables
+  ansible.builtin.copy:
+    content: "{{ mqtttranslator_mapping | to_nice_json }}"
+    dest: "{{ _mqtttranslator_tmpdir.path }}/mapping.json"
+    mode: "0644"
+
+- name: Generate appsettings.Production.json with environment-specific overrides
+  ansible.builtin.copy:
+    content: |
+      {
+        "MqttTranslatorSettings": {
+          "MqttServerConfig": {
+            "Server": "{{ mqtttranslator_mqtt_server_override | default(mqtttranslator_config.mqtt_server) }}",
+            "Port": {{ mqtttranslator_config.mqtt_port }},
+            "ClientId": "{{ mqtttranslator_config.mqtt_client_id }}",
+            "Username": "{{ mqtttranslator_mqtt_username }}",
+            "Password": "{{ mqtttranslator_mqtt_password }}"
+          },
+          "MqttMappingConfigFile": "{{ mqtttranslator_config.mapping_config_file }}"
+        }
+      }
+    dest: "{{ _mqtttranslator_tmpdir.path }}/appsettings.Production.json"
+    mode: "0644"
+  no_log: true
+
+- name: Ensure container is running before pushing config files
+  ansible.builtin.shell: |
+    STATUS=$(incus info {{ _incus_remote_prefix }}{{ mqtttranslator_instance }} \
+      --project {{ mqtttranslator_incus_project }} \
+      | grep '^Status:' | awk '{print $2}')
+    if [ "$STATUS" != "RUNNING" ]; then
+      incus start {{ _incus_remote_prefix }}{{ mqtttranslator_instance }} \
+        --project {{ mqtttranslator_incus_project }}
+      sleep 2
+    fi
+  args:
+    executable: /bin/bash
+
+- name: Push mapping.json into container
+  ansible.builtin.shell: |
+    incus file push "{{ _mqtttranslator_tmpdir.path }}/mapping.json" \
+      {{ _incus_remote_prefix }}{{ mqtttranslator_instance }}/app/config/mapping.json \
+      --project {{ mqtttranslator_incus_project }}
+  args:
+    executable: /bin/bash
+
+- name: Push appsettings.Production.json into container
+  ansible.builtin.shell: |
+    incus file push "{{ _mqtttranslator_tmpdir.path }}/appsettings.Production.json" \
+      {{ _incus_remote_prefix }}{{ mqtttranslator_instance }}/app/appsettings.Production.json \
+      --project {{ mqtttranslator_incus_project }}
+  args:
+    executable: /bin/bash
+  no_log: true
+
+- name: Start or restart MQTT Translator container to apply configuration
+  ansible.builtin.shell: |
+    incus stop {{ _incus_remote_prefix }}{{ mqtttranslator_instance }} \
+      --project {{ mqtttranslator_incus_project }} --force 2>/dev/null || true
+    incus start {{ _incus_remote_prefix }}{{ mqtttranslator_instance }} \
+      --project {{ mqtttranslator_incus_project }}
+  args:
+    executable: /bin/bash
+
+- name: Wait for MQTT Translator container to be running
+  ansible.builtin.shell: |
+    incus info {{ _incus_remote_prefix }}{{ mqtttranslator_instance }} \
+      --project {{ mqtttranslator_incus_project }} \
+      | grep -q "Status: RUNNING"
+  args:
+    executable: /bin/bash
+  register: _mqtttranslator_status
+  retries: 10
+  delay: 3
+  until: _mqtttranslator_status.rc == 0
+
+- name: Clean up local temp directory
+  ansible.builtin.file:
+    path: "{{ _mqtttranslator_tmpdir.path }}"
+    state: absent
