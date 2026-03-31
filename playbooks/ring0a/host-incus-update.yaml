@@ -97,6 +97,86 @@
       tags:
         - client-certs
 
+    # ---------- Zabbly repository and Incus version management ----------
+    - name: Install Zabbly GPG key.
+      ansible.builtin.get_url:
+        url: https://pkgs.zabbly.com/key.asc
+        dest: /etc/apt/keyrings/zabbly.asc
+        mode: "0644"
+      when: incus_zabbly_enabled | default(false) | bool
+      tags:
+        - incus-upgrade
+        - zabbly
+
+    - name: Add Zabbly Incus repository.
+      ansible.builtin.copy:
+        dest: /etc/apt/sources.list.d/zabbly-incus-{{ incus_zabbly_channel | default('stable') }}.sources
+        mode: "0644"
+        content: |
+          Enabled: yes
+          Types: deb
+          URIs: https://pkgs.zabbly.com/incus/{{ incus_zabbly_channel | default('stable') }}
+          Suites: {{ ansible_facts['distribution_release'] }}
+          Components: main
+          Architectures: {{ ansible_facts['architecture'] | regex_replace('x86_64', 'amd64') }}
+          Signed-By: /etc/apt/keyrings/zabbly.asc
+      when: incus_zabbly_enabled | default(false) | bool
+      tags:
+        - incus-upgrade
+        - zabbly
+
+    - name: Update apt cache after adding Zabbly repository.
+      ansible.builtin.apt:
+        update_cache: true
+      when: incus_zabbly_enabled | default(false) | bool
+      tags:
+        - incus-upgrade
+        - zabbly
+
+    - name: Install specific Incus version from Zabbly.
+      ansible.builtin.apt:
+        name: "incus={{ incus_version }}*"
+        state: present
+        allow_change_held_packages: true
+      when:
+        - incus_zabbly_enabled | default(false) | bool
+        - incus_version | default('') | length > 0
+      tags:
+        - incus-upgrade
+        - zabbly
+
+    - name: Install latest Incus from Zabbly channel.
+      ansible.builtin.apt:
+        name: incus
+        state: latest
+        allow_change_held_packages: true
+      when:
+        - incus_zabbly_enabled | default(false) | bool
+        - incus_version | default('') | length == 0
+      tags:
+        - incus-upgrade
+        - zabbly
+
+    - name: Verify Incus version after upgrade.
+      ansible.builtin.command:
+        cmd: incus version
+      register: incus_version_result
+      changed_when: false
+      when: incus_zabbly_enabled | default(false) | bool
+      tags:
+        - incus-upgrade
+        - zabbly
+
+    - name: Display Incus version.
+      ansible.builtin.debug:
+        msg: "Incus version on {{ inventory_hostname }}: {{ incus_version_result.stdout }}"
+      when:
+        - incus_zabbly_enabled | default(false) | bool
+        - incus_version_result is defined
+      tags:
+        - incus-upgrade
+        - zabbly
+
     - name: Update and upgrade the operating system.
       ansible.builtin.include_tasks: ../tasks/upgrade_tasks.yaml
       tags:

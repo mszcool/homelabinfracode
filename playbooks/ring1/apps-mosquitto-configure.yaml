@@ -1,0 +1,84 @@
+---
+# Playbook: Configure Mosquitto MQTT Broker on Incus (Ring 1 - Operations)
+#
+# Templates mosquitto.conf, ACL rules, and user credentials, then pushes them
+# into the running Incus OCI container and restarts it.
+#
+# Prerequisites:
+#   - Mosquitto container must already be provisioned via Terraform
+#     (terraform workspace select ring1 && terraform apply -var-file=...)
+#   - Incus CLI configured with access to the target remote
+#   - 1Password CLI authenticated (for password resolution)
+#
+# Configuration:
+#   - Base constants: configs/envbase/group_vars/incus_scope/apps-mosquitto-configuration.yaml
+#   - Environment-specific: <env>/group_vars/incus_scope/apps-mosquitto-configuration.yaml
+#
+# Usage:
+#   ansible-playbook \
+#     -i configs/envbase/ \
+#     -i configs.private/envprod/inventory/ \
+#     playbooks/ring1/apps-mosquitto-configure.yaml
+#
+# Or for test environment:
+#   ansible-playbook \
+#     -i configs/envbase/ \
+#     -i configs/envtest/inventory/ \
+#     playbooks/ring1/apps-mosquitto-configure.yaml
+
+- name: Configure Mosquitto MQTT Broker
+  hosts: incus_scope
+  gather_facts: false
+  connection: local
+
+  pre_tasks:
+    - name: Validate mosquitto configuration is defined
+      ansible.builtin.assert:
+        that:
+          - mosquitto_instance is defined
+          - mosquitto_incus_remote is defined
+          - mosquitto_incus_project is defined
+          - mosquitto_config is defined
+          - mosquitto_users is defined
+          - mosquitto_acl_rules is defined
+        fail_msg: >
+          Missing Mosquitto configuration variables. Ensure
+          group_vars/incus_scope/apps-mosquitto-configuration.yaml is present
+          in both envbase and your environment inventory.
+
+    - name: Set Incus remote prefix for instance addressing
+      ansible.builtin.set_fact:
+        _incus_remote_prefix: "{{ (mosquitto_incus_remote + ':') if mosquitto_incus_remote != 'local' else '' }}"
+
+    - name: Verify Mosquitto container exists on target remote
+      ansible.builtin.shell: |
+        incus info {{ _incus_remote_prefix }}{{ mosquitto_instance }} \
+          --project {{ mosquitto_incus_project }}
+      args:
+        executable: /bin/bash
+      register: _mosquitto_exists
+      changed_when: false
+      failed_when: _mosquitto_exists.rc != 0
+
+  tasks:
+
+    - name: Configure Mosquitto instance
+      ansible.builtin.include_tasks: tasks/apps-mosquitto-configure.yaml
+
+  post_tasks:
+    - name: Verify Mosquitto is listening - this can take about 10 seconds after container restart as Mosquitto publishes to SYS every 10 seconds by default
+      ansible.builtin.shell: |
+        incus exec {{ _incus_remote_prefix }}{{ mosquitto_instance }} \
+          --project {{ mosquitto_incus_project }} \
+          -T -- mosquitto_sub -t '$SYS/broker/version' -C 1 -W 15 \
+             -u '{{ mosquitto_users[0].username }}' \
+             -P '{{ mosquitto_users[0].password }}'
+      args:
+        executable: /bin/bash
+      register: _mosquitto_verify
+      changed_when: false
+      failed_when: _mosquitto_verify.rc != 0
+
+    - name: Show Mosquitto broker version
+      ansible.builtin.debug:
+        msg: "Mosquitto running: {{ _mosquitto_verify.stdout }}"

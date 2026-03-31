@@ -1,0 +1,74 @@
+---
+# Playbook: Configure Remote Maintenance Shell (Ring 1 - Operations)
+#
+# Provisions the remote-maintenance-shell LXC container with:
+#   - mosquitto-clients, python3, jq and other required packages
+#   - PoolRemoteAccessScripts (shell + Python scripts) in the user home directory
+#   - Shared environment file (~/.remote-maint.env) with IoT credentials
+#   - Python virtual environment at ~/depth/pyenv for depth sensor scripts
+#   - Cron jobs for periodic depth sensor time synchronisation
+#
+# Prerequisites:
+#   - Container must already be provisioned via Terraform
+#     (terraform workspace select ring1 && terraform apply -var-file=...)
+#   - SSH access to the container (key-based auth configured by Terraform)
+#   - 1Password CLI authenticated (for depth sensor and MQTT password resolution)
+#
+# Configuration:
+#   - Base defaults: configs/envbase/group_vars/remote_maintenance/remote-maintenance-shell.yaml
+#   - Prod secrets:  configs.private/envprod/inventory/group_vars/remote_maintenance/remote-maintenance-shell.yaml
+#
+# Usage:
+#   ansible-playbook -K \
+#     -i configs/envbase/ \
+#     -i configs.private/envprod/inventory/ \
+#     playbooks/ring1/remote-maintenance-shell.yaml
+
+- name: Configure Remote Maintenance Shell
+  hosts: remote_maintenance
+  gather_facts: true
+
+  pre_tasks:
+    - name: Validate required configuration variables
+      ansible.builtin.assert:
+        that:
+          - remote_maint_scripts_src is defined
+          - remote_maint_depth_ip is defined
+          - remote_maint_depth_secret is defined
+          - remote_maint_mqtt_server is defined
+          - remote_maint_mqtt_user is defined
+          - remote_maint_mqtt_pwd is defined
+          - remote_maint_packages is defined
+        fail_msg: >
+          Missing remote maintenance configuration variables. Ensure
+          group_vars/remote_maintenance/remote-maintenance-shell.yaml is present
+          in both envbase and your environment inventory, and that secrets are defined
+          in group_vars/all/secrets-vault.yaml.
+
+  tasks:
+    - name: Configure remote maintenance shell instance
+      ansible.builtin.include_tasks: tasks/remote-maintenance-shell.yaml
+
+  post_tasks:
+    - name: Verify mosquitto client is installed
+      ansible.builtin.command:
+        cmd: which mosquitto_pub
+      changed_when: false
+
+    - name: Verify Python virtual environment exists
+      ansible.builtin.stat:
+        path: "{{ ansible_facts['env']['HOME'] }}/depth/pyenv/bin/python"
+      register: _venv_python
+
+    - name: Fail if Python virtual environment is missing
+      ansible.builtin.assert:
+        that: _venv_python.stat.exists
+        fail_msg: "Python virtual environment was not created at {{ ansible_facts['env']['HOME'] }}/depth/pyenv/"
+
+    - name: Verify environment variables are set via env file
+      ansible.builtin.shell:
+        cmd: '. {{ ansible_facts["env"]["HOME"] }}/.remote-maint.env && echo "$mqttServer"'
+        executable: /bin/bash
+      changed_when: false
+      register: _env_check
+      failed_when: _env_check.stdout != remote_maint_mqtt_server

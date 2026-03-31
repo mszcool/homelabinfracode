@@ -180,6 +180,9 @@ cd terraform
 # Start 1Password session
 eval $(./scripts/op-session.sh 2h prod)
 
+# Select the ring0 workspace
+terraform workspace select ring0
+
 # Review the plan
 terraform plan -var-file="../configs.private/envprod/ring0.tfvars"
 
@@ -250,6 +253,9 @@ cd terraform
 
 # Start 1Password session (if not already active)
 eval $(./scripts/op-session.sh 2h prod)
+
+# Select the ring0 workspace
+terraform workspace select ring0
 
 # Plan and apply (this creates all Ring 0 VMs including the AD DC)
 terraform plan -var-file="../configs.private/envprod/ring0.tfvars"

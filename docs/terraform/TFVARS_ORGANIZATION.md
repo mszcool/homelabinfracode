@@ -82,7 +82,8 @@ cat configs/envtest/ring1.tfvars
 
 1. Ensure `configs.private` submodule is initialized
 2. Create/edit actual configuration in `configs.private/envprod/`
-3. Always reference `configs.private` paths in Terraform commands
+3. Select the correct Terraform workspace for the target ring
+4. Always reference `configs.private` paths in Terraform commands
 
 Example:
 ```bash
@@ -90,12 +91,23 @@ Example:
 cd terraform
 terraform init
 
-# Plan deployment with private configuration
-terraform plan -var-file="../configs.private/envprod/ring0.tfvars"
+# Create workspaces (one-time)
+terraform workspace new ring0
+terraform workspace new ring1
+terraform workspace new ring2
 
-# Apply deployment with private configuration
+# Select workspace and deploy
+terraform workspace select ring0
+terraform plan -var-file="../configs.private/envprod/ring0.tfvars"
 terraform apply -var-file="../configs.private/envprod/ring0.tfvars"
+
+# For ring1
+terraform workspace select ring1
+terraform plan -var-file="../configs.private/envprod/ring1.tfvars"
+terraform apply -var-file="../configs.private/envprod/ring1.tfvars"
 ```
+
+> **Note**: A `check` block in `main.tf` will warn if you attempt to plan/apply in the "default" workspace. Each ring workspace stores its state separately under `terraform.tfstate.d/<workspace>/`, ensuring identity isolation between rings.
 
 ## Configuration File Naming Convention
 

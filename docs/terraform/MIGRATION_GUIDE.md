@@ -80,6 +80,10 @@ configs.private/envprod/
 cd terraform
 terraform init
 
+# Create workspace for ring0
+terraform workspace new ring0
+terraform workspace select ring0
+
 # Plan Ring0 deployment (test)
 terraform plan -var-file="../configs/envtest/ring0.tfvars"
 
@@ -218,17 +222,34 @@ resource "incus_instance" "vm" {
 
 ## State Management
 
-### Local State (Development)
+### Workspace-Based State Isolation
+
+Each ring uses a separate Terraform workspace. This maps directly to the ring model's identity isolation:
 
 ```bash
+# Create workspaces (one-time)
 cd terraform
+terraform workspace new ring0
+terraform workspace new ring1
+terraform workspace new ring2
+
+# Ring 0 operations
+terraform workspace select ring0
 terraform plan -var-file="../configs.private/envprod/ring0.tfvars"
 terraform apply -var-file="../configs.private/envprod/ring0.tfvars"
 
-# View state
+# Ring 1 operations
+terraform workspace select ring1
+terraform plan -var-file="../configs.private/envprod/ring1.tfvars"
+terraform apply -var-file="../configs.private/envprod/ring1.tfvars"
+
+# View state per ring
+terraform workspace select ring0
 terraform state list
 terraform state show 'module.vm["truenas-primary"].incus_instance.vm'
 ```
+
+State files are stored under `terraform.tfstate.d/<workspace>/terraform.tfstate`. A `check` block in `main.tf` warns if you try to plan/apply in the "default" workspace.
 
 ### Remote State (Production - Optional)
 

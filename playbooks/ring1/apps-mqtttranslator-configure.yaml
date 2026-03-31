@@ -1,0 +1,69 @@
+---
+# Playbook: Configure MQTT Topics Translator on Incus (Ring 1 - Operations)
+#
+# Generates the topic mapping JSON and appsettings override, then pushes them
+# into the running Incus OCI container and restarts it.
+#
+# Prerequisites:
+#   - MQTT Translator container must already be provisioned via Terraform
+#     (terraform workspace select ring1 && terraform apply -var-file=...)
+#   - Incus CLI configured with access to the target remote
+#   - 1Password CLI authenticated (for password resolution)
+#
+# Configuration:
+#   - Base constants: configs/envbase/group_vars/incus_scope/apps-mqtttranslator-configuration.yaml
+#   - Environment-specific: <env>/group_vars/incus_scope/apps-mqtttranslator-configuration.yaml
+#
+# Usage:
+#   ansible-playbook \
+#     -i configs/envbase/ \
+#     -i configs.private/envprod/inventory/ \
+#     playbooks/ring1/apps-mqtttranslator-configure.yaml
+#
+# Or for test environment:
+#   ansible-playbook \
+#     -i configs/envbase/ \
+#     -i configs/envtest/inventory/ \
+#     playbooks/ring1/apps-mqtttranslator-configure.yaml
+
+- name: Configure MQTT Topics Translator
+  hosts: incus_scope
+  gather_facts: false
+  connection: local
+
+  pre_tasks:
+    - name: Validate MQTT Translator configuration is defined
+      ansible.builtin.assert:
+        that:
+          - mqtttranslator_instance is defined
+          - mqtttranslator_incus_remote is defined
+          - mqtttranslator_incus_project is defined
+          - mqtttranslator_config is defined
+          - mqtttranslator_mqtt_username is defined
+          - mqtttranslator_mqtt_password is defined
+          - mqtttranslator_mapping is defined
+          - mqtttranslator_mapping.translations is defined
+          - mqtttranslator_mapping.translations | length > 0
+        fail_msg: >
+          Missing MQTT Translator configuration variables. Ensure
+          group_vars/incus_scope/apps-mqtttranslator-configuration.yaml is present
+          in both envbase and your environment inventory.
+
+    - name: Set Incus remote prefix for instance addressing
+      ansible.builtin.set_fact:
+        _incus_remote_prefix: "{{ (mqtttranslator_incus_remote + ':') if mqtttranslator_incus_remote != 'local' else '' }}"
+
+    - name: Verify MQTT Translator container exists on target remote
+      ansible.builtin.shell: |
+        incus info {{ _incus_remote_prefix }}{{ mqtttranslator_instance }} \
+          --project {{ mqtttranslator_incus_project }}
+      args:
+        executable: /bin/bash
+      register: _mqtttranslator_exists
+      changed_when: false
+      failed_when: _mqtttranslator_exists.rc != 0
+
+  tasks:
+
+    - name: Configure MQTT Translator instance
+      ansible.builtin.include_tasks: tasks/apps-mqtttranslator-configure.yaml

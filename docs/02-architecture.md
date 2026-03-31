@@ -153,15 +153,19 @@ homelabinfracode/                    # Main public repository
 │   ├── validate-playbooks.sh        # Playbook syntax validation
 │   └── manage-incus-client-certs.sh # Incus TLS certificate management
 └── terraform/                       # Infrastructure provisioning
-    ├── main.tf                      # Root module (VM instantiation loop)
-    ├── variables.tf                 # Input variable definitions
+    ├── main.tf                      # Root module (VM + container loops, workspace check)
+    ├── variables.tf                 # Input variable definitions (incus_project, vms, docker_containers)
     ├── providers.tf                 # Incus + 1Password provider config
     ├── versions.tf                  # Version constraints
     ├── locals.tf                    # Computed identifiers
-    ├── outputs.tf                   # VM output information
-    └── modules/vm/                  # Reusable VM module
-        ├── main.tf                  # VM resource definition
-        └── variables.tf             # VM input parameters
+    ├── outputs.tf                   # VM + container output information
+    └── modules/
+        ├── vm/                      # Reusable VM module
+        │   ├── main.tf              # VM resource definition
+        │   └── variables.tf         # VM input parameters
+        └── docker_container/        # Docker/OCI container module
+            ├── main.tf              # Container + volume resources
+            └── variables.tf         # Container input parameters
 ```
 
 ### Ansible Inventory Model
@@ -202,7 +206,7 @@ all
 
 ### Terraform Module Architecture
 
-Terraform manages VM and container provisioning on Incus. The architecture separates concerns into ring-specific variable files:
+Terraform manages VM and container provisioning on Incus. The architecture separates concerns into ring-specific variable files, with state isolated per ring using Terraform workspaces:
 
 ```
 ┌─────────────────────────────────────────────────┐
@@ -214,6 +218,8 @@ Terraform manages VM and container provisioning on Incus. The architecture separ
 │                                       │         │
 │  main.tf ─────────────────────────────┘         │
 │     │                                           │
+│     │  check "workspace_not_default"            │
+│     │                                           │
 │     │  for_each var.vms                         │
 │     ▼                                           │
 │  modules/vm/                                    │
@@ -223,15 +229,23 @@ Terraform manages VM and container provisioning on Incus. The architecture separ
 │     ├── ISO device (optional)                   │
 │     └── PCIe passthrough (optional)             │
 │                                                 │
-│  outputs.tf ─→ VM info (IPs, status, disks)     │
+│     for_each var.docker_containers              │
+│     ▼                                           │
+│  modules/docker_container/                      │
+│     ├── Storage volumes (persistent data)       │
+│     └── Container (OCI image, network, env)     │
+│                                                 │
+│  outputs.tf ─→ VM + Container info              │
 └─────────────────────────────────────────────────┘
 ```
 
-Each ring uses a separate `.tfvars` file:
+Each ring uses a **separate Terraform workspace** for state isolation:
 
-- `ring0.tfvars` — Foundational VMs (TrueNAS, Samba4 AD DC)
-- `ring1.tfvars` — Operations VMs (k3s nodes, application servers)
-- `ring2.tfvars` — Utility VMs/containers (future)
+- `ring0.tfvars` → workspace `ring0` → `incus_project = "prodlayer0"` — Foundational VMs (TrueNAS, Samba4 AD DC)
+- `ring1.tfvars` → workspace `ring1` → `incus_project = "prodlayer1"` — Operations VMs + containers (k3s nodes, MQTT broker)
+- `ring2.tfvars` → workspace `ring2` → `incus_project = "default"` — Utility VMs/containers
+
+State is stored under `terraform.tfstate.d/<workspace>/terraform.tfstate`. This ensures that the ring1 identity (which manages `prodlayer1`) cannot accidentally access ring0 resources in `prodlayer0`.
 
 ### Secrets Management
 

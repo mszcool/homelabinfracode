@@ -6,3 +6,7 @@
 # ansible_connection: local and does not need this.
 
 ansible_user: "{{ incus_root_user }}"
+
+# Override interpreter: ansible.cfg sets ~/pythonvenv/... which only exists on the
+# control host. Remote Incus nodes use the system Python.
+ansible_python_interpreter: /usr/bin/python3

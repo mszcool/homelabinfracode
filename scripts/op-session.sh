@@ -73,6 +73,7 @@ fi
 
 # ── Output the export command (consumed by eval) ─────────────────────────────
 echo "export OP_SERVICE_ACCOUNT_TOKEN=\"${TOKEN}\""
+echo "export TF_VAR_op_service_account_token=\"${TOKEN}\""
 
 # Print info to stderr so it's visible but doesn't interfere with eval
 echo "# ✓ Created 1Password session '$SA_NAME' (expires in $DURATION)" >&2

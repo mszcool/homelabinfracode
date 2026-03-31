@@ -19,7 +19,9 @@
 │         ↓                                                      │
 │  ┌─────────────────────────────────────────────────┐           │
 │  │              main.tf (Root Module)              │           │
+│  │  check "workspace_not_default" (validation)     │           │
 │  │  for_each var.vms → module.vm[...]              │           │
+│  │  for_each var.docker_containers → module[...]   │           │
 │  └──────────┬──────────────────────────────────────┘           │
 │             │                                                  │
 │             ├──→ ┌─────────────────────────────────────┐       │
@@ -32,7 +34,15 @@
 │             │    │  └────────────────────────────────┘ │       │
 │             │    └─────────────────────────────────────┘       │
 │             │                                                  │
-│             └──→ [Repeat for each VM in tfvars]                │
+│             ├──→ ┌─────────────────────────────────────┐       │
+│             │    │  modules/docker_container/main.tf   │       │
+│             │    │  ┌────────────────────────────────┐ │       │
+│             │    │  │ incus_storage_volume (volumes) │ │       │
+│             │    │  │ incus_instance (container)     │ │       │
+│             │    │  └────────────────────────────────┘ │       │
+│             │    └─────────────────────────────────────┘       │
+│             │                                                  │
+│             └──→ [Repeat for each entry in tfvars]             │
 │                                                                │
 │  ┌──────────────────────────────────────────────────┐          │
 │  │  outputs.tf (Export Results)                     │          │
@@ -41,8 +51,9 @@
 │                                                                │
 └────────────────────────────────────────────────────────────────┘
                               ↓
+              terraform.tfstate.d/<workspace>/
                    terraform.tfstate
-                   (State Tracking)
+                   (State per ring)
                               ↓
                     ┌──────────────────┐
                     │  Incus Daemons   │
@@ -128,6 +139,7 @@
 
 ```
 User Action: terraform plan -var-file="configs/envtest/ring0.tfvars"
+             (in workspace: ring0)
                               ↓
                     ┌─────────────────┐
                     │  Load tfvars    │
@@ -135,8 +147,13 @@ User Action: terraform plan -var-file="configs/envtest/ring0.tfvars"
                     └────────┬────────┘
                              ↓
                     ┌─────────────────┐
+                    │ Check workspace │
+                    │ != "default"    │
+                    └────────┬────────┘
+                             ↓
+                    ┌─────────────────┐
                     │ Load State File │
-                    │ (or empty)      │
+                    │ (workspace dir) │
                     └────────┬────────┘
                              ↓
                     ┌─────────────────┐
@@ -219,30 +236,58 @@ User Action: terraform apply -var-file="configs/envtest/ring0.tfvars"
 
 ```
 ┌─────────────────────────────────────────────────────────┐
-│  Terraform Workspace (Single or Multiple)               │
+│  Terraform Workspaces (Per-Ring State Isolation)        │
 ├─────────────────────────────────────────────────────────┤
 │                                                         │
-│  Development/Test                                       │
-│  ├── configs/envtest/ring0.tfvars (Small configs)       │
-│  ├── terraform.tfstate                                  │
-│  └── Quick iteration, low cost                          │
+│  Workspace: ring0                                       │
+│  ├── incus_project = "prodlayer0"                       │
+│  ├── configs.private/envprod/ring0.tfvars               │
+│  ├── terraform.tfstate.d/ring0/terraform.tfstate        │
+│  └── Foundational VMs (TrueNAS, Samba4 AD DC)          │
 │                                                         │
-│  Production/Ring0                                       │
-│  ├── configs.private/envprod/ring0.tfvars (Full configs)│
-│  ├── terraform.tfstate (or remote backend)              │
-│  └── Stable, backed up                                  │
+│  Workspace: ring1                                       │
+│  ├── incus_project = "prodlayer1"                       │
+│  ├── configs.private/envprod/ring1.tfvars               │
+│  ├── terraform.tfstate.d/ring1/terraform.tfstate        │
+│  └── Operations (k3s nodes, MQTT broker, containers)    │
 │                                                         │
-│  Ring1 (Applications)                                   │
-│  ├── configs/envtest/ring1.tfvars (Future)              │
-│  ├── terraform.tfstate                                  │
-│  └── App VMs and services                               │
+│  Workspace: ring2                                       │
+│  ├── incus_project = "default"                          │
+│  ├── configs.private/envprod/ring2.tfvars               │
+│  ├── terraform.tfstate.d/ring2/terraform.tfstate        │
+│  └── Utility services and containers                    │
 │                                                         │
-│  Ring2 (Utilities)                                      │
-│  ├── configs/envtest/ring2.tfvars (Future)              │
-│  ├── terraform.tfstate                                  │
-│  └── Container utilities                                │
+│  Workspace: default (BLOCKED by check block)            │
+│  └── Not used — validation warns if selected            │
+│                                                         │
+│  Identity Isolation:                                    │
+│  ├── ring0 identity → manages prodlayer0 only           │
+│  ├── ring1 identity → manages prodlayer1 only           │
+│  └── ring2 identity → manages default project only      │
 │                                                         │
 └─────────────────────────────────────────────────────────┘
+```
+
+### Workspace Commands
+
+```bash
+# One-time setup
+terraform workspace new ring0
+terraform workspace new ring1
+terraform workspace new ring2
+
+# Daily usage
+terraform workspace select ring0
+terraform plan  -var-file="../configs.private/envprod/ring0.tfvars"
+terraform apply -var-file="../configs.private/envprod/ring0.tfvars"
+
+# Switch rings
+terraform workspace select ring1
+terraform plan  -var-file="../configs.private/envprod/ring1.tfvars"
+terraform apply -var-file="../configs.private/envprod/ring1.tfvars"
+
+# List all workspaces (* marks current)
+terraform workspace list
 ```
 
 ## Resource Dependency Graph Example

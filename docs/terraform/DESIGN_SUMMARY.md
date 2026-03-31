@@ -21,18 +21,23 @@ This is a complete refactoring of your Incus infrastructure management from Ansi
 terraform/
 ├── versions.tf                    # Provider version constraints
 ├── providers.tf                   # Incus provider configuration
-├── variables.tf                   # Global input variables
+├── variables.tf                   # Global input variables (incus_project, vms, docker_containers)
 ├── locals.tf                      # Local computed values
-├── main.tf                        # Root module instantiation
+├── main.tf                        # Root module instantiation + workspace validation check
 ├── outputs.tf                     # Infrastructure outputs
 ├── modules/
-│   └── vm/                        # VM module (reusable)
+│   ├── vm/                        # VM module (reusable)
+│   │   ├── versions.tf
+│   │   ├── variables.tf
+│   │   ├── main.tf                # Core VM resources
+│   │   ├── outputs.tf
+│   │   ├── locals.tf
+│   │   └── README.md
+│   └── docker_container/          # Docker/OCI container module
 │       ├── versions.tf
 │       ├── variables.tf
-│       ├── main.tf                # Core VM resources
-│       ├── outputs.tf
-│       ├── locals.tf
-│       └── README.md
+│       ├── main.tf                # Container + volume resources
+│       └── outputs.tf
 configs/envtest/
 ├── ring0.tfvars                   # Ring0 infrastructure (test)
 ├── ring1.tfvars                   # Ring1 workloads (future)
@@ -65,7 +70,7 @@ These are created via preseed files and managed separately.
 
 The design supports future expansion:
 - **VM Module** (complete)
-- **Container Module** (placeholder)
+- **Docker/OCI Container Module** (complete) — For OCI application containers (e.g., Mosquitto MQTT broker)
 - **Network Module** (future)
 - **Profile Module** (future)
 
@@ -74,9 +79,18 @@ Each module is self-contained with clear inputs/outputs.
 ### 3. **Three-Layer Architecture**
 
 ```
-Ring 0 (Infrastructure)     ← Terraform (VMs, storage, orchestration)
-Ring 1 (Applications)       ← Terraform VMs + Ansible configuration
-Ring 2 (User Services)      ← Terraform containers + services
+Ring 0 (Infrastructure)     ← Terraform workspace: ring0, incus_project: prodlayer0
+Ring 1 (Applications)       ← Terraform workspace: ring1, incus_project: prodlayer1
+Ring 2 (User Services)      ← Terraform workspace: ring2, incus_project: default
+```
+
+### 4. **Workspace-Based State Isolation**
+
+Each ring uses a separate Terraform workspace to keep state files isolated. This maps directly to the ring model's identity isolation principle — the ring1 identity should not be able to access or modify ring0 (prodlayer0) resources. A `check` block in `main.tf` warns if Terraform is run in the "default" workspace.
+
+```bash
+terraform workspace select ring0
+terraform plan -var-file="../configs.private/envprod/ring0.tfvars"
 ```
 
 ## How It Works
@@ -84,16 +98,19 @@ Ring 2 (User Services)      ← Terraform containers + services
 ### Configuration Flow
 
 ```
+terraform workspace select ring0
+    ↓
 configs/envtest/ring0.tfvars (or configs.private/envprod/ring0.tfvars)
     ↓
-    ├── Defines VMs
-    └── Maps to modules/vm/ module
+    ├── check "workspace_not_default" (warns if in default workspace)
+    ├── Defines VMs → maps to modules/vm/ module
+    └── Defines Docker containers → maps to modules/docker_container/ module
             ↓
             ├── Validates inputs
             ├── Creates storage volumes
-            ├── Creates instance
+            ├── Creates instance (VM or container)
             ├── Attaches devices
-            └── Imports ISOs (local-exec provisioner)
+            └── Imports ISOs (local-exec provisioner, VMs only)
 ```
 
 ### Practical Example: Deploy Test Ubuntu VM

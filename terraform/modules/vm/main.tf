@@ -16,13 +16,13 @@ resource "incus_storage_volume" "data_disks" {
     disk.name => disk
   }
 
-  name        = "${var.instance_name}-${each.key}"
-  pool        = each.value.pool
-  project     = var.incus_project
-  remote      = var.target_remote
-  type        = "custom"
+  name         = "${var.instance_name}-${each.key}"
+  pool         = each.value.pool
+  project      = var.incus_project
+  remote       = var.target_remote
+  type         = "custom"
   content_type = "block"
-  
+
   config = {
     "size" = "${each.value.size}GiB"
   }
@@ -58,17 +58,18 @@ resource "incus_instance" "vm" {
       # CPU and Memory
       "limits.cpu"    = var.cpu_cores
       "limits.memory" = "${var.memory_gb}GB"
-      
+
       # Boot settings
       "boot.autostart" = var.enable_boot_autostart ? "true" : "false"
-      
-      # Disable secure boot for ISO-based installations
-      "security.secureboot" = "false"
     },
+    # Disable secure boot for VMs (not applicable to containers)
+    var.type == "virtual-machine" ? {
+      "security.secureboot" = "false"
+    } : {},
     # Add cloud-init user-data if SSH key or root password is provided
-    # Using cloud-init.user-data (not user.user-data) for newer images
+    # VMs use "cloud-init.user-data"; containers use "user.user-data"
     (var.ssh_public_key != "" || var.root_password != "") ? {
-      "cloud-init.user-data" = "#cloud-config\n${local.cloud_init_user_data}"
+      (var.type == "container" ? "user.user-data" : "cloud-init.user-data") = "#cloud-config\n${local.cloud_init_user_data}"
     } : {}
   )
 
@@ -76,20 +77,23 @@ resource "incus_instance" "vm" {
   device {
     name = "root"
     type = "disk"
-    
-    properties = {
-      path           = "/"
-      pool           = var.storage_pool
-      size           = "${var.system_disk_gb}GiB"
-      "boot.priority" = "1"  # Boot from disk first (when OS is installed)
-    }
+
+    properties = merge(
+      {
+        path = "/"
+        pool = var.storage_pool
+        size = "${var.system_disk_gb}GiB"
+      },
+      # boot.priority only applies to VMs
+      var.type == "virtual-machine" ? { "boot.priority" = "1" } : {}
+    )
   }
 
   # Primary network interface
   device {
     name = "eth0"
     type = "nic"
-    
+
     properties = merge(
       {
         network = var.network_bridge
@@ -105,11 +109,11 @@ resource "incus_instance" "vm" {
     content {
       name = "iso"
       type = "disk"
-      
+
       properties = {
         source          = var.iso_volume_name
         pool            = var.storage_pool
-        "boot.priority" = "2"  # Boot from ISO second (fallback/installation)
+        "boot.priority" = "2" # Boot from ISO second (fallback/installation)
       }
     }
   }
@@ -120,7 +124,7 @@ resource "incus_instance" "vm" {
     content {
       name = "data-${device.key}"
       type = "disk"
-      
+
       properties = {
         source = device.value.name
         pool   = device.value.pool
@@ -134,20 +138,21 @@ resource "incus_instance" "vm" {
     content {
       name = "pci-controller"
       type = "pci"
-      
+
       properties = {
         address = var.pcie_controller
       }
     }
   }
 
-  # Wait for VM to be ready
+  # Wait for instance to be ready
   # For image-based VMs: wait for agent to be ready
-  # For ISO-based VMs: just wait for the instance to be running (agent won't be available during OS installation)
+  # For containers: wait for IPv4 address (agent is not supported)
+  # For ISO-based VMs: skip (agent won't be available during OS installation)
   dynamic "wait_for" {
     for_each = var.image != "" && var.iso_volume_name == "" ? [1] : []
     content {
-      type = "agent"
+      type = var.type == "container" ? "ipv4" : "agent"
     }
   }
 
@@ -156,3 +161,54 @@ resource "incus_instance" "vm" {
   ]
 }
 
+# ──────────────────────────────────────────────────────────────────────────────
+# Ansible post-provisioning
+# Run an Ansible playbook after VM creation to configure the instance
+# (install packages, push scripts, set up credentials, etc.).
+#
+# Extra vars are passed via --extra-vars with highest Ansible precedence,
+# allowing Terraform-resolved values to override inventory group_vars.
+# ──────────────────────────────────────────────────────────────────────────────
+resource "null_resource" "ansible_configure" {
+  count = var.ansible_playbook != null ? 1 : 0
+
+  triggers = {
+    instance_id = incus_instance.vm.name
+    playbook    = var.ansible_playbook
+    extra_vars  = jsonencode(var.ansible_extra_vars)
+  }
+
+  provisioner "local-exec" {
+    command = <<-SCRIPT
+      set -e
+      cd ${jsonencode(var.repo_root_dir)}
+
+      # Wait for SSH to become available on newly created VM
+      if [ -n "$TARGET_IP" ]; then
+        echo "Waiting for SSH on $TARGET_IP..."
+        for i in $(seq 1 60); do
+          ssh-keyscan -T 5 "$TARGET_IP" 2>/dev/null | grep -q . && break
+          if [ "$i" -eq 60 ]; then echo "ERROR: SSH not available after 5 minutes"; exit 1; fi
+          sleep 5
+        done
+      fi
+
+      exec ansible-playbook \
+        ${join(" ", concat(
+          var.ansible_limit != null ? ["--limit", jsonencode(var.ansible_limit)] : [],
+          [for dir in var.ansible_inventory_dirs : "-i ${jsonencode(dir)}"],
+          var.ansible_instance_ip_var != null ? ["-e ${jsonencode("${var.ansible_instance_ip_var}=${incus_instance.vm.ipv4_address}")}"] : [],
+          [for k, v in var.ansible_extra_vars : "-e ${jsonencode("${k}=${v}")}"],
+          [jsonencode(var.ansible_playbook)]
+        ))}
+    SCRIPT
+
+    environment = {
+      ANSIBLE_HOST_KEY_CHECKING = "False"
+      TARGET_IP                 = var.ansible_instance_ip_var != null ? incus_instance.vm.ipv4_address : ""
+      OP_SERVICE_ACCOUNT_TOKEN  = var.op_service_account_token
+    }
+  }
+
+  depends_on = [incus_instance.vm]
+}

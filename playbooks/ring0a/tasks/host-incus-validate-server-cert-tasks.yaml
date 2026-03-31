@@ -22,7 +22,7 @@
 
 - name: Gather IP address of the physical network adapter.
   ansible.builtin.set_fact:
-    param_incus_listen_address: "{{ hostvars[inventory_hostname]['ansible_' + param_network_adapter]['ipv4']['address'] }}"
+    param_incus_listen_address: "{{ ansible_facts[param_network_adapter]['ipv4']['address'] }}"
 
 - name: Get hostname from inventory.
   ansible.builtin.set_fact:

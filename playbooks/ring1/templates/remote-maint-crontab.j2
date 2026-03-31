@@ -1,0 +1,8 @@
+# Managed by Ansible — do not edit manually
+# Cron jobs for the remote maintenance shell container.
+# Each entry sources the shared env file before executing.
+{% set _home = remote_maint_home %}
+0 0 * * *   . {{ _home }}/.remote-maint.env && {{ _home }}/depthTime.sh
+0 6 * * *   . {{ _home }}/.remote-maint.env && {{ _home }}/depthTime.sh
+0 12 * * *  . {{ _home }}/.remote-maint.env && {{ _home }}/depthTime.sh
+0 18 * * *  . {{ _home }}/.remote-maint.env && {{ _home }}/depthTime.sh

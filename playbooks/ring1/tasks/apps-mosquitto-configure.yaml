@@ -1,0 +1,108 @@
+---
+# Task: Configure Mosquitto MQTT Broker running as Incus OCI container
+#
+# Generates mosquitto.conf, acl.acl, and passwd files from Ansible variables,
+# pushes them into the running container via `incus file push`, and restarts
+# the container to apply the new configuration.
+#
+# Required variables:
+#   mosquitto_instance:     Incus container name (e.g., "mosquitto-broker")
+#   mosquitto_incus_remote: Incus remote where the container runs
+#   mosquitto_incus_project: Incus project (e.g., "prodlayer1")
+#   mosquitto_config:       Dict of mosquitto.conf settings (see envbase group_vars)
+#   mosquitto_acl_rules:    List of ACL rule blocks (see envbase group_vars)
+#   mosquitto_users:        List of {username, password} dicts
+
+- name: Create local temp directory for Mosquitto config
+  ansible.builtin.tempfile:
+    state: directory
+    prefix: mosquitto_
+  register: _mosquitto_tmpdir
+
+- name: Template mosquitto.conf
+  ansible.builtin.template:
+    src: mosquitto.conf.j2
+    dest: "{{ _mosquitto_tmpdir.path }}/mosquitto.conf"
+    mode: "0644"
+
+- name: Template ACL file
+  ansible.builtin.template:
+    src: mosquitto-acl.acl.j2
+    dest: "{{ _mosquitto_tmpdir.path }}/acl.acl"
+    mode: "0644"
+
+- name: Ensure container is running before pushing config files
+  ansible.builtin.shell: |
+    STATUS=$(incus info {{ _incus_remote_prefix }}{{ mosquitto_instance }} \
+      --project {{ mosquitto_incus_project }} \
+      | grep '^Status:' | awk '{print $2}')
+    if [ "$STATUS" != "RUNNING" ]; then
+      incus start {{ _incus_remote_prefix }}{{ mosquitto_instance }} \
+        --project {{ mosquitto_incus_project }}
+      sleep 2
+    fi
+  args:
+    executable: /bin/bash
+
+- name: Generate passwd file with hashed passwords
+  ansible.builtin.shell: |
+    set -e
+    PASSWD_FILE="{{ _mosquitto_tmpdir.path }}/passwd"
+    : > "$PASSWD_FILE"
+    {% for user in mosquitto_users %}
+    # Write username:password entry, then hash it in-place
+    echo "{{ user.username }}:{{ user.password }}" >> "$PASSWD_FILE"
+    {% endfor %}
+    # Hash all entries in-place using mosquitto_passwd
+    # Run inside the Incus container which has the mosquitto_passwd binary
+    incus file push "$PASSWD_FILE" \
+      {{ _incus_remote_prefix }}{{ mosquitto_instance }}/mosquitto/config/passwd \
+      --project {{ mosquitto_incus_project }}
+    incus exec {{ _incus_remote_prefix }}{{ mosquitto_instance }} \
+      --project {{ mosquitto_incus_project }} \
+      -- mosquitto_passwd -U /mosquitto/config/passwd
+  args:
+    executable: /bin/bash
+  no_log: true
+
+- name: Push mosquitto.conf into container
+  ansible.builtin.shell: |
+    incus file push "{{ _mosquitto_tmpdir.path }}/mosquitto.conf" \
+      {{ _incus_remote_prefix }}{{ mosquitto_instance }}/mosquitto/config/mosquitto.conf \
+      --project {{ mosquitto_incus_project }}
+  args:
+    executable: /bin/bash
+
+- name: Push ACL file into container
+  ansible.builtin.shell: |
+    incus file push "{{ _mosquitto_tmpdir.path }}/acl.acl" \
+      {{ _incus_remote_prefix }}{{ mosquitto_instance }}/mosquitto/config/acl.acl \
+      --project {{ mosquitto_incus_project }}
+  args:
+    executable: /bin/bash
+
+- name: Start or restart Mosquitto container to apply configuration
+  ansible.builtin.shell: |
+    incus stop {{ _incus_remote_prefix }}{{ mosquitto_instance }} \
+      --project {{ mosquitto_incus_project }} --force 2>/dev/null || true
+    incus start {{ _incus_remote_prefix }}{{ mosquitto_instance }} \
+      --project {{ mosquitto_incus_project }}
+  args:
+    executable: /bin/bash
+
+- name: Wait for Mosquitto container to be running
+  ansible.builtin.shell: |
+    incus info {{ _incus_remote_prefix }}{{ mosquitto_instance }} \
+      --project {{ mosquitto_incus_project }} \
+      | grep -q "Status: RUNNING"
+  args:
+    executable: /bin/bash
+  register: _mosquitto_status
+  retries: 10
+  delay: 3
+  until: _mosquitto_status.rc == 0
+
+- name: Clean up local temp directory
+  ansible.builtin.file:
+    path: "{{ _mosquitto_tmpdir.path }}"
+    state: absent

@@ -8,6 +8,29 @@
 # incus_root_user* variables are the admin credentials for Incus bare-metal hosts.
 # ansible_user for SSH connections to incus nodes is in group_vars/incus/connection.yaml.
 
+# ---------- Incus package source and version ----------
+# Controls whether the Zabbly repository is configured on Incus server nodes,
+# and which Incus version to install.
+#
+# incus_zabbly_enabled:
+#   false → Use the default Ubuntu package (6.0.x LTS from Canonical). Safest default.
+#   true  → Add the Zabbly APT repository and install the specified version.
+#
+# incus_zabbly_channel:
+#   "stable" → Latest feature releases (6.x). Required for OCI/Docker container support.
+#   "lts-6.0" → Zabbly's LTS 6.0.x track (faster patches than Ubuntu, but no new features).
+#
+# incus_version:
+#   Specific version to install (e.g., "6.0.0", "6.7", "6.8").
+#   When incus_zabbly_enabled is true, this is passed to apt as incus=<version>*.
+#   Leave empty ("") to install the latest available from the selected channel.
+#
+# Safest default: incus_zabbly_enabled=false (stays on Ubuntu 6.0.x LTS).
+# For OCI/Docker support: incus_zabbly_enabled=true, incus_zabbly_channel="stable".
+incus_zabbly_enabled: true
+incus_zabbly_channel: "stable"
+incus_version: ""
+
 # ---------- Environment seed variables ----------
 # localdomain: provided by common-seeds.yaml
 incus_root_user: "testadmin"

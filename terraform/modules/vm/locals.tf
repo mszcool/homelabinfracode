@@ -11,7 +11,7 @@ locals {
 
   # Validate pcie configuration
   pcie_required = var.enable_pcie_passthrough && var.pcie_controller == ""
-  
+
   # Data disks should only be used when pcie passthrough is disabled
   data_disks_config = var.enable_pcie_passthrough ? [] : var.data_disks
 
@@ -26,9 +26,10 @@ locals {
   cloud_init_users = (var.image != "" && (var.ssh_public_key != "" || var.root_password != "")) ? [
     merge(
       {
-        name  = var.root_username
-        sudo  = ["ALL=(ALL) NOPASSWD:ALL"]
-        shell = "/bin/bash"
+        name        = var.root_username
+        sudo        = var.sudo_passwordless ? ["ALL=(ALL) NOPASSWD:ALL"] : ["ALL=(ALL) ALL"]
+        shell       = "/bin/bash"
+        lock_passwd = false
       },
       # Only add SSH keys if provided (users module property)
       var.ssh_public_key != "" ? { ssh_authorized_keys = [var.ssh_public_key] } : {}
@@ -40,21 +41,26 @@ locals {
   # It supports both plaintext and hashed passwords (automatically detected by format)
   # This will be passed directly to cloud-init via cloud-init.user-data
   cloud_init_user_data = (var.image != "") ? yamlencode(merge(
-    # Base configuration (package updates, SSH setup, users, and SSH password auth)
+    # Base configuration (package updates, SSH setup, users, and key-only auth)
     {
       package_update  = true
       package_upgrade = true
       packages        = ["openssh-server"]
-      ssh_pwauth      = true
+      ssh_pwauth      = false
       users           = local.cloud_init_users
-      # SSH configuration: disable password-based authentication
-      ssh = {
-        enabled = true
-        # Disable password-based authentication while keeping key-based auth
-        Port                   = 22
-        PasswordAuthentication = false
-        PubkeyAuthentication   = true
-      }
+      # Drop an sshd config snippet that enforces key-only authentication
+      write_files = [
+        {
+          path        = "/etc/ssh/sshd_config.d/50-no-password-auth.conf"
+          content     = "PasswordAuthentication no\nKbdInteractiveAuthentication no\nPubkeyAuthentication yes\n"
+          owner       = "root:root"
+          permissions = "0644"
+        }
+      ]
+      # Restart sshd after write_files to pick up the new config
+      runcmd = [
+        ["systemctl", "restart", "ssh"]
+      ]
     },
     # Add chpasswd section for password authentication if password is provided
     local.hashed_password != "" ? {

@@ -36,9 +36,9 @@
   when: has_client_certificates
 
 - name: Check if certificate files exist at specified paths.
-  local_action:
-    module: ansible.builtin.stat
+  ansible.builtin.stat:
     path: "{{ playbook_dir }}/{{ item.certificate_file }}"
+  delegate_to: localhost
   register: cert_file_check
   loop: "{{ incus_trusted_clients }}"
   loop_control:
@@ -66,9 +66,9 @@
   when: has_client_certificates
 
 - name: Validate certificate file format (PEM).
-  local_action:
-    module: ansible.builtin.shell
+  ansible.builtin.shell:
     cmd: "grep -q 'BEGIN CERTIFICATE' {{ playbook_dir }}/{{ item.certificate_file }} && grep -q 'END CERTIFICATE' {{ playbook_dir }}/{{ item.certificate_file }}"
+  delegate_to: localhost
   register: cert_format_check
   loop: "{{ incus_trusted_clients }}"
   loop_control:
