@@ -51,20 +51,13 @@ all:
     mainrouter:
       hosts:
         mszrouter:
-          ansible_host: "{{ ip_plan.hosts.router }}"
+          ansible_host: "{{ ip_plan_hosts.router }}"
 
     # ---------- Raspberry Pi edge devices ----------
     edge_devices:
       hosts:
-        garage-edge:
-          ansible_host: "{{ ip_plan.hosts.edge_garage }}"
-          main_adapter: eth0
-          edge_wifi_adapter: wlan0
-          edge_local_wifi_name: testgaragewifi
-          edge_bridge_name: br0
-          edge_wifi_password: "{{ vault_edge_wifi_passwords['garage-edge'] }}"
         pool-edge:
-          ansible_host: "{{ ip_plan.hosts.edge_pool }}"
+          ansible_host: "{{ ip_plan_hosts.edge_pool }}"
           main_adapter: eth0
           edge_wifi_adapter: wlan0
           edge_local_wifi_name: testpoolwifi

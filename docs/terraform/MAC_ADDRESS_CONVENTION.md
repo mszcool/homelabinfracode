@@ -27,13 +27,28 @@ All Incus-managed instances (VMs, LXC containers, and Docker/OCI containers) use
 
 ## Ring-to-Prefix Mapping
 
+### Production Environment
+
 | Ring  | Incus Project | MAC Prefix          | Range                                       |
 |-------|---------------|---------------------|---------------------------------------------|
 | ring0 | `prodlayer0`  | `00:16:3e:11:xx:xx` | `00:16:3e:11:00:01` – `00:16:3e:11:FF:FF`  |
 | ring1 | `prodlayer1`  | `00:16:3e:12:xx:xx` | `00:16:3e:12:00:01` – `00:16:3e:12:FF:FF`  |
 | ring2 | `prodlayer2`  | `00:16:3e:13:xx:xx` | `00:16:3e:13:00:01` – `00:16:3e:13:FF:FF`  |
 
+### Local Development Environment
+
+Development instances share the same physical Incus cluster and network as production but use the `default` Incus project with a separate MAC address range. The 4th octet uses `91`/`92`/`93` (offset from production's `11`/`12`/`13`) to keep ring membership visible on the wire while avoiding any collision with production MACs.
+
+| Ring      | Incus Project | MAC Prefix          | Range                                       |
+|-----------|---------------|---------------------|---------------------------------------------|
+| dev-ring0 | `default`     | `00:16:3e:91:xx:xx` | `00:16:3e:91:00:01` – `00:16:3e:91:FF:FF`  |
+| dev-ring1 | `default`     | `00:16:3e:92:xx:xx` | `00:16:3e:92:00:01` – `00:16:3e:92:FF:FF`  |
+| dev-ring2 | `default`     | `00:16:3e:93:xx:xx` | `00:16:3e:93:00:01` – `00:16:3e:93:FF:FF`  |
+
+> **Terraform prefix validation**: Because all dev rings share the `default` Incus project, the `mac_prefix_by_project` check in Terraform cannot enforce per-ring prefixes for dev. The check is automatically skipped when `incus_project` has no entry in `mac_prefix_by_project` (existing behavior). The 91/92/93 convention is enforced by documentation and code review.
+
 > **Reserved**: `xx:xx = 00:00` is not used (avoids ambiguity with "empty" values).
+> **Reserved range**: `00:16:3e:14` – `00:16:3e:90` are reserved for future production rings or other environments.
 
 ## Adding a New Instance
 

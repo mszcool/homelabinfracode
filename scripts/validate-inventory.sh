@@ -207,64 +207,73 @@ print(tr[0] if tr else '')
       fi
     fi
 
-    # ip_plan: verify centralized IP plan resolves correctly on mainrouter host
+    # ip_plan: verify flattened IP plan variables resolve correctly on mainrouter host
     if [[ -n "$router_host" ]]; then
       local ip_plan_ok=true
       local router_vars_clean
       router_vars_clean=$(ansible-inventory -i "$base_path" -i "$env_path" --host "$router_host" 2>/dev/null)
-      # Check ip_plan structure
+      # Check flattened ip_plan_* variables
       if echo "$router_vars_clean" | python3 -c "
 import sys, json
 data = json.load(sys.stdin)
-ip_plan = data.get('ip_plan', {})
-assert ip_plan.get('hosts', {}).get('router'), 'missing ip_plan.hosts.router'
-assert ip_plan.get('hosts', {}).get('samba4_addc'), 'missing ip_plan.hosts.samba4_addc'
-assert ip_plan.get('hosts', {}).get('truenas'), 'missing ip_plan.hosts.truenas'
-assert ip_plan.get('hosts', {}).get('pool_remote_access'), 'missing ip_plan.hosts.pool_remote_access'
-assert ip_plan.get('hosts', {}).get('edge_garage'), 'missing ip_plan.hosts.edge_garage'
-assert ip_plan.get('hosts', {}).get('edge_pool'), 'missing ip_plan.hosts.edge_pool'
-assert ip_plan.get('lan_subnet'), 'missing ip_plan.lan_subnet'
-assert ip_plan.get('external_dns_servers'), 'missing ip_plan.external_dns_servers'
-assert ip_plan.get('dhcp_pool', {}).get('from'), 'missing ip_plan.dhcp_pool.from'
-assert ip_plan.get('dhcp_pool', {}).get('to'), 'missing ip_plan.dhcp_pool.to'
-assert ip_plan.get('ranges', {}).get('core_infrastructure', {}).get('from'), 'missing ip_plan.ranges.core_infrastructure.from'
-assert ip_plan.get('ranges', {}).get('foundational_services', {}).get('from'), 'missing ip_plan.ranges.foundational_services.from'
+# ip_plan_hosts (dict of host IPs)
+hosts = data.get('ip_plan_hosts', {})
+assert hosts.get('router'), 'missing ip_plan_hosts.router'
+assert hosts.get('samba4_addc'), 'missing ip_plan_hosts.samba4_addc'
+assert hosts.get('truenas'), 'missing ip_plan_hosts.truenas'
+assert hosts.get('pool_remote_access'), 'missing ip_plan_hosts.pool_remote_access'
+assert hosts.get('edge_pool'), 'missing ip_plan_hosts.edge_pool'
+# ip_plan_lan_subnet (string)
+assert data.get('ip_plan_lan_subnet'), 'missing ip_plan_lan_subnet'
+# ip_plan_external_dns_servers (list)
+edns = data.get('ip_plan_external_dns_servers', [])
+assert isinstance(edns, list) and len(edns) > 0, 'missing ip_plan_external_dns_servers'
+# ip_plan_dhcp_pool (dict with from/to)
+pool = data.get('ip_plan_dhcp_pool', {})
+assert pool.get('from'), 'missing ip_plan_dhcp_pool.from'
+assert pool.get('to'), 'missing ip_plan_dhcp_pool.to'
+# ip_plan_ranges (dict of range dicts)
+ranges = data.get('ip_plan_ranges', {})
+assert ranges.get('core_infrastructure', {}).get('from'), 'missing ip_plan_ranges.core_infrastructure.from'
+assert ranges.get('foundational_services', {}).get('from'), 'missing ip_plan_ranges.foundational_services.from'
 " 2>/dev/null; then
-        echo "  OK:   ip_plan structure resolves correctly"
+        echo "  OK:   ip_plan_* variables resolve correctly"
         PASSED=$((PASSED + 1))
       else
-        echo "  FAIL: ip_plan structure incomplete or missing"
+        echo "  FAIL: ip_plan_* variables incomplete or missing"
         FAILED=$((FAILED + 1))
-        ERRORS="${ERRORS}\n  [${env}] ip_plan structure incomplete or missing"
+        ERRORS="${ERRORS}\n  [${env}] ip_plan_* variables incomplete or missing"
         ip_plan_ok=false
       fi
 
-      # Check backward-compat aliases reference the correct ip_plan paths
-      # (ansible-inventory doesn't resolve nested Jinja2; templates resolve at runtime)
+      # Check backward-compat aliases reference the correct flattened ip_plan_* variables
+      # (ansible-inventory --host does NOT resolve Jinja2 cross-refs; they remain as template strings)
       if $ip_plan_ok; then
         if echo "$router_vars_clean" | python3 -c "
 import sys, json
 data = json.load(sys.stdin)
-# Aliases should be Jinja2 refs to ip_plan (unresolved in inventory dump)
+# routerAndPrimaryGatewayIp should reference ip_plan_hosts.router
 rgw = data.get('routerAndPrimaryGatewayIp', '')
-assert 'ip_plan.hosts.router' in rgw or rgw == data.get('ip_plan',{}).get('hosts',{}).get('router',''), \
-    f\"routerAndPrimaryGatewayIp not referencing ip_plan: {rgw}\"
+assert 'ip_plan_hosts.router' in rgw, \
+    f\"routerAndPrimaryGatewayIp not referencing ip_plan_hosts: {rgw}\"
+# samba4_addc_ip should reference ip_plan_hosts.samba4_addc
 saip = data.get('samba4_addc_ip', '')
-assert 'ip_plan.hosts.samba4_addc' in saip or saip == data.get('ip_plan',{}).get('hosts',{}).get('samba4_addc',''), \
-    f\"samba4_addc_ip not referencing ip_plan: {saip}\"
+assert 'ip_plan_hosts.samba4_addc' in saip, \
+    f\"samba4_addc_ip not referencing ip_plan_hosts: {saip}\"
+# external_dns_servers should reference ip_plan_external_dns_servers
 edns = data.get('external_dns_servers', '')
 if isinstance(edns, str):
-    assert 'ip_plan.external_dns_servers' in edns, \
-        f\"external_dns_servers not referencing ip_plan: {edns}\"
+    assert 'ip_plan_external_dns_servers' in edns, \
+        f\"external_dns_servers not referencing ip_plan_external_dns_servers: {edns}\"
 else:
-    # Already resolved (list) — matches ip_plan directly
-    assert edns == data.get('ip_plan',{}).get('external_dns_servers',[]), \
-        f\"external_dns_servers mismatch\"
+    # Already resolved (list) — compare to ip_plan_external_dns_servers
+    assert edns == data.get('ip_plan_external_dns_servers', []), \
+        f\"external_dns_servers mismatch: {edns}\"
 " 2>/dev/null; then
-          echo "  OK:   backward-compat aliases match ip_plan values"
+          echo "  OK:   backward-compat aliases reference ip_plan_hosts correctly"
           PASSED=$((PASSED + 1))
         else
-          echo "  FAIL: backward-compat aliases don't match ip_plan values"
+          echo "  FAIL: backward-compat aliases don't reference ip_plan_hosts correctly"
           FAILED=$((FAILED + 1))
           ERRORS="${ERRORS}\n  [${env}] backward-compat aliases mismatch"
         fi

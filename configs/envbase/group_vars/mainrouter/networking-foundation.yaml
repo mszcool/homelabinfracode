@@ -8,16 +8,17 @@
 # Required seed variables:
 #   From common-seeds.yaml:
 #     localdomain:                Local domain name (e.g., mszlocal)
-#     ip_plan:                    Centralized IP plan with ranges, hosts, subnet, DHCP, DNS
-#     routerAndPrimaryGatewayIp:  Alias for ip_plan.hosts.router
-#     external_dns_servers:       Alias for ip_plan.external_dns_servers
+#     ip_plan_*:                  Flattened IP plan variables (ip_plan_hosts, ip_plan_ranges,
+#                                 ip_plan_lan_subnet, ip_plan_dhcp_pool, ip_plan_external_dns_servers)
+#     routerAndPrimaryGatewayIp:  Alias for ip_plan_hosts.router
+#     external_dns_servers:       Alias for ip_plan_external_dns_servers
 #   From networking-foundation.yaml:
 #     router_lan_ip:              Derived from routerAndPrimaryGatewayIp
-#     nat_pool_remote_target_ip:  Derived from ip_plan.hosts.pool_remote_access
-#     lan_subnet:                 Derived from ip_plan.lan_subnet
+#     nat_pool_remote_target_ip:  Derived from ip_plan_hosts.pool_remote_access
+#     lan_subnet:                 Derived from ip_plan_lan_subnet
 #     lan_dns_servers:            Derived from routerAndPrimaryGatewayIp + external_dns_servers
-#     lan_dhcp_pool_from:         Derived from ip_plan.dhcp_pool.from
-#     lan_dhcp_pool_to:           Derived from ip_plan.dhcp_pool.to
+#     lan_dhcp_pool_from:         Derived from ip_plan_dhcp_pool.from
+#     lan_dhcp_pool_to:           Derived from ip_plan_dhcp_pool.to
 #     vlans:                      List of VLAN dicts (each with name, description,
 #                                 subnet, vlan_id, gateway, dhcp_settings, etc.)
 #     router_root_name:           Router admin user name
@@ -28,7 +29,7 @@
 #     router_automation_ssh_key:  Router automation SSH public key
 #     ansible_user:               SSH connection user (resolves to router_automation_name)
 #     devices_mapped:             Device groups with MAC/IP assignments
-#                                 (ranges + infra IPs derived from ip_plan)
+#                                 (ranges + infra IPs derived from ip_plan_*)
 
 # ---------- Shared constants ----------
 
