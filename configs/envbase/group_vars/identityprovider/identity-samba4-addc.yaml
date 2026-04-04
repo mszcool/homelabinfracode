@@ -9,10 +9,10 @@
 #   From common-seeds.yaml:
 #     localdomain:              Local domain name (e.g., mszlocal)
 #     ad_domain_short:          Short AD domain name (e.g., MSZ)
-#     ip_plan:                  Centralized IP plan with ranges, hosts, subnet, DHCP, DNS
-#     samba4_addc_ip:           Alias for ip_plan.hosts.samba4_addc
-#     routerAndPrimaryGatewayIp: Alias for ip_plan.hosts.router
-#     external_dns_servers:     Alias for ip_plan.external_dns_servers
+#     ip_plan_*:                Flattened IP plan variables (ip_plan_hosts, ip_plan_ranges, etc.)
+#     samba4_addc_ip:           Alias for ip_plan_hosts.samba4_addc
+#     routerAndPrimaryGatewayIp: Alias for ip_plan_hosts.router
+#     external_dns_servers:     Alias for ip_plan_external_dns_servers
 #   From identity-samba4-addc.yaml:
 #     samba4_addc_netmask:      Network mask (e.g., 255.255.255.0)
 #     samba4_addc_gateway:      Derived from routerAndPrimaryGatewayIp
@@ -98,10 +98,10 @@ domain_name: "{{ localdomain }}"
 
 # Active Directory Domain Controller configuration
 samba4_addc:
-  # DNS and realm configuration (derived from seeds)
-  realm: "AD.{{ localdomain | upper }}"
+  # DNS and realm configuration (derived from domain_name seed)
+  realm: "AD.{{ domain_name | upper }}"
   domain: "{{ ad_domain_short }}"
-  dns_domain: "ad.{{ localdomain }}"
+  dns_domain: "ad.{{ domain_name }}"
 
   # Administrator account password — resolved via secrets-vault.yaml
   admin_password: "{{ vault_samba4_admin_password }}"

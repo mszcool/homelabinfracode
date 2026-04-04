@@ -5,15 +5,18 @@
 # They are automatically loaded via the directory-based inventory.
 #
 # Seeds defined here:
-#   localdomain      - used by all topic files
-#   ad_domain_short  - used by identity-samba4-addc, storage-truenas-*
-#   ip_plan          - centralized IP plan: ranges, infrastructure host IPs,
-#                      LAN subnet, DHCP pool, external DNS servers
+#   localdomain              - used by all topic files
+#   ad_domain_short          - used by identity-samba4-addc, storage-truenas-*
+#   ip_plan_lan_subnet       - LAN subnet CIDR
+#   ip_plan_external_dns_servers - external DNS forwarders
+#   ip_plan_dhcp_pool        - DHCP pool from/to
+#   ip_plan_ranges           - IP ranges per device group
+#   ip_plan_hosts            - infrastructure host IPs
 #
-# Backward-compat aliases derived from ip_plan (zero playbook changes):
-#   routerAndPrimaryGatewayIp  - "{{ ip_plan.hosts.router }}"
-#   samba4_addc_ip             - "{{ ip_plan.hosts.samba4_addc }}"
-#   external_dns_servers       - "{{ ip_plan.external_dns_servers }}"
+# Backward-compat aliases derived from ip_plan_* (zero playbook changes):
+#   routerAndPrimaryGatewayIp  - "{{ ip_plan_hosts.router }}"
+#   samba4_addc_ip             - "{{ ip_plan_hosts.samba4_addc }}"
+#   external_dns_servers       - "{{ ip_plan_external_dns_servers }}"
 #
 # Note: truenas_hostname and truenas_admin_username are defined as host_vars
 # on truenas-scale in hosts.yaml (single-host scope, not cross-host seeds).
@@ -24,61 +27,70 @@ localdomain: "testlocal"
 # Active Directory short domain name
 ad_domain_short: "TEST"
 
-# ---------- Centralized IP plan ----------
-# Co-locates IP ranges with their assigned infrastructure host IPs in one place.
+# ---------- Centralized IP plan (flattened) ----------
+# Direct children of the former ip_plan dict are now top-level variables with
+# ip_plan_ prefix.  This avoids Ansible's hash_behaviour=replace problem: each
+# variable (ip_plan_hosts, ip_plan_ranges, …) can be overridden independently
+# in environment overlays without losing sibling values.
+#
 # Personal device IPs (phones, TVs, IoT) remain in devices_mapped (MAC bindings).
-ip_plan:
-  # LAN subnet CIDR
-  lan_subnet: "10.10.0.0/16"
 
-  # External DNS servers (used as forwarders across router, AD DC, future DNS hosts)
-  external_dns_servers:
-    - "10.10.0.10"
-    - "10.10.0.11"
+# LAN subnet CIDR
+ip_plan_lan_subnet: "10.10.0.0/16"
 
-  # LAN DHCP pool for dynamic clients
-  dhcp_pool:
-    from: "10.10.0.100"
-    to: "10.10.0.254"
+# External DNS servers (used as forwarders across router, AD DC, future DNS hosts)
+ip_plan_external_dns_servers:
+  - "10.10.0.10"
+  - "10.10.0.11"
 
-  # IP ranges per device group (matches devices_mapped group names)
-  ranges:
-    core_infrastructure:
-      from: "10.10.0.1"
-      to: "10.10.0.29"
-    virtualization_servers:
-      from: "10.10.0.30"
-      to: "10.10.0.40"
-    foundational_services:
-      from: "10.10.0.41"
-      to: "10.10.0.60"
-    unrestricted_devices:
-      from: "10.10.10.20"
-      to: "10.10.10.40"
-    restricted_devices:
-      from: "10.10.10.40"
-      to: "10.10.10.254"
-    kids_devices:
-      from: "10.10.10.40"
-      to: "10.10.10.80"
-    iot_servers:
-      from: "10.10.99.1"
-      to: "10.10.99.254"
-    iot_devices:
-      from: "10.10.100.1"
-      to: "10.10.100.254"
+# LAN DHCP pool for dynamic clients
+ip_plan_dhcp_pool:
+  from: "10.10.0.100"
+  to: "10.10.0.254"
 
-  # Infrastructure host IPs (referenced across multiple files)
-  hosts:
-    router: "10.10.0.1"
-    samba4_addc: "10.10.0.41"
-    truenas: "10.10.0.42"
-    pool_remote_access: "10.10.99.217"
-    edge_garage: "10.10.99.246"
-    edge_pool: "10.10.99.245"
+# IP ranges per device group (matches devices_mapped group names)
+ip_plan_ranges:
+  core_infrastructure:
+    from: "10.10.0.1"
+    to: "10.10.0.29"
+  virtualization_servers:
+    from: "10.10.0.30"
+    to: "10.10.0.40"
+  foundational_services:
+    from: "10.10.0.41"
+    to: "10.10.0.60"
+  unrestricted_devices:
+    from: "10.10.10.20"
+    to: "10.10.10.40"
+  restricted_devices:
+    from: "10.10.10.40"
+    to: "10.10.10.254"
+  kids_devices:
+    from: "10.10.10.40"
+    to: "10.10.10.80"
+  iot_servers:
+    from: "10.10.99.1"
+    to: "10.10.99.254"
+  iot_devices:
+    from: "10.10.100.1"
+    to: "10.10.100.254"
+
+# Infrastructure host IPs (referenced across multiple files)
+ip_plan_hosts:
+  router: "10.10.0.1"
+  # virtualization-servers
+  incus_singledisk: "10.10.0.31"
+  incus_dualdisk: "10.10.0.32"
+  # foundational-services
+  samba4_addc: "10.10.0.41"
+  truenas: "10.10.0.42"
+  # iot-servers
+  pool_remote_access: "10.10.99.217"
+  # iot-devices
+  edge_pool: "10.10.99.245"
 
 # ---------- Backward-compatible aliases ----------
 # These keep all existing variable references working without playbook changes.
-routerAndPrimaryGatewayIp: "{{ ip_plan.hosts.router }}"
-samba4_addc_ip: "{{ ip_plan.hosts.samba4_addc }}"
-external_dns_servers: "{{ ip_plan.external_dns_servers }}"
+routerAndPrimaryGatewayIp: "{{ ip_plan_hosts.router }}"
+samba4_addc_ip: "{{ ip_plan_hosts.samba4_addc }}"
+external_dns_servers: "{{ ip_plan_external_dns_servers }}"
