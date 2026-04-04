@@ -208,6 +208,7 @@ module "docker_container" {
     each.value.environment,
     lookup(local.container_resolved_secrets, each.key, {})
   )
+  oci_cmd               = each.value.oci_cmd
   volumes               = each.value.volumes
   tags                  = var.tags
 
@@ -245,6 +246,7 @@ module "docker_container_with_deps" {
       env_key => module.docker_container[container_name].instance_ipv4_address
     }
   )
+  oci_cmd        = each.value.oci_cmd
   volumes = each.value.volumes
   tags    = var.tags
 

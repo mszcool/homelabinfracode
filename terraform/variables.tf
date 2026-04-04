@@ -114,6 +114,10 @@ variable "docker_containers" {
     enable_boot_autostart = optional(bool, true)
     running               = optional(bool, true) # Set false for containers configured by Ansible before first start
     environment           = optional(map(string), {})
+    # Override the OCI container's entrypoint. Combines the image entrypoint and
+    # command into a single string (e.g., "dumb-init -- ak server").
+    # Leave empty to use the image's default ENTRYPOINT/CMD.
+    oci_cmd               = optional(string, "")
     # Map of environment variable names to other docker_container names.
     # At deploy time Terraform resolves each referenced container's IPv4
     # address and injects it as the named environment variable.
