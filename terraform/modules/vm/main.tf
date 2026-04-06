@@ -149,8 +149,9 @@ resource "incus_instance" "vm" {
   # For image-based VMs: wait for agent to be ready
   # For containers: wait for IPv4 address (agent is not supported)
   # For ISO-based VMs: skip (agent won't be available during OS installation)
+  # For appliance VMs (wait_for_network=false): skip (no Incus agent available)
   dynamic "wait_for" {
-    for_each = var.image != "" && var.iso_volume_name == "" ? [1] : []
+    for_each = var.wait_for_network && var.image != "" && var.iso_volume_name == "" ? [1] : []
     content {
       type = var.type == "container" ? "ipv4" : "agent"
     }

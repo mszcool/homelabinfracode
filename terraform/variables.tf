@@ -45,6 +45,10 @@ variable "vms" {
     enable_pcie_passthrough = optional(bool, false)
     pcie_controller         = optional(string, "")
     enable_boot_autostart   = optional(bool, false)
+    # Whether to wait for the Incus agent (VMs) or IPv4 (containers) after creation.
+    # Set to false for appliance-type VMs (e.g., Home Assistant OS) that do not
+    # include the Incus agent and cannot report readiness.
+    wait_for_network        = optional(bool, true)
     root_username           = optional(string, "admin")
     sudo_passwordless       = optional(bool, false)
     ssh_public_key          = optional(string, "")

@@ -1,0 +1,96 @@
+---
+- name: Import QCOW2 disk images to Incus clusters
+  hosts: incus
+  gather_facts: true
+
+  vars:
+    # Default storage pool name
+    default_storage_pool: "default"
+
+    # Default Incus project
+    default_incus_project: "default"
+
+  tasks:
+    - name: Validate QCOW2 images are defined in inventory
+      ansible.builtin.fail:
+        msg: |
+          CONFIGURATION ERROR: No QCOW2 images defined in inventory.
+          
+          Please ensure qcow2_images is defined in your inventory file:
+          
+          all:
+            vars:
+              qcow2_images:
+                - name: "haos-17.1"
+                  source_local: "/path/to/local/haos_ova-17.1.qcow2"
+                  source_url: "https://github.com/.../haos_ova-17.1.qcow2.xz"  # Optional: download URL
+                  project: "default"  # Optional: defaults to 'default'
+      delegate_to: localhost
+      become: false
+      when: qcow2_images is not defined or qcow2_images | length == 0
+
+    - name: Validate local Incus client is available
+      ansible.builtin.shell: which incus
+      register: incus_client_check
+      delegate_to: localhost
+      become: false
+      failed_when: incus_client_check.rc != 0
+      changed_when: false
+      run_once: true
+
+    - name: Get Incus remote list
+      ansible.builtin.shell: incus remote list --format=csv
+      register: incus_remotes_output
+      delegate_to: localhost
+      become: false
+      changed_when: false
+      run_once: true
+
+    - name: Check if current host is available as Incus remote
+      ansible.builtin.set_fact:
+        host_incus_remote_name: "{{ inventory_hostname }}"
+        host_is_available_remote: "{{ inventory_hostname in incus_remotes_output.stdout }}"
+      delegate_to: localhost
+      become: false
+
+    - name: Display warning if host is not available as Incus remote
+      ansible.builtin.debug:
+        msg: |
+          WARNING: Incus host '{{ inventory_hostname }}' is not registered as a remote on the local Incus client.
+          
+          Available remotes:
+          {{ incus_remotes_output.stdout | indent(4, True) }}
+          
+          To add this remote, set the INCUS_CONF environment variable and run:
+          incus remote add {{ inventory_hostname }} {{ inventory_hostname }}:8443 --accept-certificate --auth-type tls
+          
+          Skipping QCOW2 import for this host.
+      delegate_to: localhost
+      become: false
+      when: not host_is_available_remote
+
+    - name: Display QCOW2 images to import
+      ansible.builtin.debug:
+        msg: |
+          QCOW2 Import Configuration:
+          Target Incus Host: {{ inventory_hostname }}
+          Incus Remote: {{ host_incus_remote_name }}
+          QCOW2 Images to Import:
+          {% for img in qcow2_images %}
+            - Name (alias): {{ img.name }}
+              Local Path: {{ img.source_local | default('NOT DEFINED') }}
+              Download URL: {{ img.source_url | default('N/A — manual download required') }}
+              Project: {{ img.project | default(default_incus_project) }}
+          {% endfor %}
+      delegate_to: localhost
+      become: false
+      when: host_is_available_remote
+
+    - name: Import QCOW2 images to Incus host
+      ansible.builtin.include_tasks:
+        file: tasks/host-incus-import-qcow2-tasks.yaml
+      vars:
+        qcow2: "{{ item }}"
+        incus_remote_name: "{{ host_incus_remote_name }}"
+      loop: "{{ qcow2_images }}"
+      when: host_is_available_remote
