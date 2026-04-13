@@ -1,0 +1,41 @@
+{
+  "version": 1,
+  "minor_version": 3,
+  "key": "energy",
+  "data": {
+    "energy_sources": [
+      {
+        "type": "battery",
+        "stat_energy_from": "sensor.batteries_day_discharge",
+        "stat_energy_to": "sensor.batteries_day_charge",
+        "power_config": {
+          "stat_rate": "sensor.batteries_charge_discharge_power"
+        },
+        "stat_rate": "sensor.batteries_charge_discharge_power"
+      },
+      {
+        "type": "grid",
+        "stat_energy_from": "sensor.power_meter_consumption",
+        "stat_energy_to": "sensor.power_meter_exported",
+        "stat_cost": null,
+        "stat_compensation": null,
+        "entity_energy_price": null,
+        "number_energy_price": null,
+        "entity_energy_price_export": null,
+        "number_energy_price_export": null,
+        "cost_adjustment_day": 0.0,
+        "power_config": {
+          "stat_rate": "sensor.power_meter_active_power"
+        },
+        "stat_rate": "sensor.power_meter_active_power"
+      },
+      {
+        "type": "solar",
+        "stat_energy_from": "sensor.pv_daily_yield",
+        "stat_rate": "sensor.pv_active_power_all_inverters"
+      }
+    ],
+    "device_consumption": [],
+    "device_consumption_water": []
+  }
+}

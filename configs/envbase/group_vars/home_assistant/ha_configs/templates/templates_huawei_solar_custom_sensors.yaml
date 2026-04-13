@@ -1,0 +1,222 @@
+  - sensor:
+      - name: Grid to Battery
+        device_class: power
+        state_class: measurement
+        unit_of_measurement: W
+        state: >
+          {% set inv1 = states('sensor.inverter_active_power')|int(default=0) %}
+          {% set inv2 = states('sensor.inverter_active_power_2')|int(default=0) %}
+          {% set inv_total = inv1 + inv2 %}
+
+          {# Battery charging power is usually positive in this integration #}
+          {% set bat_charge = states('sensor.batteries_charge_discharge_power')|int(default=0) %}
+
+          {# If Inverter is consuming (negative) AND Battery is charging (positive) #}
+          {% if inv_total < 0 and bat_charge > 0 %}
+          {# We show the battery charge value, but capped at the inverter's draw #}
+            {{ [bat_charge, (inv_total | abs)] | min }}
+          {% else %}
+            0
+          {% endif %}
+
+      - name: Grid to House
+        device_class: power
+        state_class: measurement
+        unit_of_measurement: W
+        state: >
+          {% set inv1 = states('sensor.inverter_active_power')|int(default=0) %}
+          {% set inv2 = states('sensor.inverter_active_power_2')|int(default=0) %}
+          {% set inv = inv1 + inv2 %}
+          {% set grid = states('sensor.power_meter_active_power')|int(default=0) %}
+          {% if grid < 0 %}
+            {% if inv < 0 %} {{ (inv - grid) | int }}
+            {% else %} {{ (0 - grid) | int }}
+            {% endif %}
+          {% else %} 0
+          {% endif %}
+
+      - name: Solar to Battery
+        device_class: power
+        state_class: measurement
+        unit_of_measurement: W
+        state: >
+          {# How much solar produced by panels #}
+          {% set inv1_in = states('sensor.inverter_input_power')|int(default=0) %}
+          {% set inv2_in = states('sensor.inverter_input_power_2')|int(default=0) %}
+          {% set inv_in_total = inv1_in + inv2_in %}
+
+          {# If out_total is negative, the inverter pulls from the grid #}
+          {% set inv1_out = states('sensor.inverter_active_power')|int(default=0) %}
+          {% set inv2_out = states('sensor.inverter_active_power_2')|int(default=0) %}
+          {% set out_total = inv1_out + inv2_out %}
+
+          {% set bat = states('sensor.batteries_charge_discharge_power')|int(default=0) %}
+          {% if bat > 0 %}
+            {# The min is to consider cases where solar produces more than batter can charge with #}
+            {% if out_total < 0 %} {{ [inv_in_total, bat] | min }}
+            {% else %}  {{ bat }}
+            {% endif %}
+          {% else %} 0
+          {% endif %}
+
+      - name: Solar to House
+        device_class: power
+        state_class: measurement
+        unit_of_measurement: W
+        state: >
+          {% set inv1_out = states('sensor.inverter_active_power')|int(default=0) %}
+          {% set inv2_out = states('sensor.inverter_active_power_2')|int(default=0) %}
+          {% set out = inv1_out + inv2_out %}
+
+          {% set grid = states('sensor.power_meter_active_power')|int(default=0) %}
+          {% set bat = states('sensor.batteries_charge_discharge_power')|int(default=0) %}
+
+          {# We only care if the inverter is actually producing AC power #}
+          {% if out > 0 %}
+            {# 1. Start with total AC output #}
+            {# 2. Subtract Grid Export (grid > 0 means exporting in Huawei) #}
+            {% set house_from_inverter = out - ([0, grid] | max) %}
+            
+            {# 3. If battery is discharging (bat < 0), subtract that portion #}
+            {# because that power is 'Battery to House', not 'Solar to House' #}
+            {% if bat < 0 %}
+              {{ [0, (house_from_inverter - (bat | abs))] | max | int }}
+            {% else %}
+              {{ [0, house_from_inverter] | max | int }}
+            {% endif %}
+          {% else %}
+            0
+          {% endif %}
+
+      - name: Solar to Grid
+        device_class: power
+        state_class: measurement
+        unit_of_measurement: W
+        state: >
+          {% set grid = states('sensor.power_meter_active_power')|int(default=0) %}
+
+          {% set inv1_out = states('sensor.inverter_active_power')|int(default=0) %}
+          {% set inv2_out = states('sensor.inverter_active_power_2')|int(default=0) %}
+          {% set out = inv1_out + inv2_out %}
+
+          {% set bat = states('sensor.batteries_charge_discharge_power')|int(default=0) %}
+
+          {# grid > 0 means exporting in Huawei setup #}
+          {% if grid > 0 and out > 0 %}
+            {% if bat < 0 %}
+              {# If battery is discharging while exporting, subtract battery portion #}
+              {# out_from_solar is total AC out minus the battery contribution #}
+              {% set out_from_solar = out - (bat | abs) %}
+              {{ [grid, out_from_solar] | min | int }}
+            {% else %}
+              {# Battery is charging or idle, so all export is solar #}
+              {{ grid | int }}
+            {% endif %}
+          {% else %}
+            0
+          {% endif %}
+
+      - name: Battery to Grid
+        device_class: power
+        state_class: measurement
+        unit_of_measurement: W
+        state: >
+          {% set grid = states('sensor.power_meter_active_power')|int(default=0) %}
+
+          {% set bat = states('sensor.batteries_charge_discharge_power')|int(default=0) %}
+
+          {% set inv1_out = states('sensor.inverter_active_power')|int(default=0) %}
+          {% set inv2_out = states('sensor.inverter_active_power_2')|int(default=0) %}
+          {% set out = inv1_out + inv2_out %}
+
+          {# grid > 0 = Export, bat < 0 = Discharging #}
+          {% if grid > 0 and bat < 0 %}
+            {# The amount exported from battery is whatever is left after solar #}
+            {# Solar to grid would be (out - bat_discharge), so battery to grid is grid minus that #}
+            {% set solar_to_grid = [0, (out + bat)] | max %}
+            {{ [0, (grid - solar_to_grid)] | max | int }}
+          {% else %}
+            0
+          {% endif %}
+
+      - name: Battery to House
+        device_class: power
+        state_class: measurement
+        unit_of_measurement: W
+        state: >
+          {% set bat = states('sensor.batteries_charge_discharge_power')|int(default=0) %}
+          {% set togrid = states('sensor.battery_to_grid')|int(default=0) %}
+          {# bat < 0 means discharging #}
+          {% if bat < 0 %}
+            {# Total discharge minus what went to the grid #}
+            {{ ((bat | abs) - togrid) | int }}
+          {% else %}
+            0
+          {% endif %}
+
+      - name: "Inverter Conversion Loss"
+        device_class: power
+        state_class: measurement
+        unit_of_measurement: W
+        state: >
+          {% set dc_in_1 = states('sensor.inverter_input_power')|int(default=0) %}
+          {% set ac_out_1 = states('sensor.inverter_active_power')|int(default=0) %}
+
+          {% set dc_in_2 = states('sensor.inverter_input_power_2')|int(default=0) %}
+          {% set ac_out_2 = states('sensor.inverter_active_power_2')|int(default=0) %}
+
+          {% set dc_in = dc_in_1 + dc_in_2 %}
+          {% set ac_out = ac_out_1 + ac_out_2 %}
+
+          {% set bat = states('sensor.batteries_charge_discharge_power')|int(default=0) %}
+
+          {# Loss = DC from panels - AC output - DC going into battery #}
+          {# Note: bat > 0 is charging (DC), bat < 0 is discharging (DC) #}
+          {% set loss = dc_in - ac_out - bat %}
+
+          {# We use 'max 0' because small sensor sync delays can occasionally show negative loss #}
+          {{ [0, loss] | max | int }}
+
+      - name: "PV total yield"
+        unique_id: "pv_total_yield"
+        icon: mdi:solar-power
+        state: >
+          {% set inv1_out = states('sensor.inverter_total_yield')|int(default=0) %}
+          {% set inv2_out = states('sensor.inverter_total_yield_2')|int(default=0) %}
+          {% set inv_total = inv1_out + inv2_out %}
+          {{ (inv_total | float(0)) - (states('sensor.batteries_total_discharge') | float(0)) + (states('sensor.batteries_total_charge') | float(0)) }}
+        device_class: energy
+        state_class: total_increasing
+        unit_of_measurement: "kWh"
+        availability: "{{ has_value('sensor.inverter_total_yield') and has_value('sensor.inverter_total_yield_2') and has_value('sensor.batteries_total_discharge') and has_value('sensor.batteries_total_charge') }}"
+
+      - name: "PV daily yield"
+        unique_id: "pv_daily_yield"
+        icon: mdi:solar-power
+        state: >
+          {% set date_next_rising = (as_timestamp(state_attr('sun.sun', 'next_rising')) | timestamp_custom('%Y-%m-%d')) %}
+          {% set date_now = (as_timestamp(utcnow()) | timestamp_custom('%Y-%m-%d')) %}
+          {% if date_next_rising > date_now %}
+            {% set inv1_daily_yield = states('sensor.inverter_daily_yield')|int(default=0) %}
+            {% set inv2_daily_yield = states('sensor.inverter_daily_yield_2')|int(default=0) %}
+            {% set inv_total_daily_yield = inv1_daily_yield + inv2_daily_yield %}
+            {{ (inv_total_daily_yield | float(0)) - (states('sensor.batteries_day_discharge') | float(0)) + (states('sensor.batteries_day_charge') | float(0)) }}
+          {% else %}
+            0
+          {% endif %}
+        device_class: energy
+        state_class: total
+        unit_of_measurement: "kWh"
+        availability: "{{ has_value('sun.sun') and has_value('sensor.inverter_daily_yield') and has_value('sensor.inverter_daily_yield_2') and has_value('sensor.batteries_day_discharge') and has_value('sensor.batteries_day_charge') }}"
+
+      - name: "PV Active Power All Inverters"
+        unique_id: "pv_active_power_all"
+        icon: mdi:solar-power
+        device_class: power
+        state_class: measurement
+        unit_of_measurement: W
+        state: >
+          {% set inv1 = states('sensor.inverter_input_power') | int(default=0) %}
+          {% set inv2 = states('sensor.inverter_input_power_2') | int(default=0) %}
+          {{ inv1 + inv2 }}
+        availability: "{{ has_value('sensor.inverter_input_power') and has_value('sensor.inverter_input_power_2') }}"

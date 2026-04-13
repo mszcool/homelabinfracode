@@ -1,0 +1,282 @@
+{
+  "version": 1,
+  "minor_version": 1,
+  "key": "lovelace.energy_custom",
+  "data": {
+    "config": {
+      "views": [
+        {
+          "type": "sections",
+          "sections": [
+            {
+              "type": "grid",
+              "cards": [
+                {
+                  "type": "custom:tesla-style-solar-power-card",
+                  "name": "Current Energy Flows",
+                  "grid_options": {
+                    "columns": 12,
+                    "rows": "auto"
+                  },
+                  "grid_to_house_entity": "sensor.grid_to_house",
+                  "grid_to_battery_entity": "sensor.grid_to_battery",
+                  "generation_to_grid_entity": "sensor.solar_to_grid",
+                  "generation_to_battery_entity": "sensor.solar_to_battery",
+                  "generation_to_house_entity": "sensor.solar_to_house",
+                  "battery_to_house_entity": "sensor.battery_to_house",
+                  "battery_to_grid_entity": "sensor.battery_to_grid",
+                  "battery_extra_entity": "sensor.batteries_state_of_capacity",
+                  "show_gap": true,
+                  "threshold_in_k": 1
+                },
+                {
+                  "graph": "line",
+                  "type": "sensor",
+                  "entity": "sensor.inverter_conversion_loss",
+                  "detail": 2,
+                  "grid_options": {
+                    "columns": 6,
+                    "rows": 3
+                  }
+                },
+                {
+                  "type": "gauge",
+                  "entity": "sensor.batteries_state_of_capacity",
+                  "min": 9,
+                  "needle": true,
+                  "severity": {
+                    "green": 40,
+                    "yellow": 20,
+                    "red": 10
+                  },
+                  "grid_options": {
+                    "rows": 3,
+                    "columns": 6
+                  }
+                },
+                {
+                  "type": "custom:apexcharts-card",
+                  "header": {
+                    "show": true,
+                    "title": "Battery Status",
+                    "show_states": true,
+                    "colorize_states": true
+                  },
+                  "grid_options": {
+                    "columns": 12,
+                    "rows": "auto"
+                  },
+                  "all_series_config": {
+                    "type": "area",
+                    "opacity": 0.1,
+                    "stroke_width": 1,
+                    "group_by": {
+                      "func": "avg",
+                      "duration": "15m"
+                    },
+                    "show": {
+                      "in_header": false
+                    }
+                  },
+                  "series": [
+                    {
+                      "entity": "sensor.batteries_state_of_capacity",
+                      "type": "line",
+                      "yaxis_id": "pct",
+                      "opacity": 1,
+                      "stroke_width": 3,
+                      "group_by": {
+                        "func": "last",
+                        "duration": "15m"
+                      },
+                      "show": {
+                        "in_header": true
+                      }
+                    },
+                    {
+                      "entity": "sensor.batteries_charge_discharge_power",
+                      "name": "Battery Charge",
+                      "transform": "return Math.max(0,x);",
+                      "color": "darkgreen",
+                      "yaxis_id": "watts"
+                    },
+                    {
+                      "entity": "sensor.batteries_charge_discharge_power",
+                      "name": "Battery Discharge",
+                      "color": "#800080",
+                      "transform": "return -Math.min(0,x);",
+                      "yaxis_id": "watts"
+                    }
+                  ],
+                  "yaxis": [
+                    {
+                      "id": "pct",
+                      "show": true,
+                      "opposite": true,
+                      "decimals": 0,
+                      "max": 100,
+                      "min": 15
+                    },
+                    {
+                      "id": "watts",
+                      "show": true,
+                      "decimals": 0,
+                      "align_to": 250
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "grid",
+              "square": false,
+              "columns": 1,
+              "grid_options": {
+                "columns": "full",
+                "rows": 5
+              },
+              "cards": [
+                {
+                  "type": "energy-date-selection",
+                  "vertical_opening_direction": "auto",
+                  "opening_direction": "center",
+                  "grid_options": {
+                    "columns": 20,
+                    "rows": 2
+                  }
+                },
+                {
+                  "type": "energy-solar-consumed-gauge",
+                  "title": "Solar Home Usage",
+                  "grid_options": {
+                    "rows": 2,
+                    "columns": 4
+                  }
+                },
+                {
+                  "type": "power-sources-graph",
+                  "title": "Energy Usage",
+                  "grid_options": {
+                    "columns": "full",
+                    "rows": 8
+                  },
+                  "show_legend": true
+                },
+                {
+                  "type": "custom:apexcharts-card",
+                  "section_mode": true,
+                  "grid_options": {
+                    "columns": 12,
+                    "rows": 8
+                  },
+                  "header": {
+                    "show": true,
+                    "title": "Power Statistics Inverter House",
+                    "show_states": true,
+                    "colorize_states": true
+                  },
+                  "graph_span": "12h",
+                  "all_series_config": {
+                    "type": "area",
+                    "opacity": 0.1,
+                    "stroke_width": 1,
+                    "group_by": {
+                      "func": "last",
+                      "duration": "5m"
+                    }
+                  },
+                  "series": [
+                    {
+                      "entity": "sensor.inverter_input_power",
+                      "color": "lightgreen"
+                    },
+                    {
+                      "entity": "sensor.inverter_active_power",
+                      "color": "green"
+                    }
+                  ]
+                },
+                {
+                  "type": "custom:apexcharts-card",
+                  "section_mode": true,
+                  "grid_options": {
+                    "columns": 12,
+                    "rows": 8
+                  },
+                  "header": {
+                    "show": true,
+                    "title": "Power Statistics Inverter Garage",
+                    "show_states": true,
+                    "colorize_states": true
+                  },
+                  "graph_span": "12h",
+                  "all_series_config": {
+                    "type": "area",
+                    "opacity": 0.1,
+                    "stroke_width": 1,
+                    "group_by": {
+                      "func": "last",
+                      "duration": "5m"
+                    }
+                  },
+                  "series": [
+                    {
+                      "entity": "sensor.inverter_input_power_2",
+                      "color": "lightblue"
+                    },
+                    {
+                      "entity": "sensor.inverter_active_power_2",
+                      "color": "blue"
+                    }
+                  ]
+                }
+              ],
+              "column_span": 2
+            },
+            {
+              "type": "grid",
+              "cards": [
+                {
+                  "type": "energy-distribution",
+                  "title": "Daily Energy Distribution",
+                  "grid_options": {
+                    "rows": "auto",
+                    "columns": 12
+                  }
+                },
+                {
+                  "type": "energy-usage-graph",
+                  "title": "Energy Usage"
+                },
+                {
+                  "type": "energy-solar-graph",
+                  "title": "Solar Production",
+                  "grid_options": {
+                    "rows": "auto",
+                    "columns": 12
+                  }
+                }
+              ]
+            },
+            {
+              "type": "grid",
+              "cards": [],
+              "column_span": 2
+            }
+          ],
+          "header": {
+            "card": {
+              "type": "markdown",
+              "text_only": true,
+              "content": "# Current Energy Flows\nShows current solar production, grid consumption, battery state ✨"
+            }
+          },
+          "footer": {},
+          "max_columns": 4,
+          "title": "Default",
+          "cards": []
+        }
+      ]
+    }
+  }
+}
