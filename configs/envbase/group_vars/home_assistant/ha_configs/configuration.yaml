@@ -9,4 +9,8 @@ automation: !include automations.yaml
 script: !include scripts.yaml
 scene: !include scenes.yaml
 
-template: !include_dir_merge_named templates
+template: !include_dir_merge_list msz_templates
+
+sensor: !include_dir_merge_list msz_sensors
+
+utility_meter: !include_dir_merge_named msz_utility_meters

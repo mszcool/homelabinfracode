@@ -1,0 +1,4 @@
+# Daily reset of the Riemann-integrated solar yield
+pv_solar_yield_daily:
+  source: sensor.pv_solar_energy_riemann
+  cycle: daily

@@ -200,7 +200,8 @@
             {% set inv1_daily_yield = states('sensor.inverter_daily_yield')|int(default=0) %}
             {% set inv2_daily_yield = states('sensor.inverter_daily_yield_2')|int(default=0) %}
             {% set inv_total_daily_yield = inv1_daily_yield + inv2_daily_yield %}
-            {{ (inv_total_daily_yield | float(0)) - (states('sensor.batteries_day_discharge') | float(0)) + (states('sensor.batteries_day_charge') | float(0)) }}
+            {% set result = (inv_total_daily_yield | float(0)) - (states('sensor.batteries_day_discharge') | float(0)) + (states('sensor.batteries_day_charge') | float(0)) %}
+            {{ [0, result] | max }}
           {% else %}
             0
           {% endif %}
@@ -219,4 +220,24 @@
           {% set inv1 = states('sensor.inverter_input_power') | int(default=0) %}
           {% set inv2 = states('sensor.inverter_input_power_2') | int(default=0) %}
           {{ inv1 + inv2 }}
+        availability: "{{ has_value('sensor.inverter_input_power') and has_value('sensor.inverter_input_power_2') }}"
+
+      - name: "PV Input Power With Efficiency Loss"
+        unique_id: "pv_input_power_with_efficiency_loss"
+        icon: mdi:solar-power
+        unit_of_measurement: "W"
+        device_class: power
+        state_class: measurement
+        state: >
+          {% set inverter_rating = 10000 %}
+          {% set inv1 = states('sensor.inverter_input_power')|float(0) %}
+          {% set inv2 = states('sensor.inverter_input_power_2')|float(0) %}
+          {% set inpower = inv1 + inv2 %}
+          {% if inpower < (inverter_rating * 0.1) %}
+            {{ inpower * 0.90 }}
+          {% elif inpower < (inverter_rating * 0.2) %}
+            {{ inpower * 0.95 }}
+          {% else %}
+            {{ inpower * 0.98 }}
+          {% endif %}
         availability: "{{ has_value('sensor.inverter_input_power') and has_value('sensor.inverter_input_power_2') }}"
