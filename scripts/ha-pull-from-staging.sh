@@ -14,15 +14,19 @@
 #   4. Run the Ansible playbook against prod -- the JSON-diff logic will
 #      detect the changes and apply them inside a stop window.
 #
-# Files this script pulls:
-#   .storage/core.area_registry
-#   .storage/core.floor_registry
-#   .storage/lovelace_dashboards
-#   .storage/lovelace.* (every dashboard storage file, incl. lovelace.<id>)
-#   .storage/energy
-#   .storage/core.label_registry   (if present)
-#   .storage/core.config_entries   -> mqtt subentries extracted into
-#       core.config_entries.mqtt-subentries.json
+# Files this script pulls (and where they land in the env overlay):
+#
+#   ha_configs_storage/   (general .storage registries / settings)
+#     core.area_registry.json
+#     core.floor_registry.json
+#     core.label_registry.json   (if present)
+#     energy.json
+#     core.config_entries.mqtt-subentries.json
+#       (extracted from .storage/core.config_entries on the remote)
+#
+#   ha_dashboards/        (everything Lovelace-related)
+#     lovelace_dashboards.json   (the dashboard index)
+#     lovelace.<id>.json         (one per per-dashboard storage file)
 #
 # What it does NOT pull (intentionally):
 #   * configuration.yaml and other YAML configs (you edit those by hand)
@@ -123,17 +127,18 @@ if [ -z "$REMOTE_STORAGE" ]; then
 fi
 echo "[*] Remote .storage = $REMOTE_STORAGE"
 
-# --- Files to pull (storage) ---
+# --- Files to pull (general .storage -> ha_configs_storage/) ---
 # Note: real .storage filenames on HA Core 2026.x:
 #   areas  -> core.area_registry
 #   floors -> core.floor_registry
-# There is NO bare `.storage/lovelace` file -- only `lovelace_dashboards`
-# (the index) plus per-dashboard `lovelace.<id>` files (handled below).
+#   labels -> core.label_registry
+# All Lovelace-related files (lovelace_dashboards + per-dashboard
+# lovelace.<id>) are pulled separately into ha_dashboards/ so the playbook's
+# existing ha_dashboard_files loop owns them.
 STORAGE_FILES=(
   core.area_registry
   core.floor_registry
   core.label_registry
-  lovelace_dashboards
   energy
 )
 
@@ -155,17 +160,33 @@ for f in "${STORAGE_FILES[@]}"; do
   fi
 done
 
-# --- Pull all lovelace.<dashboard> files ---
+# --- Pull lovelace_dashboards + per-dashboard lovelace.* files ---
+# These all go into ha_dashboards/ to match the playbook's split.
+echo "[*] Pulling Lovelace dashboards (-> ha_dashboards/)..."
+
+# The dashboard index (lovelace_dashboards) -- treated as a dashboard file
+# so it lives next to the per-dashboard files in ha_dashboards/.
+if ssh_cmd "test -f '$REMOTE_STORAGE/lovelace_dashboards'"; then
+  if [ "$DRY_RUN" -eq 1 ]; then
+    echo "[dry-run] would copy: .storage/lovelace_dashboards -> $DASHBOARDS_DST/lovelace_dashboards.json"
+  else
+    echo "[*] copying .storage/lovelace_dashboards"
+    scp_cmd "$SSH_TARGET:$REMOTE_STORAGE/lovelace_dashboards" "$DASHBOARDS_DST/lovelace_dashboards.json"
+  fi
+else
+  echo "[ ] (skip) .storage/lovelace_dashboards does not exist on remote"
+fi
+
 echo "[*] Listing per-dashboard lovelace.* storage files..."
 DASHBOARD_FILES="$(ssh_cmd "ls -1 '$REMOTE_STORAGE'/lovelace.* 2>/dev/null || true")"
 if [ -n "$DASHBOARD_FILES" ]; then
   while IFS= read -r remote_f; do
     base="$(basename "$remote_f")"
     if [ "$DRY_RUN" -eq 1 ]; then
-      echo "[dry-run] would copy: .storage/$base -> $STORAGE_DST/$base.json"
+      echo "[dry-run] would copy: .storage/$base -> $DASHBOARDS_DST/$base.json"
     else
       echo "[*] copying .storage/$base"
-      scp_cmd "$SSH_TARGET:$remote_f" "$STORAGE_DST/$base.json"
+      scp_cmd "$SSH_TARGET:$remote_f" "$DASHBOARDS_DST/$base.json"
     fi
   done <<< "$DASHBOARD_FILES"
 else
