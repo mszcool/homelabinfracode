@@ -145,16 +145,17 @@ ha_recorder_db_url: ""
 
 # ---------- Config files to deploy ----------
 # Files copied from ha_configs/ to {{ ha_config_path }}/
+# Note: secrets.yaml is deployed separately via ansible.builtin.template
+#       (not copy) because it contains Jinja2 variables that need rendering.
 ha_config_files:
   - configuration.yaml
   - automations.yaml
   - scenes.yaml
   - scripts.yaml
-  - secrets.yaml
 
 # Subdirectory under ha_configs/ containing template sensor YAML files
 # Copied to {{ ha_config_path }}/templates/
-ha_config_templates_dir: templates
+ha_config_templates_dir: msz_templates
 
 # ---------- .storage files to deploy ----------
 # Files copied from ha_configs_storage/ to {{ ha_config_path }}/.storage/

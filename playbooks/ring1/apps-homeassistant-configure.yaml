@@ -49,7 +49,12 @@
 
   pre_tasks:
     - name: Diagnose SUPERVISOR_TOKEN sources on the HA host
+      # MUST use raw to see the SSH-injected environment (see comment on
+      # Capture SUPERVISOR_TOKEN below). The `environment: {}` override
+      # silences the "raw module does not support the environment keyword"
+      # warning that the play-level environment would otherwise trigger.
       ansible.builtin.raw: env; echo "---"; ls -1 /etc/profile.d/ 2>/dev/null; echo "---"; cat /etc/environment 2>/dev/null
+      environment: {}
       register: _ha_diagnose
       changed_when: false
       failed_when: false
@@ -59,10 +64,22 @@
         var: _ha_diagnose.stdout_lines
 
     - name: Capture SUPERVISOR_TOKEN
+      # MUST use raw, not shell: SUPERVISOR_TOKEN is injected into the SSH
+      # session by /etc/profile.d/ which is only sourced by login shells.
+      # Ansible's shell module runs a non-login non-interactive sh and
+      # therefore does NOT see SUPERVISOR_TOKEN. raw forwards the command
+      # straight to the SSH session and inherits its env.
+      #
+      # We must also override the play-level `environment:` here with `{}`
+      # because raw does not support that keyword and would otherwise emit
+      # a deprecation/warning. Setting it to {} explicitly silences the
+      # warning without affecting behaviour (raw ignores it anyway).
       ansible.builtin.raw: printf '%s' "$SUPERVISOR_TOKEN"
+      environment: {}
       register: _supervisor_token_probe
       changed_when: false
       failed_when: false
+      no_log: true
 
     - name: Set SUPERVISOR_TOKEN play variable
       ansible.builtin.set_fact:

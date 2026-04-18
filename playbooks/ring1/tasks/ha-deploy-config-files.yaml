@@ -24,6 +24,19 @@
   loop: "{{ ha_config_files }}"
   register: _config_files_result
 
+# --- Deploy secrets.yaml via template (needs variable interpolation) ---
+
+- name: Deploy secrets.yaml (templated, first_found layering)
+  ansible.builtin.template:
+    src: "{{ lookup('first_found', _search_paths) }}"
+    dest: "{{ ha_config_path }}/secrets.yaml"
+    mode: "0600"
+  vars:
+    _search_paths: >-
+      {{ ([ha_config_env_path ~ '/ha_configs/secrets.yaml'] if ha_config_env_path | length > 0 else [])
+         + [ha_config_base_path ~ '/ha_configs/secrets.yaml'] }}
+  register: _secrets_file_result
+
 # --- Deploy template sensor files ---
 
 - name: Find template files in base path
@@ -72,6 +85,7 @@
     _ha_config_changed: >-
       {{ _ha_config_changed | bool or
          (_config_files_result.results | selectattr('changed', 'equalto', true) | list | length > 0) or
+         (_secrets_file_result is changed) or
          (_template_files_result.results | selectattr('changed', 'equalto', true) | list | length > 0) }}
 
 # --- Validate configuration (only if changed) ---
