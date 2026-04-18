@@ -1,6 +1,14 @@
 ---
 # Task: Install HACS components (custom_components and frontend cards)
 #
+# Ownership model: SEED-ONLY by default (see hacs_install_mode).
+#   - seed_only:      install a component on first run only (when its
+#                     check_file is missing). Never overwrite a present
+#                     component, even if the pinned version differs.
+#                     This lets HACS UI fully manage upgrades.
+#   - force_redeploy: re-evaluate version pin on every run; atomically
+#                     swap if pinned version differs from on-disk.
+#
 # Idempotency:
 #   - integrations: compare version field in manifest.json with pinned version
 #   - plugins:      compare contents of .version sidecar file with pinned version
@@ -58,14 +66,37 @@
     label: "{{ item.item.manifest_name }}"
 
 - name: Determine which components need installation
+  # Install rules per component:
+  #   * Component is missing (no check_file present) -> always install (seed).
+  #   * Component is present and mode is seed_only   -> NEVER reinstall;
+  #       HACS UI is the source of truth for upgrades.
+  #   * Component is present and mode is force_redeploy:
+  #       - integration: install if manifest version != pinned version
+  #       - plugin:      install if .version marker != pinned version
   ansible.builtin.set_fact:
     _components_to_install: >-
       {{ _components_to_install | default([]) + (
         [item]
-        if (item.category == 'integration'
-            and (_integration_versions[item.full_name] | default('')) != item.version)
-           or (item.category == 'plugin'
+        if (
+          (item.category == 'integration'
+           and (_integration_versions[item.full_name] | default('')) == ''
+          )
+          or
+          (item.category == 'plugin'
+           and (_plugin_versions[item.full_name] | default('')) == ''
+          )
+          or
+          (
+            (hacs_install_mode | default('seed_only')) == 'force_redeploy'
+            and (
+              (item.category == 'integration'
+               and (_integration_versions[item.full_name] | default('')) != item.version)
+              or
+              (item.category == 'plugin'
                and (_plugin_versions[item.full_name] | default('')) != item.version)
+            )
+          )
+        )
         else []
       ) }}
   loop: "{{ ha_hacs_components }}"
@@ -77,8 +108,11 @@
     msg: >-
       {{ 'Components to install: '
          ~ (_components_to_install | map(attribute='manifest_name') | join(', '))
+         ~ '  (mode=' ~ (hacs_install_mode | default('seed_only')) ~ ')'
       if (_components_to_install | length > 0)
-      else 'All HACS components already at correct versions — skipped.' }}
+      else 'No HACS components need installation (mode='
+           ~ (hacs_install_mode | default('seed_only'))
+           ~ '). Present components are left untouched.' }}
 
 # --- Integration install (atomic swap per component) ---
 #

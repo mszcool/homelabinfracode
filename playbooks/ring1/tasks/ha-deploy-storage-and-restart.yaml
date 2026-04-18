@@ -116,10 +116,84 @@
       if (_ha_needs_restart | bool)
       else 'No changes detected — skipping backup and stop/start cycle.' }}
 
+# --- Drift report ---
+#
+# Per-file summary of which .storage files would change and why. Always
+# rendered when a restart is pending. Designed to be readable in CI logs
+# and in `--check --diff` runs (where the critical section below is gated
+# on _ha_needs_restart and ansible_check_mode).
+
+- name: Build drift report (ha_configs_storage)
+  ansible.builtin.set_fact:
+    _ha_drift_report: >-
+      {{ (_ha_drift_report | default([])) + [
+           {
+             'file': item.item.item,
+             'source': 'ha_configs_storage',
+             'status': ('NEW (file missing on target)'
+                        if (item.skipped | default(false))
+                        else ('CHANGED'
+                              if ((item.content | b64decode | from_json)
+                                  != (_storage_source_contents[item.item.item] | from_json))
+                              else 'unchanged'))
+           }
+         ] }}
+  loop: "{{ _existing_storage_slurps.results }}"
+  loop_control:
+    label: "{{ item.item.item }}"
+
+- name: Build drift report (ha_dashboards)
+  ansible.builtin.set_fact:
+    _ha_drift_report: >-
+      {{ (_ha_drift_report | default([])) + [
+           {
+             'file': item.item.item,
+             'source': 'ha_dashboards',
+             'status': ('NEW (file missing on target)'
+                        if (item.skipped | default(false))
+                        else ('CHANGED'
+                              if ((item.content | b64decode | from_json)
+                                  != (_dashboard_source_contents[item.item.item] | from_json))
+                              else 'unchanged'))
+           }
+         ] }}
+  loop: "{{ _existing_dashboard_slurps.results }}"
+  loop_control:
+    label: "{{ item.item.item }}"
+
+- name: Append HACS storage entries to drift report
+  ansible.builtin.set_fact:
+    _ha_drift_report: >-
+      {{ (_ha_drift_report | default([])) + [
+           { 'file': 'hacs.repositories', 'source': 'managed', 'status':
+               ('would write' if (_hacs_repos_write_needed | default(false) | bool)
+                else 'unchanged (mode=' ~ (hacs_install_mode | default('seed_only')) ~ ')') },
+           { 'file': 'hacs.data',         'source': 'managed', 'status':
+               ('would write' if (_hacs_data_write_needed | default(false) | bool)
+                else 'unchanged (mode=' ~ (hacs_install_mode | default('seed_only')) ~ ')') },
+           { 'file': 'core.config_entries (mqtt entry)', 'source': 'managed', 'status':
+               ('would write' if (_mqtt_entry_write_needed | default(false) | bool)
+                else 'unchanged') }
+         ] }}
+
+- name: Drift report — files that would change
+  ansible.builtin.debug:
+    msg: |-
+      ===== HA .storage drift report =====
+      {% for entry in (_ha_drift_report | default([])) | rejectattr('status', 'equalto', 'unchanged') | list %}
+      [{{ entry.status }}] {{ entry.source }} : {{ entry.file }}
+      {% else %}
+      (no drift — all .storage files match repo)
+      {% endfor %}
+      ====================================
+  when: (_ha_drift_report | default([])) | length > 0
+
 # --- Critical section: backup → stop → write → start (with rescue) ---
 
 - name: Deploy .storage files and HACS registration (critical section)
-  when: _ha_needs_restart | bool
+  when:
+    - _ha_needs_restart | bool
+    - not ansible_check_mode
   block:
     - name: Create pre-change HA backup
       ansible.builtin.shell: >

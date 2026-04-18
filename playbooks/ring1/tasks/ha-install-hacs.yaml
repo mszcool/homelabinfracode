@@ -1,8 +1,17 @@
 ---
 # Task: Install HACS (Home Assistant Community Store)
 #
+# Ownership model: SEED-ONLY by default (see hacs_install_mode).
+#   - seed_only:      install HACS on first run only; never touch again.
+#                     This is the default and the right choice for production
+#                     where HACS itself manages its own upgrades through the UI.
+#   - force_redeploy: always re-evaluate version pin, atomically swap.
+#                     Use on staging when testing a HACS version bump or to
+#                     forcibly resync a corrupted install.
+#
 # Idempotency: Checks custom_components/hacs/manifest.json version field.
-#              Downloads only if missing or version mismatch.
+#              Downloads only if missing, or version mismatch AND mode is
+#              force_redeploy.
 #
 # Resilience:  Uses staging-directory + atomic swap so a failed download
 #              or extraction never deletes a working installation.
@@ -20,10 +29,25 @@
   when: _hacs_manifest_stat.stat.exists
 
 - name: Determine if HACS needs installation
+  # Always install if HACS is not yet present (seed). When already present,
+  # only re-install if mode is force_redeploy AND the on-disk version no
+  # longer matches the pinned ha_hacs_version.
   ansible.builtin.set_fact:
     _hacs_needs_install: >-
-      {{ not _hacs_manifest_stat.stat.exists
-         or ((_hacs_manifest_slurp.content | b64decode | from_json).version | default('')) != ha_hacs_version }}
+      {{ (not _hacs_manifest_stat.stat.exists)
+         or (
+           (hacs_install_mode | default('seed_only')) == 'force_redeploy'
+           and ((_hacs_manifest_slurp.content | b64decode | from_json).version | default('')) != ha_hacs_version
+         ) }}
+
+- name: HACS install decision
+  ansible.builtin.debug:
+    msg: >-
+      {{ 'HACS not present — will install (seed).'
+         if (not _hacs_manifest_stat.stat.exists) else
+         ('HACS present and force_redeploy mode set; on-disk version differs — will reinstall.'
+          if (_hacs_needs_install | bool) else
+          'HACS already present (seed_only mode or version matches) — leaving HACS-managed install untouched.') }}
 
 - name: Install / upgrade HACS (atomic swap)
   when: _hacs_needs_install | bool

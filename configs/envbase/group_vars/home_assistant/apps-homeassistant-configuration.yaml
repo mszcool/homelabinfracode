@@ -55,6 +55,24 @@ ha_addons:
     name: Studio Code Server
 
 # ---------- HACS integration ----------
+# Install mode controls how the HACS install / component / storage tasks
+# behave when HACS is already present on the target:
+#
+#   seed_only       (default, prod):
+#     - HACS itself: install on first run only; never overwrite afterwards.
+#     - HACS components: install on first run only; never overwrite afterwards.
+#     - hacs.repositories / hacs.data: only seed when missing; never deep-merge
+#       on top of existing files (lets HACS UI fully manage versions).
+#
+#   force_redeploy  (staging / explicit reinstall):
+#     - All three tasks behave as before -- always re-evaluate version pins,
+#       atomically swap files, deep-merge HACS storage. Use to test plugin
+#       upgrades on staging or to forcibly resync a corrupted install.
+#
+# Override on the CLI when needed:
+#   ansible-playbook ... -e hacs_install_mode=force_redeploy
+hacs_install_mode: "seed_only"
+
 ha_hacs_version: "2.0.5"
 ha_hacs_download_url: "https://github.com/hacs/integration/releases/download/{{ ha_hacs_version }}/hacs.zip"
 
