@@ -79,6 +79,51 @@
   changed_when: false
   when: not _mqtt_already_configured
 
+# Optional MQTT subentries (e.g. Tasmota device subentries) can be supplied
+# as a JSON file under ha_configs_storage/. The file MUST contain a JSON
+# array conforming to the HA `subentries` schema. Looked up via the standard
+# env -> base overlay; absence of the file is fine -> empty subentries.
+- name: Locate optional MQTT subentries file (env -> base overlay)
+  ansible.builtin.set_fact:
+    _mqtt_subentries_path: >-
+      {{ lookup('first_found', _search_paths, errors='ignore') }}
+  vars:
+    _search_paths:
+      files:
+        - core.config_entries.mqtt-subentries.json
+      paths: >-
+        {{ ([ha_config_env_path ~ '/ha_configs_storage'] if ha_config_env_path | length > 0 else [])
+           + [ha_config_base_path ~ '/ha_configs_storage'] }}
+  when: not _mqtt_already_configured
+
+- name: Load MQTT subentries from file (if present)
+  ansible.builtin.set_fact:
+    _mqtt_subentries: >-
+      {{ (lookup('file', _mqtt_subentries_path) | from_json)
+         if (_mqtt_subentries_path | default('') | length > 0)
+         else [] }}
+  when: not _mqtt_already_configured
+
+- name: Validate MQTT subentries structure (if present)
+  ansible.builtin.assert:
+    that:
+      - _mqtt_subentries is sequence
+    fail_msg: >
+      core.config_entries.mqtt-subentries.json must contain a JSON array.
+      Got: {{ _mqtt_subentries | type_debug }}
+  when:
+    - not _mqtt_already_configured
+    - _mqtt_subentries_path | default('') | length > 0
+
+- name: MQTT subentries summary
+  ansible.builtin.debug:
+    msg: >-
+      {{ 'Loaded ' ~ (_mqtt_subentries | length) ~ ' MQTT subentries from '
+         ~ _mqtt_subentries_path
+      if (_mqtt_subentries_path | default('') | length > 0)
+      else 'No MQTT subentries file found — entry will have empty subentries.' }}
+  when: not _mqtt_already_configured
+
 - name: Build new MQTT entry
   vars:
     _now_iso: "{{ now(utc=true).isoformat() }}+00:00"
@@ -100,7 +145,7 @@
       pref_disable_new_entities: false
       pref_disable_polling: false
       source: user
-      subentries: []
+      subentries: "{{ _mqtt_subentries | default([]) }}"
       title: "{{ ha_mqtt_broker }}"
       unique_id: null
       version: 2
