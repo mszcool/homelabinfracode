@@ -53,6 +53,23 @@ all:
         mszrouter:
           ansible_host: "{{ ip_plan_hosts.router }}"
 
+    # ---------- Home Assistant OS VM (Ring 1) ----------
+    home_assistant:
+      hosts:
+        homeassistant:
+          ansible_host: "homeassistant.{{ localdomain }}"
+          ansible_user: root
+          ansible_connection: ssh
+          ansible_port: 22
+          ansible_shell_type: sh
+          # HAOS Terminal & SSH add-on ships python3 at /usr/bin/python3.
+          # Override the controller-side default (~/pythonvenv/...) which does
+          # not exist on the target host.
+          ansible_python_interpreter: /usr/bin/python3
+          # Force a fixed remote tmp path so Ansible does not probe the home
+          # directory (whose output is polluted by the HAOS SSH banner).
+          ansible_remote_tmp: /tmp/.ansible/tmp
+
     # ---------- Raspberry Pi edge devices ----------
     edge_devices:
       hosts:

@@ -1,0 +1,137 @@
+---
+# Task: PREPARE MQTT config entry in .storage/core.config_entries (no writes yet)
+#
+# The Supervisor REST API does NOT expose a way to create config entries
+# (config flows are websocket-only) and the /services/mqtt endpoint requires
+# the calling add-on to declare `services: mqtt:need`, which the SSH add-on
+# does not. Therefore the only deterministic, Ansible-driven way to create
+# the MQTT integration is to inject the entry directly into
+# .storage/core.config_entries while HA Core is stopped.
+#
+# This task is preparation only:
+#   - Reads existing .storage/core.config_entries.
+#   - Skips if any entry already has domain == 'mqtt' (preserving every
+#     other entry untouched, including subentries and unique_ids).
+#   - Otherwise builds a minimal new MQTT entry from ha_mqtt_* vars and
+#     APPENDS it to the existing entries list -- nothing else is modified.
+#   - Stores the proposed file content in `_mqtt_config_entries_proposed`
+#     and signals via `_mqtt_entry_write_needed`.
+#
+# The actual file write happens inside the stop -> write -> start block in
+# ha-deploy-storage-and-restart.yaml, so HA cannot rewrite the file from
+# its in-memory copy while we work.
+#
+# Idempotency: re-runs detect the existing mqtt entry and do nothing.
+# Resilience:  read-only here -- cannot break running HA.
+
+- name: Validate MQTT variables are set
+  ansible.builtin.assert:
+    that:
+      - ha_mqtt_broker | length > 0
+      - ha_mqtt_port is defined
+      - ha_mqtt_username | length > 0
+      - ha_mqtt_password | length > 0
+    fail_msg: >
+      MQTT variables are not fully defined. Set ha_mqtt_broker,
+      ha_mqtt_port, ha_mqtt_username and ha_mqtt_password in the
+      environment overlay (e.g. configs.private/envlocaldev/inventory/
+      group_vars/home_assistant/).
+
+- name: Check if core.config_entries exists
+  ansible.builtin.stat:
+    path: "{{ ha_config_path }}/.storage/core.config_entries"
+  register: _config_entries_stat
+
+- name: Read existing core.config_entries
+  ansible.builtin.slurp:
+    src: "{{ ha_config_path }}/.storage/core.config_entries"
+  register: _config_entries_slurp
+  when: _config_entries_stat.stat.exists
+
+- name: Parse existing core.config_entries
+  ansible.builtin.set_fact:
+    _config_entries_existing: >-
+      {{ (_config_entries_slurp.content | b64decode | from_json)
+         if _config_entries_stat.stat.exists
+         else {
+           'version': 1,
+           'minor_version': 1,
+           'key': 'core.config_entries',
+           'data': {'entries': []}
+         } }}
+
+- name: Detect existing MQTT entry (preserve everything if present)
+  ansible.builtin.set_fact:
+    _mqtt_already_configured: >-
+      {{ (_config_entries_existing.data.entries | default([]))
+         | selectattr('domain', 'equalto', 'mqtt') | list | length > 0 }}
+
+- name: Display MQTT entry status
+  ansible.builtin.debug:
+    msg: >-
+      {{ 'MQTT entry already present in core.config_entries — leaving file untouched.'
+      if _mqtt_already_configured
+      else 'No MQTT entry found — will append a new one (other entries preserved).' }}
+
+- name: Generate UUID for new MQTT entry
+  ansible.builtin.shell: python3 -c "import uuid; print(uuid.uuid4().hex)"
+  register: _mqtt_entry_id_gen
+  changed_when: false
+  when: not _mqtt_already_configured
+
+- name: Build new MQTT entry
+  vars:
+    _now_iso: "{{ now(utc=true).isoformat() }}+00:00"
+  ansible.builtin.set_fact:
+    _mqtt_new_entry:
+      created_at: "{{ _now_iso }}"
+      modified_at: "{{ _now_iso }}"
+      data:
+        broker: "{{ ha_mqtt_broker }}"
+        port: "{{ ha_mqtt_port | int }}"
+        username: "{{ ha_mqtt_username }}"
+        password: "{{ ha_mqtt_password }}"
+      disabled_by: null
+      discovery_keys: {}
+      domain: mqtt
+      entry_id: "{{ _mqtt_entry_id_gen.stdout }}"
+      minor_version: 1
+      options: {}
+      pref_disable_new_entities: false
+      pref_disable_polling: false
+      source: user
+      subentries: []
+      title: "{{ ha_mqtt_broker }}"
+      unique_id: null
+      version: 2
+  when: not _mqtt_already_configured
+  no_log: true
+
+- name: Build proposed core.config_entries content (existing entries + new MQTT entry appended)
+  ansible.builtin.set_fact:
+    _mqtt_config_entries_proposed: >-
+      {{ _config_entries_existing
+         | combine({
+             'data': {
+               'entries': (_config_entries_existing.data.entries | default([])) + [_mqtt_new_entry]
+             }
+           }, recursive=True) }}
+  when: not _mqtt_already_configured
+  no_log: true
+
+- name: Set MQTT write trigger
+  ansible.builtin.set_fact:
+    _mqtt_entry_write_needed: "{{ not _mqtt_already_configured }}"
+
+- name: Mark storage changed (MQTT entry pending)
+  ansible.builtin.set_fact:
+    _ha_storage_changed: true
+  when: _mqtt_entry_write_needed | bool
+
+- name: MQTT preparation summary
+  ansible.builtin.debug:
+    msg: >-
+      {{ 'MQTT entry prepared for ' ~ ha_mqtt_broker ~ ':' ~ ha_mqtt_port
+         ~ ' (write pending stop window).'
+      if (_mqtt_entry_write_needed | bool)
+      else 'MQTT entry already present — nothing to do.' }}

@@ -1,0 +1,91 @@
+---
+# Task: Deploy HA configuration files using first_found layering
+#
+# Idempotency: Ansible copy module uses built-in checksum comparison.
+#              Only reports 'changed' when file content actually differs.
+
+# --- Deploy main config files ---
+
+- name: Ensure templates directory exists
+  ansible.builtin.file:
+    path: "{{ ha_config_path }}/templates"
+    state: directory
+    mode: "0755"
+
+- name: Deploy configuration files (first_found layering)
+  ansible.builtin.copy:
+    src: "{{ lookup('first_found', _search_paths) }}"
+    dest: "{{ ha_config_path }}/{{ item }}"
+    mode: "0644"
+  vars:
+    _search_paths: >-
+      {{ ([ha_config_env_path ~ '/ha_configs/' ~ item] if ha_config_env_path | length > 0 else [])
+         + [ha_config_base_path ~ '/ha_configs/' ~ item] }}
+  loop: "{{ ha_config_files }}"
+  register: _config_files_result
+
+# --- Deploy template sensor files ---
+
+- name: Find template files in base path
+  ansible.builtin.find:
+    paths: "{{ ha_config_base_path }}/ha_configs/{{ ha_config_templates_dir }}"
+    patterns: "*.yaml,*.yml"
+    file_type: file
+  register: _base_template_files
+  delegate_to: localhost
+  failed_when: false
+
+- name: Find template files in env path
+  ansible.builtin.find:
+    paths: "{{ ha_config_env_path }}/ha_configs/{{ ha_config_templates_dir }}"
+    patterns: "*.yaml,*.yml"
+    file_type: file
+  register: _env_template_files
+  delegate_to: localhost
+  when: ha_config_env_path | length > 0
+  failed_when: false
+
+- name: Build unique list of template file names
+  ansible.builtin.set_fact:
+    _template_file_names: >-
+      {{ (((_env_template_files.files | default([])) | map(attribute='path') | map('basename') | list)
+          + (_base_template_files.files | default([]) | map(attribute='path') | map('basename') | list))
+         | unique }}
+
+- name: Deploy template files (first_found layering)
+  ansible.builtin.copy:
+    src: "{{ lookup('first_found', _search_paths) }}"
+    dest: "{{ ha_config_path }}/templates/{{ item }}"
+    mode: "0644"
+  vars:
+    _search_paths: >-
+      {{ ([ha_config_env_path ~ '/ha_configs/' ~ ha_config_templates_dir ~ '/' ~ item]
+          if ha_config_env_path | length > 0 else [])
+         + [ha_config_base_path ~ '/ha_configs/' ~ ha_config_templates_dir ~ '/' ~ item] }}
+  loop: "{{ _template_file_names }}"
+  register: _template_files_result
+
+# --- Check if any config file changed ---
+
+- name: Track config file changes
+  ansible.builtin.set_fact:
+    _ha_config_changed: >-
+      {{ _ha_config_changed | bool or
+         (_config_files_result.results | selectattr('changed', 'equalto', true) | list | length > 0) or
+         (_template_files_result.results | selectattr('changed', 'equalto', true) | list | length > 0) }}
+
+# --- Validate configuration (only if changed) ---
+
+- name: Validate HA configuration
+  ansible.builtin.shell: ha core check
+  register: _ha_core_check
+  changed_when: false
+  failed_when: _ha_core_check.rc != 0
+  when: _ha_config_changed | bool
+
+- name: Config deployment status
+  ansible.builtin.debug:
+    msg: >-
+      {{ 'Configuration files deployed and validated.'
+      if (_ha_config_changed | bool)
+      else 'All configuration files unchanged — skipped validation.' }}

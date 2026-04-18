@@ -1,0 +1,186 @@
+---
+# Playbook: Configure Home Assistant OS VM (Ring 1 - Operations)
+#
+# Installs HACS, add-ons (MariaDB, Code Server), HACS components
+# (Huawei Solar, apexcharts-card, tesla-style-solar-power-card),
+# deploys configuration files, .storage registries (floors, areas,
+# energy dashboard), and configures the MQTT integration.
+#
+# All tasks are idempotent — re-execution on an already-configured
+# instance produces zero changes and no restart.
+#
+# Prerequisites:
+#   - HAOS VM running and accessible on the network
+#   - Admin user created (onboarding completed)
+#   - "SSH & Web Terminal" community add-on (slug: a0d7b954_ssh) installed,
+#     configured with SSH keys, and with `packages: [python3]` in its config
+#     so /usr/bin/python3 is available for Ansible modules. The minimal
+#     official "Terminal & SSH" add-on (core_ssh) ships no python and will
+#     not work.
+#   - Mosquitto MQTT broker has a 'homeassistant' user (run apps-mosquitto-configure.yaml first)
+#
+# Configuration:
+#   - Base constants: configs/envbase/group_vars/home_assistant/apps-homeassistant-configuration.yaml
+#   - Config files:   configs/envbase/group_vars/home_assistant/ha_configs/, ha_configs_storage/, ha_dashboards/
+#   - Environment-specific: <env>/group_vars/home_assistant/ (overrides via first_found)
+#
+# Usage:
+#   ansible-playbook \
+#     -i configs/envbase/ \
+#     -i configs.private/envlocaldev/inventory/ \
+#     playbooks/ring1/apps-homeassistant-configure.yaml
+#
+# Or for test environment:
+#   ansible-playbook \
+#     -i configs/envbase/ \
+#     -i configs/envtest/inventory/ \
+#     playbooks/ring1/apps-homeassistant-configure.yaml
+
+- name: Configure Home Assistant OS
+  hosts: home_assistant
+  # gather_facts required for ansible_facts.date_time used in backup naming
+  gather_facts: true
+
+  # SUPERVISOR_TOKEN is exported by /etc/profile.d/ in the SSH add-on but is
+  # NOT inherited by Ansible's non-interactive shell sessions. We capture it
+  # in pre_tasks and re-export it here for every command in this play.
+  environment:
+    SUPERVISOR_TOKEN: "{{ _supervisor_token | default('') }}"
+
+  pre_tasks:
+    - name: Diagnose SUPERVISOR_TOKEN sources on the HA host
+      ansible.builtin.raw: env; echo "---"; ls -1 /etc/profile.d/ 2>/dev/null; echo "---"; cat /etc/environment 2>/dev/null
+      register: _ha_diagnose
+      changed_when: false
+      failed_when: false
+
+    - name: Show diagnostics
+      ansible.builtin.debug:
+        var: _ha_diagnose.stdout_lines
+
+    - name: Capture SUPERVISOR_TOKEN
+      ansible.builtin.raw: printf '%s' "$SUPERVISOR_TOKEN"
+      register: _supervisor_token_probe
+      changed_when: false
+      failed_when: false
+
+    - name: Set SUPERVISOR_TOKEN play variable
+      ansible.builtin.set_fact:
+        _supervisor_token: "{{ _supervisor_token_probe.stdout | default('') }}"
+      no_log: true
+
+    - name: Validate SUPERVISOR_TOKEN was captured
+      ansible.builtin.assert:
+        that:
+          - _supervisor_token | length > 0
+        fail_msg: >
+          SUPERVISOR_TOKEN was not present in the SSH session environment and
+          could not be read from any login profile. Review the diagnostics
+          task above to see what the host actually exposes.
+    - name: Validate Home Assistant configuration variables are defined
+      ansible.builtin.assert:
+        that:
+          - ha_config_path is defined
+          - ha_config_base_path is defined
+          - ha_addons is defined
+          - ha_hacs_version is defined
+          - ha_hacs_components is defined
+          - ha_config_files is defined
+          - ha_storage_files is defined
+          - ha_dashboard_files is defined
+        fail_msg: >
+          Missing Home Assistant configuration variables. Ensure
+          group_vars/home_assistant/apps-homeassistant-configuration.yaml is present
+          in both envbase and your environment inventory.
+
+    - name: Probe `ha core info` (single shot, for diagnostics)
+      ansible.builtin.shell: ha core info --raw-json
+      register: _ha_core_probe
+      changed_when: false
+      failed_when: false
+
+    - name: Show `ha core info` probe output
+      ansible.builtin.debug:
+        msg:
+          - "rc:     {{ _ha_core_probe.rc }}"
+          - "stdout: {{ _ha_core_probe.stdout }}"
+          - "stderr: {{ _ha_core_probe.stderr }}"
+
+    - name: Verify Home Assistant Core is responding (with retry for transient startup)
+      ansible.builtin.shell: ha core info --raw-json
+      register: _ha_core_info
+      changed_when: false
+      retries: 30
+      delay: 10
+      until: _ha_core_info.rc == 0
+
+    - name: Auto-detect HA config path
+      ansible.builtin.shell: |
+        if [ -d /homeassistant ]; then echo /homeassistant; elif [ -d /config ]; then echo /config; else echo ""; fi
+      register: _ha_detected_path
+      changed_when: false
+
+    - name: Override ha_config_path if auto-detected
+      ansible.builtin.set_fact:
+        ha_config_path: "{{ _ha_detected_path.stdout }}"
+      when: _ha_detected_path.stdout | length > 0
+
+    - name: Initialize change tracking flags
+      ansible.builtin.set_fact:
+        _ha_config_changed: false
+        _ha_storage_changed: false
+
+  tasks:
+    - name: Install HACS
+      ansible.builtin.include_tasks: tasks/ha-install-hacs.yaml
+
+    - name: Install Home Assistant add-ons
+      ansible.builtin.include_tasks: tasks/ha-install-addons.yaml
+
+    - name: Install HACS components (custom_components and frontend cards)
+      ansible.builtin.include_tasks: tasks/ha-install-hacs-components.yaml
+
+    - name: Deploy configuration files
+      ansible.builtin.include_tasks: tasks/ha-deploy-config-files.yaml
+
+    # HACS storage registration only PREPARES the merged content in facts.
+    # The actual .storage write happens inside ha-deploy-storage-and-restart.yaml
+    # so that HA is stopped and cannot overwrite our edits from its in-memory
+    # StorageManager.
+    - name: Prepare HACS storage registration entries
+      ansible.builtin.include_tasks: tasks/ha-register-hacs-storage.yaml
+
+    # Same pattern for MQTT: prepare a merged core.config_entries that adds
+    # an MQTT entry only if one does not already exist. The actual write
+    # happens in ha-deploy-storage-and-restart.yaml inside the stop window.
+    - name: Prepare MQTT integration entry
+      ansible.builtin.include_tasks: tasks/ha-configure-mqtt-integration.yaml
+
+    - name: Deploy .storage files and conditionally stop/restart HA
+      ansible.builtin.include_tasks: tasks/ha-deploy-storage-and-restart.yaml
+
+  post_tasks:
+    - name: Verify Home Assistant Core is running after configuration
+      ansible.builtin.shell: ha core info --raw-json
+      register: _ha_post_info
+      changed_when: false
+      retries: 30
+      delay: 10
+      until: _ha_post_info.rc == 0
+
+    - name: Display manual steps reminder
+      ansible.builtin.debug:
+        msg:
+          - "╔═════════════════════════════════════════════════════════════════╗"
+          - "║                    MANUAL STEPS REQUIRED                        ║"
+          - "╠═════════════════════════════════════════════════════════════════╣"
+          - "║                                                                 ║"
+          - "║  1. HACS Activation (one-time):                                 ║"
+          - "║     Settings > Devices & Services > Add Integration > HACS      ║"
+          - "║     Complete GitHub OAuth authentication.                       ║"
+          - "║                                                                 ║"
+          - "║  2. Huawei Solar Configuration (one-time):                      ║"
+          - "║     Settings > Devices & Services > Add Integration >           ║"
+          - "║     Huawei Solar > Enter inverter IP, port, credentials.        ║"
+          - "║                                                                 ║"
+          - "╚═════════════════════════════════════════════════════════════════╝"

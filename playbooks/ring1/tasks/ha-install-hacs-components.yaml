@@ -1,0 +1,329 @@
+---
+# Task: Install HACS components (custom_components and frontend cards)
+#
+# Idempotency:
+#   - integrations: compare version field in manifest.json with pinned version
+#   - plugins:      compare contents of .version sidecar file with pinned version
+# Resilience:
+#   - atomic swap via staging directory for integrations
+#   - download to temp file + move for plugins
+#   - block/rescue/always restores prior install on failure, cleans temp
+
+# --- Version detection ---
+
+- name: Check integration manifest versions
+  ansible.builtin.slurp:
+    src: "{{ ha_config_path }}/{{ item.check_file }}"
+  register: _integration_manifests
+  failed_when: false
+  loop: "{{ ha_hacs_components | selectattr('category', 'equalto', 'integration') | list }}"
+  loop_control:
+    label: "{{ item.manifest_name }}"
+
+- name: Check plugin version markers
+  ansible.builtin.slurp:
+    src: "{{ ha_config_path }}/{{ item.local_path }}/.version"
+  register: _plugin_version_markers
+  failed_when: false
+  loop: "{{ ha_hacs_components | selectattr('category', 'equalto', 'plugin') | list }}"
+  loop_control:
+    label: "{{ item.manifest_name }}"
+
+- name: Build integration installed-version map
+  ansible.builtin.set_fact:
+    _integration_versions: >-
+      {{ _integration_versions | default({}) | combine({
+        item.item.full_name: (
+          (item.content | b64decode | from_json).version | default('')
+          if (item.content is defined and (item.failed | default(false)) == false)
+          else ''
+        )
+      }) }}
+  loop: "{{ _integration_manifests.results }}"
+  loop_control:
+    label: "{{ item.item.manifest_name }}"
+
+- name: Build plugin installed-version map
+  ansible.builtin.set_fact:
+    _plugin_versions: >-
+      {{ _plugin_versions | default({}) | combine({
+        item.item.full_name: (
+          (item.content | b64decode | trim)
+          if (item.content is defined and (item.failed | default(false)) == false)
+          else ''
+        )
+      }) }}
+  loop: "{{ _plugin_version_markers.results }}"
+  loop_control:
+    label: "{{ item.item.manifest_name }}"
+
+- name: Determine which components need installation
+  ansible.builtin.set_fact:
+    _components_to_install: >-
+      {{ _components_to_install | default([]) + (
+        [item]
+        if (item.category == 'integration'
+            and (_integration_versions[item.full_name] | default('')) != item.version)
+           or (item.category == 'plugin'
+               and (_plugin_versions[item.full_name] | default('')) != item.version)
+        else []
+      ) }}
+  loop: "{{ ha_hacs_components }}"
+  loop_control:
+    label: "{{ item.manifest_name }}"
+
+- name: Display components to install
+  ansible.builtin.debug:
+    msg: >-
+      {{ 'Components to install: '
+         ~ (_components_to_install | map(attribute='manifest_name') | join(', '))
+      if (_components_to_install | length > 0)
+      else 'All HACS components already at correct versions — skipped.' }}
+
+# --- Integration install (atomic swap per component) ---
+#
+# Integrations are always source=archive: we download the GitHub source ZIP
+# at the pinned tag and copy the literal `archive_subpath` (which the operator
+# specifies including any top-level directory prefix, e.g.
+# "huawei_solar-1.6.0" or "<top>/custom_components/<domain>") into place.
+
+- name: Install integration components (atomic swap)
+  when: (_components_to_install | selectattr('category', 'equalto', 'integration') | list | length) > 0
+  block:
+    - name: Reset integration staging root
+      ansible.builtin.file:
+        path: /tmp/hacs_components
+        state: absent
+
+    - name: Create integration staging root
+      ansible.builtin.file:
+        path: /tmp/hacs_components
+        state: directory
+        mode: "0755"
+
+    - name: Download integration source archives
+      ansible.builtin.get_url:
+        url: "https://github.com/{{ item.full_name }}/archive/refs/tags/{{ item.tag | default(item.version) }}.zip"
+        dest: "/tmp/hacs_components/{{ item.domain }}.zip"
+        mode: "0644"
+        timeout: 60
+        force: true
+      loop: "{{ _components_to_install | selectattr('category', 'equalto', 'integration') | list }}"
+      loop_control:
+        label: "{{ item.manifest_name }}"
+
+    - name: Extract integration archives and stage subpath (BusyBox unzip)
+      # Expands the source ZIP, then moves the literal `archive_subpath` into
+      # a per-component staging dir. The operator specifies the full path
+      # inside the archive (including GitHub's top-level dir), so no
+      # auto-discovery is needed.
+      ansible.builtin.shell: |
+        set -e
+        extract="/tmp/hacs_components/{{ item.domain }}_extract"
+        staging="/tmp/hacs_components/{{ item.domain }}_staging"
+        rm -rf "$extract" "$staging"
+        mkdir -p "$extract"
+        unzip -o -q "/tmp/hacs_components/{{ item.domain }}.zip" -d "$extract"
+        src="$extract/{{ item.archive_subpath }}"
+        if [ ! -d "$src" ]; then
+          echo "ERROR: archive_subpath '{{ item.archive_subpath }}' not found in $extract" >&2
+          ls -la "$extract" >&2
+          exit 1
+        fi
+        mv "$src" "$staging"
+      changed_when: true
+      loop: "{{ _components_to_install | selectattr('category', 'equalto', 'integration') | list }}"
+      loop_control:
+        label: "{{ item.manifest_name }}"
+
+    - name: Verify staged integration manifests exist
+      ansible.builtin.stat:
+        path: "/tmp/hacs_components/{{ item.domain }}_staging/manifest.json"
+      register: _staged_integration_manifests
+      loop: "{{ _components_to_install | selectattr('category', 'equalto', 'integration') | list }}"
+      loop_control:
+        label: "{{ item.manifest_name }}"
+
+    - name: Fail if any staged integration manifest missing
+      ansible.builtin.fail:
+        msg: "Extracted archive for {{ item.item.manifest_name }} is missing manifest.json — aborting."
+      when: not item.stat.exists
+      loop: "{{ _staged_integration_manifests.results }}"
+      loop_control:
+        label: "{{ item.item.manifest_name }}"
+
+    - name: Ensure custom_components parent exists
+      ansible.builtin.file:
+        path: "{{ ha_config_path }}/custom_components"
+        state: directory
+        mode: "0755"
+
+    - name: Swap integration targets atomically
+      ansible.builtin.shell: |
+        set -e
+        target="{{ ha_config_path }}/{{ item.local_path }}"
+        staging="/tmp/hacs_components/{{ item.domain }}_staging"
+        if [ -d "$target" ]; then
+          rm -rf "${target}.bak"
+          mv "$target" "${target}.bak"
+        fi
+        mv "$staging" "$target"
+      changed_when: true
+      loop: "{{ _components_to_install | selectattr('category', 'equalto', 'integration') | list }}"
+      loop_control:
+        label: "{{ item.manifest_name }}"
+
+    - name: Remove integration backups on success
+      ansible.builtin.file:
+        path: "{{ ha_config_path }}/{{ item.local_path }}.bak"
+        state: absent
+      loop: "{{ _components_to_install | selectattr('category', 'equalto', 'integration') | list }}"
+      loop_control:
+        label: "{{ item.manifest_name }}"
+
+  rescue:
+    - name: Restore integration backups after failure
+      ansible.builtin.shell: |
+        target="{{ ha_config_path }}/{{ item.local_path }}"
+        if [ -d "${target}.bak" ]; then
+          rm -rf "$target"
+          mv "${target}.bak" "$target"
+        fi
+      changed_when: true
+      failed_when: false
+      loop: "{{ _components_to_install | selectattr('category', 'equalto', 'integration') | list }}"
+      loop_control:
+        label: "{{ item.manifest_name }}"
+
+    - name: Re-raise integration install failure
+      ansible.builtin.fail:
+        msg: "HACS integration install failed; previous versions restored (if present)."
+
+  always:
+    - name: Clean integration staging root
+      ansible.builtin.file:
+        path: /tmp/hacs_components
+        state: absent
+
+# --- Plugin install ---
+#
+# Two source strategies (selected per-component via `source:`):
+#   - source: archive (default) — download the GitHub source ZIP, extract
+#     the literal `archive_subpath` JS file
+#   - source: direct — download a single file from `download_url` (used when
+#     the project publishes a ready-to-use release asset, e.g. apexcharts-card.js)
+
+- name: Install plugin components
+  when: (_components_to_install | selectattr('category', 'equalto', 'plugin') | list | length) > 0
+  block:
+    - name: Reset plugin staging root
+      ansible.builtin.file:
+        path: /tmp/hacs_plugins
+        state: absent
+
+    - name: Create plugin staging root
+      ansible.builtin.file:
+        path: /tmp/hacs_plugins
+        state: directory
+        mode: "0755"
+
+    # ----- source: archive -----
+
+    - name: Download plugin source archives
+      ansible.builtin.get_url:
+        url: "https://github.com/{{ item.full_name }}/archive/refs/tags/{{ item.tag | default(item.version) }}.zip"
+        dest: "/tmp/hacs_plugins/{{ item.check_file | basename }}.zip"
+        mode: "0644"
+        timeout: 60
+        force: true
+      loop: "{{ _components_to_install | selectattr('category', 'equalto', 'plugin')
+              | selectattr('source', 'defined')
+              | selectattr('source', 'equalto', 'archive') | list }}"
+      loop_control:
+        label: "{{ item.manifest_name }}"
+
+    - name: Extract plugin JS from source archive (BusyBox unzip)
+      ansible.builtin.shell: |
+        set -e
+        zip="/tmp/hacs_plugins/{{ item.check_file | basename }}.zip"
+        extract="/tmp/hacs_plugins/{{ item.check_file | basename }}_extract"
+        rm -rf "$extract"
+        mkdir -p "$extract"
+        unzip -o -q "$zip" -d "$extract"
+        src="$extract/{{ item.archive_subpath }}"
+        if [ ! -f "$src" ]; then
+          echo "ERROR: archive_subpath '{{ item.archive_subpath }}' not found in $extract" >&2
+          ls -la "$extract" >&2
+          exit 1
+        fi
+        mv "$src" "/tmp/hacs_plugins/{{ item.check_file | basename }}"
+      changed_when: true
+      loop: "{{ _components_to_install | selectattr('category', 'equalto', 'plugin')
+              | selectattr('source', 'defined')
+              | selectattr('source', 'equalto', 'archive') | list }}"
+      loop_control:
+        label: "{{ item.manifest_name }}"
+
+    # ----- source: direct -----
+
+    - name: Download plugin JS directly from release asset
+      ansible.builtin.get_url:
+        url: "{{ item.download_url }}"
+        dest: "/tmp/hacs_plugins/{{ item.check_file | basename }}"
+        mode: "0644"
+        timeout: 60
+        force: true
+      loop: "{{ _components_to_install | selectattr('category', 'equalto', 'plugin')
+              | selectattr('source', 'defined')
+              | selectattr('source', 'equalto', 'direct') | list }}"
+      loop_control:
+        label: "{{ item.manifest_name }}"
+
+    # ----- Common: place into HA config tree -----
+
+    - name: Ensure plugin target directories exist
+      ansible.builtin.file:
+        path: "{{ ha_config_path }}/{{ item.local_path }}"
+        state: directory
+        mode: "0755"
+      loop: "{{ _components_to_install | selectattr('category', 'equalto', 'plugin') | list }}"
+      loop_control:
+        label: "{{ item.manifest_name }}"
+
+    - name: Move plugin JS into place
+      ansible.builtin.shell: |
+        mv "/tmp/hacs_plugins/{{ item.check_file | basename }}" "{{ ha_config_path }}/{{ item.check_file }}"
+      changed_when: true
+      loop: "{{ _components_to_install | selectattr('category', 'equalto', 'plugin') | list }}"
+      loop_control:
+        label: "{{ item.manifest_name }}"
+
+    - name: Write plugin version marker
+      ansible.builtin.copy:
+        content: "{{ item.version }}\n"
+        dest: "{{ ha_config_path }}/{{ item.local_path }}/.version"
+        mode: "0644"
+      loop: "{{ _components_to_install | selectattr('category', 'equalto', 'plugin') | list }}"
+      loop_control:
+        label: "{{ item.manifest_name }}"
+
+  always:
+    - name: Clean plugin staging root
+      ansible.builtin.file:
+        path: /tmp/hacs_plugins
+        state: absent
+
+- name: Set config changed flag (HACS components installed)
+  ansible.builtin.set_fact:
+    _ha_config_changed: true
+  when: (_components_to_install | default([]) | length) > 0
+
+- name: Huawei Solar reminder
+  ansible.builtin.debug:
+    msg: >-
+      MANUAL STEP: After HA restart, configure Huawei Solar integration
+      in Settings > Devices & Services > Add Integration > Huawei Solar
+      and enter your inverter IP, port, and credentials.
+  when: >
+    (_components_to_install | default([])
+     | selectattr('domain', 'equalto', 'huawei_solar') | list | length) > 0

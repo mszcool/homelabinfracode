@@ -1,0 +1,101 @@
+---
+# Task: Install Home Assistant add-ons via `ha apps` CLI
+#
+# Idempotency: Queries each add-on via `ha apps info`. The Supervisor returns
+#   result=ok even for add-ons that aren't installed; in that case
+#   `data.version` is null (and `data.state` is "unknown"). For installed
+#   add-ons `data.state` is one of: started, stopped, error.
+#
+# Note: `ha addons` is deprecated in HA Supervisor 2026.x — use `ha apps`.
+
+- name: Check add-on state
+  ansible.builtin.shell: |
+    ha apps info {{ item.slug }} --raw-json 2>/dev/null \
+      || echo '{"data":{"state":"unknown","version":null}}'
+  register: _addon_info_results
+  changed_when: false
+  loop: "{{ ha_addons }}"
+  loop_control:
+    label: "{{ item.name }}"
+
+- name: Parse add-on states
+  ansible.builtin.set_fact:
+    _addon_states: >-
+      {{ _addon_states | default({}) | combine({
+        item.item.slug: {
+          'state': (item.stdout | from_json).data.state | default('unknown'),
+          'installed': ((item.stdout | from_json).data.version | default(none)) is not none
+        }
+      }) }}
+  loop: "{{ _addon_info_results.results }}"
+  loop_control:
+    label: "{{ item.item.name }}"
+
+- name: Install add-ons that are not installed
+  ansible.builtin.shell: "ha apps install {{ item.slug }}"
+  when: not _addon_states[item.slug].installed
+  loop: "{{ ha_addons }}"
+  loop_control:
+    label: "{{ item.name }}"
+  register: _addon_install_result
+  changed_when: _addon_install_result.rc == 0
+
+# --- Apply add-on options (via Supervisor REST — the `ha` CLI has no
+#     `options` subcommand). Only applies to add-ons declared with `options`.
+#     Supervisor validates against the add-on schema and 400s on missing
+#     required fields; failures here block start, which is desired.
+
+- name: Apply add-on options via Supervisor API
+  ansible.builtin.uri:
+    url: "http://supervisor/addons/{{ item.slug }}/options"
+    method: POST
+    headers:
+      Authorization: "Bearer {{ _supervisor_token }}"
+      Content-Type: "application/json"
+    body_format: json
+    body:
+      options: "{{ item.options }}"
+    status_code: [200]
+  when: item.options is defined and (item.options | length > 0)
+  loop: "{{ ha_addons }}"
+  loop_control:
+    label: "{{ item.name }}"
+  register: _addon_options_result
+  changed_when: _addon_options_result.status == 200
+
+- name: Start add-ons that are not running
+  ansible.builtin.shell: "ha apps start {{ item.slug }}"
+  when: >
+    (not _addon_states[item.slug].installed) or
+    (_addon_states[item.slug].state != 'started')
+  loop: "{{ ha_addons }}"
+  loop_control:
+    label: "{{ item.name }}"
+  register: _addon_start_result
+  changed_when: _addon_start_result.rc == 0
+
+- name: Wait for add-ons to reach started state
+  ansible.builtin.shell: |
+    ha apps info {{ item.slug }} --raw-json
+  register: _addon_wait_result
+  until: >
+    (_addon_wait_result.stdout | from_json).data.state == 'started'
+  retries: 30
+  delay: 10
+  changed_when: false
+  when: >
+    (not _addon_states[item.slug].installed) or
+    (_addon_states[item.slug].state != 'started')
+  loop: "{{ ha_addons }}"
+  loop_control:
+    label: "{{ item.name }}"
+
+- name: Add-on installation summary
+  ansible.builtin.debug:
+    msg: >-
+      {{ item.name }}: {{ 'already running — skipped'
+      if (_addon_states[item.slug].installed and _addon_states[item.slug].state == 'started')
+      else 'installed and started' }}
+  loop: "{{ ha_addons }}"
+  loop_control:
+    label: "{{ item.name }}"
