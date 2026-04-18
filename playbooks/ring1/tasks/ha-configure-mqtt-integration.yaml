@@ -1,28 +1,30 @@
 ---
 # Task: PREPARE MQTT config entry in .storage/core.config_entries (no writes yet)
 #
-# The Supervisor REST API does NOT expose a way to create config entries
-# (config flows are websocket-only) and the /services/mqtt endpoint requires
-# the calling add-on to declare `services: mqtt:need`, which the SSH add-on
-# does not. Therefore the only deterministic, Ansible-driven way to create
-# the MQTT integration is to inject the entry directly into
-# .storage/core.config_entries while HA Core is stopped.
+# Ownership model: REPO-AS-TRUTH (same as configuration.yaml & .storage seeds).
+# Every run rebuilds the desired MQTT entry from ha_mqtt_* vars + the
+# optional core.config_entries.mqtt-subentries.json file. If it differs
+# semantically from what's on disk, we replace the on-disk MQTT entry
+# inside the stop window. All non-mqtt entries in core.config_entries are
+# preserved verbatim.
 #
-# This task is preparation only:
-#   - Reads existing .storage/core.config_entries.
-#   - Skips if any entry already has domain == 'mqtt' (preserving every
-#     other entry untouched, including subentries and unique_ids).
-#   - Otherwise builds a minimal new MQTT entry from ha_mqtt_* vars and
-#     APPENDS it to the existing entries list -- nothing else is modified.
-#   - Stores the proposed file content in `_mqtt_config_entries_proposed`
-#     and signals via `_mqtt_entry_write_needed`.
+# True idempotency:
+#   - `entry_id` and `created_at` are reused from the existing entry when
+#     present, so re-runs do NOT churn these fields.
+#   - `modified_at` is excluded from the diff, then refreshed only when an
+#     actual change is being written.
 #
-# The actual file write happens inside the stop -> write -> start block in
-# ha-deploy-storage-and-restart.yaml, so HA cannot rewrite the file from
-# its in-memory copy while we work.
+# Why direct file editing? The Supervisor REST API does not expose a way
+# to create config entries (config flows are websocket-only) and the
+# /services/mqtt endpoint requires `services: mqtt:need` in the calling
+# add-on manifest, which the SSH add-on does not declare. So the only
+# deterministic, Ansible-driven path is to edit core.config_entries while
+# HA Core is stopped.
 #
-# Idempotency: re-runs detect the existing mqtt entry and do nothing.
-# Resilience:  read-only here -- cannot break running HA.
+# This task is preparation only -- the file write happens inside the
+# stop -> write -> start block in ha-deploy-storage-and-restart.yaml.
+#
+# Resilience: read-only here -- cannot break running HA.
 
 - name: Validate MQTT variables are set
   ansible.builtin.assert:
@@ -36,6 +38,8 @@
       ha_mqtt_port, ha_mqtt_username and ha_mqtt_password in the
       environment overlay (e.g. configs.private/envlocaldev/inventory/
       group_vars/home_assistant/).
+
+# --- Read existing core.config_entries ---
 
 - name: Check if core.config_entries exists
   ansible.builtin.stat:
@@ -60,29 +64,18 @@
            'data': {'entries': []}
          } }}
 
-- name: Detect existing MQTT entry (preserve everything if present)
+- name: Extract existing MQTT entry (if any)
   ansible.builtin.set_fact:
-    _mqtt_already_configured: >-
+    _mqtt_existing_entry: >-
+      {{ ((_config_entries_existing.data.entries | default([]))
+          | selectattr('domain', 'equalto', 'mqtt') | list | first)
+         | default({}) }}
+    _mqtt_other_entries: >-
       {{ (_config_entries_existing.data.entries | default([]))
-         | selectattr('domain', 'equalto', 'mqtt') | list | length > 0 }}
+         | rejectattr('domain', 'equalto', 'mqtt') | list }}
 
-- name: Display MQTT entry status
-  ansible.builtin.debug:
-    msg: >-
-      {{ 'MQTT entry already present in core.config_entries — leaving file untouched.'
-      if _mqtt_already_configured
-      else 'No MQTT entry found — will append a new one (other entries preserved).' }}
+# --- Load subentries (optional, env -> base overlay) ---
 
-- name: Generate UUID for new MQTT entry
-  ansible.builtin.shell: python3 -c "import uuid; print(uuid.uuid4().hex)"
-  register: _mqtt_entry_id_gen
-  changed_when: false
-  when: not _mqtt_already_configured
-
-# Optional MQTT subentries (e.g. Tasmota device subentries) can be supplied
-# as a JSON file under ha_configs_storage/. The file MUST contain a JSON
-# array conforming to the HA `subentries` schema. Looked up via the standard
-# env -> base overlay; absence of the file is fine -> empty subentries.
 - name: Locate optional MQTT subentries file (env -> base overlay)
   ansible.builtin.set_fact:
     _mqtt_subentries_path: >-
@@ -94,43 +87,50 @@
       paths: >-
         {{ ([ha_config_env_path ~ '/ha_configs_storage'] if ha_config_env_path | length > 0 else [])
            + [ha_config_base_path ~ '/ha_configs_storage'] }}
-  when: not _mqtt_already_configured
 
-- name: Load MQTT subentries from file (if present)
+- name: Load MQTT subentries from file (or default to empty list)
   ansible.builtin.set_fact:
     _mqtt_subentries: >-
       {{ (lookup('file', _mqtt_subentries_path) | from_json)
          if (_mqtt_subentries_path | default('') | length > 0)
          else [] }}
-  when: not _mqtt_already_configured
 
-- name: Validate MQTT subentries structure (if present)
+- name: Validate MQTT subentries structure
   ansible.builtin.assert:
     that:
       - _mqtt_subentries is sequence
     fail_msg: >
       core.config_entries.mqtt-subentries.json must contain a JSON array.
       Got: {{ _mqtt_subentries | type_debug }}
-  when:
-    - not _mqtt_already_configured
-    - _mqtt_subentries_path | default('') | length > 0
+  when: _mqtt_subentries_path | default('') | length > 0
 
-- name: MQTT subentries summary
-  ansible.builtin.debug:
-    msg: >-
-      {{ 'Loaded ' ~ (_mqtt_subentries | length) ~ ' MQTT subentries from '
-         ~ _mqtt_subentries_path
-      if (_mqtt_subentries_path | default('') | length > 0)
-      else 'No MQTT subentries file found — entry will have empty subentries.' }}
-  when: not _mqtt_already_configured
+# --- Reuse existing IDs / timestamps where possible ---
 
-- name: Build new MQTT entry
+- name: Generate fresh entry_id (only if no existing MQTT entry)
+  ansible.builtin.shell: python3 -c "import uuid; print(uuid.uuid4().hex)"
+  register: _mqtt_entry_id_gen
+  changed_when: false
+  when: (_mqtt_existing_entry | length) == 0
+
+- name: Resolve entry_id and created_at (reuse existing where present)
+  ansible.builtin.set_fact:
+    _mqtt_entry_id: >-
+      {{ _mqtt_existing_entry.entry_id
+         if (_mqtt_existing_entry.entry_id | default('') | length > 0)
+         else _mqtt_entry_id_gen.stdout }}
+    _mqtt_created_at: >-
+      {{ _mqtt_existing_entry.created_at
+         if (_mqtt_existing_entry.created_at | default('') | length > 0)
+         else _now_iso }}
   vars:
     _now_iso: "{{ now(utc=true).isoformat() }}+00:00"
+
+# --- Build the desired entry (without modified_at -- set later only on change) ---
+
+- name: Build desired MQTT entry (canonical form, no modified_at)
   ansible.builtin.set_fact:
-    _mqtt_new_entry:
-      created_at: "{{ _now_iso }}"
-      modified_at: "{{ _now_iso }}"
+    _mqtt_desired_entry_core:
+      created_at: "{{ _mqtt_created_at }}"
       data:
         broker: "{{ ha_mqtt_broker }}"
         port: "{{ ha_mqtt_port | int }}"
@@ -139,34 +139,62 @@
       disabled_by: null
       discovery_keys: {}
       domain: mqtt
-      entry_id: "{{ _mqtt_entry_id_gen.stdout }}"
+      entry_id: "{{ _mqtt_entry_id }}"
       minor_version: 1
       options: {}
       pref_disable_new_entities: false
       pref_disable_polling: false
       source: user
-      subentries: "{{ _mqtt_subentries | default([]) }}"
+      subentries: "{{ _mqtt_subentries }}"
       title: "{{ ha_mqtt_broker }}"
       unique_id: null
       version: 2
-  when: not _mqtt_already_configured
   no_log: true
 
-- name: Build proposed core.config_entries content (existing entries + new MQTT entry appended)
+# --- Diff: compare proposed vs existing (excluding modified_at) ---
+
+- name: Compute existing MQTT entry without modified_at (for diff)
+  ansible.builtin.set_fact:
+    _mqtt_existing_for_diff: >-
+      {{ _mqtt_existing_entry
+         | dict2items | rejectattr('key', 'equalto', 'modified_at')
+         | list | items2dict }}
+
+- name: Decide whether MQTT entry needs to be (re)written
+  ansible.builtin.set_fact:
+    _mqtt_entry_write_needed: >-
+      {{ _mqtt_existing_for_diff != _mqtt_desired_entry_core }}
+
+- name: Display MQTT entry diff decision
+  ansible.builtin.debug:
+    msg: >-
+      {{ 'MQTT entry differs from repo source-of-truth — will (re)write inside stop window.'
+      if _mqtt_entry_write_needed
+      else 'MQTT entry already matches repo source-of-truth — no change.' }}
+
+# --- Stamp modified_at and assemble proposed file (only if needed) ---
+
+- name: Stamp modified_at on the desired MQTT entry
+  ansible.builtin.set_fact:
+    _mqtt_new_entry: >-
+      {{ _mqtt_desired_entry_core
+         | combine({'modified_at': _now_iso}) }}
+  vars:
+    _now_iso: "{{ now(utc=true).isoformat() }}+00:00"
+  when: _mqtt_entry_write_needed | bool
+  no_log: true
+
+- name: Build proposed core.config_entries content (other entries + replaced MQTT entry)
   ansible.builtin.set_fact:
     _mqtt_config_entries_proposed: >-
       {{ _config_entries_existing
          | combine({
              'data': {
-               'entries': (_config_entries_existing.data.entries | default([])) + [_mqtt_new_entry]
+               'entries': _mqtt_other_entries + [_mqtt_new_entry]
              }
            }, recursive=True) }}
-  when: not _mqtt_already_configured
+  when: _mqtt_entry_write_needed | bool
   no_log: true
-
-- name: Set MQTT write trigger
-  ansible.builtin.set_fact:
-    _mqtt_entry_write_needed: "{{ not _mqtt_already_configured }}"
 
 - name: Mark storage changed (MQTT entry pending)
   ansible.builtin.set_fact:
@@ -177,6 +205,6 @@
   ansible.builtin.debug:
     msg: >-
       {{ 'MQTT entry prepared for ' ~ ha_mqtt_broker ~ ':' ~ ha_mqtt_port
-         ~ ' (write pending stop window).'
+         ~ ' with ' ~ (_mqtt_subentries | length) ~ ' subentries (write pending stop window).'
       if (_mqtt_entry_write_needed | bool)
-      else 'MQTT entry already present — nothing to do.' }}
+      else 'MQTT entry already matches source-of-truth — nothing to do.' }}
