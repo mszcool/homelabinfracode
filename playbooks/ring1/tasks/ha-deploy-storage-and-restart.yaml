@@ -102,7 +102,7 @@
 - name: Determine if stop/start cycle is needed
   ansible.builtin.set_fact:
     _ha_needs_restart: >-
-      {{ (_ha_config_changed | bool) or
+      {{ (_non_mqtt_config_changed | default(_ha_config_changed) | bool) or
          (_ha_storage_changed | bool) or
          (_storage_files_changed | default(false) | bool) or
          (_hacs_repos_write_needed | default(false) | bool) or

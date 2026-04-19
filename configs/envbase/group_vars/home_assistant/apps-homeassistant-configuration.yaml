@@ -170,6 +170,7 @@ ha_config_files:
   - automations.yaml
   - scenes.yaml
   - scripts.yaml
+  - mqtt.yaml
 
 # Subdirectory under ha_configs/ containing template sensor YAML files
 # Copied to {{ ha_config_path }}/templates/

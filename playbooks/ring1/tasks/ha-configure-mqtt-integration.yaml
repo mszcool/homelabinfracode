@@ -1,12 +1,22 @@
 ---
-# Task: PREPARE MQTT config entry in .storage/core.config_entries (no writes yet)
+# Task: PREPARE MQTT BROKER config entry in .storage/core.config_entries.
+#
+# Scope: BROKER ONLY (host, port, username, password). MQTT entities
+# (switches, sensors, lights, ...) are now defined in YAML via
+# `mqtt: !include mqtt.yaml` in configuration.yaml. They are deployed
+# by ha-deploy-config-files.yaml and reloaded by ha-reload-mqtt.yaml
+# without restarting HA Core.
+#
+# This task writes `subentries: []` into the MQTT entry every run, so
+# any subentries left over from a UI flow on prod are cleared at the
+# next playbook run -- preventing duplicate entities (one from YAML,
+# one from a stray subentry).
 #
 # Ownership model: REPO-AS-TRUTH (same as configuration.yaml & .storage seeds).
-# Every run rebuilds the desired MQTT entry from ha_mqtt_* vars + the
-# optional core.config_entries.mqtt-subentries.json file. If it differs
-# semantically from what's on disk, we replace the on-disk MQTT entry
-# inside the stop window. All non-mqtt entries in core.config_entries are
-# preserved verbatim.
+# Every run rebuilds the desired MQTT entry from ha_mqtt_* vars. If it
+# differs semantically from what's on disk, we replace the on-disk MQTT
+# entry inside the stop window. All non-mqtt entries in core.config_entries
+# are preserved verbatim.
 #
 # True idempotency:
 #   - `entry_id` and `created_at` are reused from the existing entry when
@@ -74,36 +84,6 @@
       {{ (_config_entries_existing.data.entries | default([]))
          | rejectattr('domain', 'equalto', 'mqtt') | list }}
 
-# --- Load subentries (optional, env -> base overlay) ---
-
-- name: Locate optional MQTT subentries file (env -> base overlay)
-  ansible.builtin.set_fact:
-    _mqtt_subentries_path: >-
-      {{ lookup('first_found', _search_paths, errors='ignore') }}
-  vars:
-    _search_paths:
-      files:
-        - core.config_entries.mqtt-subentries.json
-      paths: >-
-        {{ ([ha_config_env_path ~ '/ha_configs_storage'] if ha_config_env_path | length > 0 else [])
-           + [ha_config_base_path ~ '/ha_configs_storage'] }}
-
-- name: Load MQTT subentries from file (or default to empty list)
-  ansible.builtin.set_fact:
-    _mqtt_subentries: >-
-      {{ (lookup('file', _mqtt_subentries_path) | from_json)
-         if (_mqtt_subentries_path | default('') | length > 0)
-         else [] }}
-
-- name: Validate MQTT subentries structure
-  ansible.builtin.assert:
-    that:
-      - _mqtt_subentries is sequence
-    fail_msg: >
-      core.config_entries.mqtt-subentries.json must contain a JSON array.
-      Got: {{ _mqtt_subentries | type_debug }}
-  when: _mqtt_subentries_path | default('') | length > 0
-
 # --- Reuse existing IDs / timestamps where possible ---
 
 - name: Generate fresh entry_id (only if no existing MQTT entry)
@@ -145,7 +125,7 @@
       pref_disable_new_entities: false
       pref_disable_polling: false
       source: user
-      subentries: "{{ _mqtt_subentries }}"
+      subentries: []
       title: "{{ ha_mqtt_broker }}"
       unique_id: null
       version: 2
@@ -204,7 +184,8 @@
 - name: MQTT preparation summary
   ansible.builtin.debug:
     msg: >-
-      {{ 'MQTT entry prepared for ' ~ ha_mqtt_broker ~ ':' ~ ha_mqtt_port
-         ~ ' with ' ~ (_mqtt_subentries | length) ~ ' subentries (write pending stop window).'
+      {{ 'MQTT broker entry prepared for ' ~ ha_mqtt_broker ~ ':' ~ ha_mqtt_port
+         ~ ' (subentries forced to []; entities are now in mqtt.yaml).'
+         ~ ' Write pending stop window.'
       if (_mqtt_entry_write_needed | bool)
-      else 'MQTT entry already matches source-of-truth — nothing to do.' }}
+      else 'MQTT broker entry already matches source-of-truth -- nothing to do.' }}

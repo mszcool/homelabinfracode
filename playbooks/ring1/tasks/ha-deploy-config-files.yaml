@@ -88,6 +88,33 @@
          (_secrets_file_result is changed) or
          (_template_files_result.results | selectattr('changed', 'equalto', true) | list | length > 0) }}
 
+# --- Classify the change: mqtt.yaml-only vs anything else ---
+# mqtt.yaml entity changes can be applied via mqtt.reload (no Core restart).
+# Any other YAML file change still requires a restart for safety.
+
+- name: Compute changed config file names
+  ansible.builtin.set_fact:
+    _changed_config_file_names: >-
+      {{ (_config_files_result.results
+          | selectattr('changed', 'equalto', true)
+          | map(attribute='item') | list)
+         + ((_template_files_result.results
+             | selectattr('changed', 'equalto', true)
+             | map(attribute='item') | list) | default([]))
+         + (['secrets.yaml'] if (_secrets_file_result is changed) else []) }}
+
+- name: Decide if change is reload-only (mqtt.yaml exclusively)
+  ansible.builtin.set_fact:
+    _mqtt_yaml_only_changed: >-
+      {{ (_changed_config_file_names | length) > 0
+         and (_changed_config_file_names
+              | reject('equalto', 'mqtt.yaml')
+              | list | length) == 0 }}
+    _non_mqtt_config_changed: >-
+      {{ (_changed_config_file_names
+          | reject('equalto', 'mqtt.yaml')
+          | list | length) > 0 }}
+
 # --- Validate configuration (only if changed) ---
 
 - name: Validate HA configuration

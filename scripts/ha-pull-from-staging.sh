@@ -16,13 +16,15 @@
 #
 # Files this script pulls (and where they land in the env overlay):
 #
+#   ha_configs/           (YAML config -- !included from configuration.yaml)
+#     mqtt.yaml                  (generated from MQTT subentries on remote
+#                                 via scripts/ha-mqtt-subentries-to-yaml.py)
+#
 #   ha_configs_storage/   (general .storage registries / settings)
 #     core.area_registry.json
 #     core.floor_registry.json
 #     core.label_registry.json   (if present)
 #     energy.json
-#     core.config_entries.mqtt-subentries.json
-#       (extracted from .storage/core.config_entries on the remote)
 #
 #   ha_dashboards/        (everything Lovelace-related)
 #     lovelace_dashboards.json   (the dashboard index)
@@ -94,6 +96,7 @@ done
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 ENV_DIR="$REPO_ROOT/configs.private/$ENV_NAME/inventory/home_assistant_files"
+CONFIGS_DST="$ENV_DIR/ha_configs"
 STORAGE_DST="$ENV_DIR/ha_configs_storage"
 DASHBOARDS_DST="$ENV_DIR/ha_dashboards"
 
@@ -103,7 +106,7 @@ if [ ! -d "$ENV_DIR" ]; then
   exit 2
 fi
 
-mkdir -p "$STORAGE_DST" "$DASHBOARDS_DST"
+mkdir -p "$CONFIGS_DST" "$STORAGE_DST" "$DASHBOARDS_DST"
 
 # --- Helpers ---
 ssh_cmd() {
@@ -193,29 +196,39 @@ else
   echo "[ ] (skip) no per-dashboard lovelace.* files on remote"
 fi
 
-# --- Pull core.config_entries and extract MQTT subentries ---
-echo "[*] Extracting MQTT subentries from core.config_entries..."
+# --- Pull core.config_entries and convert MQTT subentries to mqtt.yaml ---
+# The broker config (top-level mqtt entry in core.config_entries) is owned
+# by Ansible and stays in .storage. MQTT entities (switches, sensors, ...)
+# that were added via the staging UI live in subentries[]; we extract them
+# and convert to YAML so they can live in ha_configs/mqtt.yaml under the
+# `mqtt: !include mqtt.yaml` pattern.
+echo "[*] Extracting MQTT subentries from core.config_entries -> mqtt.yaml..."
 if ssh_cmd "test -f '$REMOTE_STORAGE/core.config_entries'"; then
   scp_cmd "$SSH_TARGET:$REMOTE_STORAGE/core.config_entries" "$TMPDIR/core.config_entries"
-  python3 - "$TMPDIR/core.config_entries" "$STORAGE_DST/core.config_entries.mqtt-subentries.json" "$DRY_RUN" <<'PY'
+
+  # Step 1: extract just the mqtt entry's subentries[] into a JSON array
+  python3 - "$TMPDIR/core.config_entries" "$TMPDIR/mqtt-subentries.json" <<'PY'
 import json, sys, pathlib
-src, dst, dry = sys.argv[1], sys.argv[2], sys.argv[3] == "1"
+src, dst = sys.argv[1], sys.argv[2]
 data = json.loads(pathlib.Path(src).read_text())
 mqtt = next(
     (e for e in data.get("data", {}).get("entries", []) if e.get("domain") == "mqtt"),
     None,
 )
-if mqtt is None:
-    print("[ ] (skip) no MQTT entry on remote -- subentries not pulled")
-    sys.exit(0)
-subentries = mqtt.get("subentries", []) or []
-out = json.dumps(subentries, indent=4) + "\n"
-if dry:
-    print(f"[dry-run] would write {len(subentries)} MQTT subentries to {dst}")
-else:
-    pathlib.Path(dst).write_text(out)
-    print(f"[*] wrote {len(subentries)} MQTT subentries -> {dst}")
+subentries = (mqtt or {}).get("subentries", []) or []
+pathlib.Path(dst).write_text(json.dumps(subentries, indent=4) + "\n")
+print(f"[*] extracted {len(subentries)} MQTT subentries", file=sys.stderr)
 PY
+
+  # Step 2: convert subentries -> mqtt.yaml using the shared converter
+  if [ "$DRY_RUN" -eq 1 ]; then
+    echo "[dry-run] would convert subentries -> $CONFIGS_DST/mqtt.yaml"
+    python3 "$SCRIPT_DIR/ha-mqtt-subentries-to-yaml.py" "$TMPDIR/mqtt-subentries.json" - \
+      | sed 's/^/[dry-run]   /'
+  else
+    python3 "$SCRIPT_DIR/ha-mqtt-subentries-to-yaml.py" \
+      "$TMPDIR/mqtt-subentries.json" "$CONFIGS_DST/mqtt.yaml"
+  fi
 else
   echo "[ ] (skip) .storage/core.config_entries does not exist on remote"
 fi
