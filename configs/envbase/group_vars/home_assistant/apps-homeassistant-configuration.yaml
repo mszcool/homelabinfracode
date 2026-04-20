@@ -172,9 +172,17 @@ ha_config_files:
   - scripts.yaml
   - mqtt.yaml
 
-# Subdirectory under ha_configs/ containing template sensor YAML files
-# Copied to {{ ha_config_path }}/templates/
-ha_config_templates_dir: msz_templates
+# Subdirectories under ha_configs/ that contain *.yaml files which are
+# pulled in by configuration.yaml via `!include_dir_merge_*` directives.
+# Each entry is deployed to {{ ha_config_path }}/<name>/ so the include
+# directive resolves to the same directory name on the target.
+#
+# Add a new entry here whenever configuration.yaml gains another
+# `!include_dir_*` directive pointing at a sibling directory.
+ha_config_include_dirs:
+  - msz_templates
+  - msz_sensors
+  - msz_utility_meters
 
 # ---------- .storage files to deploy ----------
 # Files copied from ha_configs_storage/ to {{ ha_config_path }}/.storage/

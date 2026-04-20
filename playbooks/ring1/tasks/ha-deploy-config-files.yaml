@@ -6,12 +6,6 @@
 
 # --- Deploy main config files ---
 
-- name: Ensure templates directory exists
-  ansible.builtin.file:
-    path: "{{ ha_config_path }}/templates"
-    state: directory
-    mode: "0755"
-
 - name: Deploy configuration files (first_found layering)
   ansible.builtin.copy:
     src: "{{ lookup('first_found', _search_paths) }}"
@@ -37,45 +31,71 @@
          + [ha_config_base_path ~ '/ha_configs/secrets.yaml'] }}
   register: _secrets_file_result
 
-# --- Deploy template sensor files ---
+# --- Deploy include-directory files (msz_templates, msz_sensors, msz_utility_meters, ...) ---
+# For each entry in ha_config_include_dirs we:
+#   1. find *.yaml/*.yml in the base + env source dirs
+#   2. union the basenames so env files override base files of the same name
+#   3. copy each file to {{ ha_config_path }}/<dir-name>/ so HA's
+#      `!include_dir_*` directive (which uses the same dir name) finds them
 
-- name: Find template files in base path
+- name: Ensure include directories exist on target
+  ansible.builtin.file:
+    path: "{{ ha_config_path }}/{{ item }}"
+    state: directory
+    mode: "0755"
+  loop: "{{ ha_config_include_dirs }}"
+
+- name: Find include-dir files in base path
   ansible.builtin.find:
-    paths: "{{ ha_config_base_path }}/ha_configs/{{ ha_config_templates_dir }}"
+    paths: "{{ ha_config_base_path }}/ha_configs/{{ item }}"
     patterns: "*.yaml,*.yml"
     file_type: file
-  register: _base_template_files
+  register: _base_include_files
   delegate_to: localhost
   failed_when: false
+  loop: "{{ ha_config_include_dirs }}"
 
-- name: Find template files in env path
+- name: Find include-dir files in env path
   ansible.builtin.find:
-    paths: "{{ ha_config_env_path }}/ha_configs/{{ ha_config_templates_dir }}"
+    paths: "{{ ha_config_env_path }}/ha_configs/{{ item }}"
     patterns: "*.yaml,*.yml"
     file_type: file
-  register: _env_template_files
+  register: _env_include_files
   delegate_to: localhost
   when: ha_config_env_path | length > 0
   failed_when: false
+  loop: "{{ ha_config_include_dirs }}"
 
-- name: Build unique list of template file names
+- name: Build per-directory list of files to deploy
   ansible.builtin.set_fact:
-    _template_file_names: >-
-      {{ (((_env_template_files.files | default([])) | map(attribute='path') | map('basename') | list)
-          + (_base_template_files.files | default([]) | map(attribute='path') | map('basename') | list))
-         | unique }}
+    _include_files_to_deploy: >-
+      {{ _include_files_to_deploy | default([]) + (
+           (((env_files | default([])) | map(attribute='path') | map('basename') | list)
+            + (base_files | default([]) | map(attribute='path') | map('basename') | list))
+           | unique
+           | map('regex_replace', '^(.*)$', item.0 ~ '/\1')
+           | list
+         ) }}
+  vars:
+    base_files: "{{ (item.1.files | default([])) }}"
+    env_files: >-
+      {{ ((_env_include_files.results | default([]))
+          | selectattr('item', 'equalto', item.0)
+          | map(attribute='files') | list | first | default([])) }}
+  loop: "{{ ha_config_include_dirs | zip(_base_include_files.results) | list }}"
+  loop_control:
+    label: "{{ item.0 }}"
 
-- name: Deploy template files (first_found layering)
+- name: Deploy include-dir files (first_found layering)
   ansible.builtin.copy:
     src: "{{ lookup('first_found', _search_paths) }}"
-    dest: "{{ ha_config_path }}/templates/{{ item }}"
+    dest: "{{ ha_config_path }}/{{ item }}"
     mode: "0644"
   vars:
     _search_paths: >-
-      {{ ([ha_config_env_path ~ '/ha_configs/' ~ ha_config_templates_dir ~ '/' ~ item]
-          if ha_config_env_path | length > 0 else [])
-         + [ha_config_base_path ~ '/ha_configs/' ~ ha_config_templates_dir ~ '/' ~ item] }}
-  loop: "{{ _template_file_names }}"
+      {{ ([ha_config_env_path ~ '/ha_configs/' ~ item] if ha_config_env_path | length > 0 else [])
+         + [ha_config_base_path ~ '/ha_configs/' ~ item] }}
+  loop: "{{ _include_files_to_deploy | default([]) }}"
   register: _template_files_result
 
 # --- Check if any config file changed ---
