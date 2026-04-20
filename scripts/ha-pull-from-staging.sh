@@ -69,14 +69,22 @@ DRY_RUN=0
 SSH_TARGET=""
 ENV_NAME=""
 SSH_EXTRA_OPTS=()
+SCP_EXTRA_OPTS=()
 
 while [ $# -gt 0 ]; do
   case "$1" in
     --dry-run) DRY_RUN=1 ;;
     -h|--help) usage ;;
-    -i|-p|-o|-l|-F)
-      # ssh-style option taking a value
-      SSH_EXTRA_OPTS+=("$1" "$2"); shift ;;
+    -p)
+      # ssh port flag -- scp uses -P (capital) for the same thing.
+      SSH_EXTRA_OPTS+=("-p" "$2")
+      SCP_EXTRA_OPTS+=("-P" "$2")
+      shift ;;
+    -i|-o|-l|-F)
+      # option that takes a value and means the same to both ssh and scp
+      SSH_EXTRA_OPTS+=("$1" "$2")
+      SCP_EXTRA_OPTS+=("$1" "$2")
+      shift ;;
     *)
       if [ -z "$SSH_TARGET" ]; then
         SSH_TARGET="$1"
@@ -114,7 +122,7 @@ ssh_cmd() {
 }
 
 scp_cmd() {
-  scp -q "${SSH_EXTRA_OPTS[@]}" "$@"
+  scp -q "${SCP_EXTRA_OPTS[@]}" "$@"
 }
 
 # --- Detect remote .storage path ---
