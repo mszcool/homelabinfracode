@@ -1,0 +1,75 @@
+---
+# Playbook: Configure EVCC on Incus (Ring 1 — Energy Management)
+#
+# Generates evcc.yaml from group_vars and pushes it into the running
+# Incus OCI container, then restarts the container to apply.
+#
+# Prerequisites:
+#   - EVCC container must already be provisioned via Terraform
+#     (terraform workspace select ring1 && terraform apply -var-file=...)
+#   - Incus CLI configured with access to the target remote
+#
+# Configuration:
+#   - Base constants: configs/envbase/group_vars/incus_scope/apps-evcc-configuration.yaml
+#   - Environment-specific: <env>/group_vars/incus_scope/apps-evcc-configuration.yaml
+#
+# Usage (envlocaldev):
+#   ansible-playbook \
+#     -i configs/envbase/ \
+#     -i configs.private/envprod/inventory/ \
+#     -i configs.private/envlocaldev/inventory/ \
+#     playbooks/ring1/apps-evcc-configure.yaml
+#
+# NOTE: The EVCC admin password cannot be set via this playbook (no env-var
+# / config-file support upstream). After first launch, open
+# http://<container-ip>:7070/ and set it via the Web UI.
+
+- name: Configure EVCC
+  hosts: incus_scope
+  gather_facts: false
+  connection: local
+
+  pre_tasks:
+    - name: Validate EVCC configuration is defined
+      ansible.builtin.assert:
+        that:
+          - evcc_instance is defined
+          - evcc_incus_remote is defined
+          - evcc_incus_project is defined
+          - evcc_config_file is defined
+          - evcc_network is defined
+          - evcc_interval is defined
+          - evcc_meters is defined
+          - evcc_meters | length > 0
+          - evcc_inverter1_host is defined
+          - evcc_inverter2_host is defined
+          - evcc_inverter1_battery_maxchargepower is defined
+          # When evcc_mqtt is provided it must include host + topic.
+          - (evcc_mqtt is not defined) or
+            (evcc_mqtt.host is defined and evcc_mqtt.host | length > 0
+             and evcc_mqtt.topic is defined and evcc_mqtt.topic | length > 0)
+        fail_msg: >
+          Missing EVCC configuration variables. Ensure
+          group_vars/incus_scope/apps-evcc-configuration.yaml is present in
+          both envbase and your environment inventory (the environment
+          layer must provide evcc_inverter1_host / _inverter2_host and
+          friends).
+
+    - name: Set Incus remote prefix for instance addressing
+      ansible.builtin.set_fact:
+        _incus_remote_prefix: "{{ (evcc_incus_remote + ':') if evcc_incus_remote != 'local' else '' }}"
+
+    - name: Verify EVCC container exists on target remote
+      ansible.builtin.shell: |
+        incus info {{ _incus_remote_prefix }}{{ evcc_instance }} \
+          --project {{ evcc_incus_project }}
+      args:
+        executable: /bin/bash
+      register: _evcc_exists
+      changed_when: false
+      failed_when: _evcc_exists.rc != 0
+
+  tasks:
+
+    - name: Configure EVCC instance
+      ansible.builtin.include_tasks: tasks/apps-evcc-configure.yaml

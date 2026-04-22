@@ -1,0 +1,76 @@
+---
+# Task: Configure EVCC running as Incus OCI container
+#
+# Renders evcc.yaml from Ansible variables, pushes it into the running
+# container via `incus file push`, and restarts the container to apply
+# the new configuration.
+#
+# Required variables:
+#   evcc_instance:        Incus container name (e.g., "evcc")
+#   evcc_incus_remote:    Incus remote where the container runs
+#   evcc_incus_project:   Incus project (e.g., "default")
+#   evcc_config_file:     Target path inside the container (e.g., "/etc/evcc.yaml")
+#   evcc_network:         Dict with schema/host/port for EVCC's HTTP listener
+#   evcc_interval:        Polling interval (e.g., "60s")
+#   evcc_meters:          List of meter dicts (template / usage / host / …)
+#   evcc_site:            Site block referencing meter names
+
+- name: Create local temp directory for EVCC config
+  ansible.builtin.tempfile:
+    state: directory
+    prefix: evcc_
+  register: _evcc_tmpdir
+
+- name: Render evcc.yaml from template
+  ansible.builtin.template:
+    src: evcc.yaml.j2
+    dest: "{{ _evcc_tmpdir.path }}/evcc.yaml"
+    mode: "0644"
+  no_log: true
+
+- name: Ensure container is running before pushing config files
+  ansible.builtin.shell: |
+    STATUS=$(incus info {{ _incus_remote_prefix }}{{ evcc_instance }} \
+      --project {{ evcc_incus_project }} \
+      | grep '^Status:' | awk '{print $2}')
+    if [ "$STATUS" != "RUNNING" ]; then
+      incus start {{ _incus_remote_prefix }}{{ evcc_instance }} \
+        --project {{ evcc_incus_project }}
+      sleep 2
+    fi
+  args:
+    executable: /bin/bash
+
+- name: Push evcc.yaml into container
+  ansible.builtin.shell: |
+    incus file push "{{ _evcc_tmpdir.path }}/evcc.yaml" \
+      {{ _incus_remote_prefix }}{{ evcc_instance }}{{ evcc_config_file }} \
+      --project {{ evcc_incus_project }}
+  args:
+    executable: /bin/bash
+
+- name: Start or restart EVCC container to apply configuration
+  ansible.builtin.shell: |
+    incus stop {{ _incus_remote_prefix }}{{ evcc_instance }} \
+      --project {{ evcc_incus_project }} --force 2>/dev/null || true
+    incus start {{ _incus_remote_prefix }}{{ evcc_instance }} \
+      --project {{ evcc_incus_project }}
+  args:
+    executable: /bin/bash
+
+- name: Wait for EVCC container to be running
+  ansible.builtin.shell: |
+    incus info {{ _incus_remote_prefix }}{{ evcc_instance }} \
+      --project {{ evcc_incus_project }} \
+      | grep -q "Status: RUNNING"
+  args:
+    executable: /bin/bash
+  register: _evcc_status
+  retries: 10
+  delay: 3
+  until: _evcc_status.rc == 0
+
+- name: Clean up local temp directory
+  ansible.builtin.file:
+    path: "{{ _evcc_tmpdir.path }}"
+    state: absent

@@ -124,6 +124,17 @@ ha_hacs_components:
     local_path: "custom_components/huawei_solar"
     check_file: "custom_components/huawei_solar/manifest.json"
 
+  - full_name: "marq24/ha-evcc"
+    repo_id: "800610523"
+    category: integration
+    version: "2026.3.7"
+    domain: evcc_intg
+    manifest_name: "evcc ☀️🚘 Solar Charging"
+    source: archive
+    archive_subpath: "ha-evcc-2026.3.7/custom_components/evcc_intg"
+    local_path: "custom_components/evcc_intg"
+    check_file: "custom_components/evcc_intg/manifest.json"
+
   - full_name: "RomRider/apexcharts-card"
     repo_id: "331701152"
     category: plugin
