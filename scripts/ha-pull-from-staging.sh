@@ -17,8 +17,16 @@
 # Files this script pulls (and where they land in the env overlay):
 #
 #   ha_configs/           (YAML config -- !included from configuration.yaml)
-#     mqtt.yaml                  (generated from MQTT subentries on remote
-#                                 via scripts/ha-mqtt-subentries-to-yaml.py)
+#     msz_mqtt_sensors/<name>.yaml
+#                                (each *.yaml file already present in the
+#                                 env overlay's msz_mqtt_sensors/ folder
+#                                 is refreshed from the same-named file
+#                                 deployed to HA)
+#     msz_mqtt_sensors/mqtt-ux.yaml
+#                                (generated from MQTT subentries on remote
+#                                 via scripts/ha-mqtt-subentries-to-yaml.py
+#                                 -- holds entities added through the HA UI
+#                                 so they don't clobber curated YAML files)
 #
 #   ha_configs_storage/   (general .storage registries / settings)
 #     core.area_registry.json
@@ -137,6 +145,9 @@ if [ -z "$REMOTE_STORAGE" ]; then
   exit 3
 fi
 echo "[*] Remote .storage = $REMOTE_STORAGE"
+# Derive the HA config root (parent of .storage) for pulling YAML configs.
+REMOTE_CONFIG="${REMOTE_STORAGE%/.storage}"
+echo "[*] Remote config = $REMOTE_CONFIG"
 
 # --- Files to pull (general .storage -> ha_configs_storage/) ---
 # Note: real .storage filenames on HA Core 2026.x:
@@ -204,13 +215,55 @@ else
   echo "[ ] (skip) no per-dashboard lovelace.* files on remote"
 fi
 
-# --- Pull core.config_entries and convert MQTT subentries to mqtt.yaml ---
+# --- Refresh hand-curated msz_mqtt_sensors/*.yaml files from remote ---
+# For every YAML file already present in the env overlay's
+# msz_mqtt_sensors/ directory, pull the same-named file from the HA
+# config root on the remote. This keeps curated MQTT entity files
+# (e.g. mqtt_pool_sensors.yaml, mqtt_evcc_sensors.yaml) in sync if
+# they were edited live on the staging host.
+MQTT_LOCAL_DIR="$CONFIGS_DST/msz_mqtt_sensors"
+MQTT_PULLED_FILES=()
+MQTT_SKIPPED_FILES=()
+if [ -d "$MQTT_LOCAL_DIR" ]; then
+  echo "[*] Refreshing curated msz_mqtt_sensors/*.yaml files from remote..."
+  shopt -s nullglob
+  for local_f in "$MQTT_LOCAL_DIR"/*.yaml "$MQTT_LOCAL_DIR"/*.yml; do
+    base="$(basename "$local_f")"
+    # mqtt-ux.yaml is generated below from subentries -- skip here.
+    if [ "$base" = "mqtt-ux.yaml" ]; then
+      continue
+    fi
+    remote_f="$REMOTE_CONFIG/msz_mqtt_sensors/$base"
+    if ssh_cmd "test -f '$remote_f'"; then
+      if [ "$DRY_RUN" -eq 1 ]; then
+        echo "[dry-run] would copy: msz_mqtt_sensors/$base -> $local_f"
+        MQTT_PULLED_FILES+=("$local_f (dry-run)")
+      else
+        echo "[*] copying msz_mqtt_sensors/$base"
+        scp_cmd "$SSH_TARGET:$remote_f" "$local_f"
+        MQTT_PULLED_FILES+=("$local_f")
+      fi
+    else
+      echo "[ ] (skip) msz_mqtt_sensors/$base does not exist on remote"
+      MQTT_SKIPPED_FILES+=("$base (not on remote)")
+    fi
+  done
+  shopt -u nullglob
+else
+  echo "[ ] (skip) no local msz_mqtt_sensors/ directory in env overlay"
+fi
+
+# --- Pull core.config_entries and convert MQTT subentries to msz_mqtt_sensors/mqtt-ux.yaml ---
 # The broker config (top-level mqtt entry in core.config_entries) is owned
 # by Ansible and stays in .storage. MQTT entities (switches, sensors, ...)
 # that were added via the staging UI live in subentries[]; we extract them
-# and convert to YAML so they can live in ha_configs/mqtt.yaml under the
-# `mqtt: !include mqtt.yaml` pattern.
-echo "[*] Extracting MQTT subentries from core.config_entries -> mqtt.yaml..."
+# and convert to YAML so they can live in
+# ha_configs/msz_mqtt_sensors/mqtt-ux.yaml under the
+# `mqtt: !include_dir_merge_list msz_mqtt_sensors` pattern. Using a
+# dedicated mqtt-ux.yaml file keeps UI-added entities separate from the
+# hand-curated YAML files (mqtt_pool_sensors.yaml, mqtt_evcc_sensors.yaml,
+# ...) so the converter never overwrites them.
+echo "[*] Extracting MQTT subentries from core.config_entries -> msz_mqtt_sensors/mqtt-ux.yaml..."
 if ssh_cmd "test -f '$REMOTE_STORAGE/core.config_entries'"; then
   scp_cmd "$SSH_TARGET:$REMOTE_STORAGE/core.config_entries" "$TMPDIR/core.config_entries"
 
@@ -228,21 +281,41 @@ pathlib.Path(dst).write_text(json.dumps(subentries, indent=4) + "\n")
 print(f"[*] extracted {len(subentries)} MQTT subentries", file=sys.stderr)
 PY
 
-  # Step 2: convert subentries -> mqtt.yaml using the shared converter
+  # Step 2: convert subentries -> msz_mqtt_sensors/mqtt-ux.yaml
+  MQTT_OUT_DIR="$CONFIGS_DST/msz_mqtt_sensors"
+  MQTT_OUT_FILE="$MQTT_OUT_DIR/mqtt-ux.yaml"
   if [ "$DRY_RUN" -eq 1 ]; then
-    echo "[dry-run] would convert subentries -> $CONFIGS_DST/mqtt.yaml"
+    echo "[dry-run] would convert subentries -> $MQTT_OUT_FILE"
     python3 "$SCRIPT_DIR/ha-mqtt-subentries-to-yaml.py" "$TMPDIR/mqtt-subentries.json" - \
       | sed 's/^/[dry-run]   /'
+    MQTT_PULLED_FILES+=("$MQTT_OUT_FILE (dry-run, generated from subentries)")
   else
+    mkdir -p "$MQTT_OUT_DIR"
     python3 "$SCRIPT_DIR/ha-mqtt-subentries-to-yaml.py" \
-      "$TMPDIR/mqtt-subentries.json" "$CONFIGS_DST/mqtt.yaml"
+      "$TMPDIR/mqtt-subentries.json" "$MQTT_OUT_FILE"
+    MQTT_PULLED_FILES+=("$MQTT_OUT_FILE (generated from subentries)")
   fi
 else
   echo "[ ] (skip) .storage/core.config_entries does not exist on remote"
+  MQTT_SKIPPED_FILES+=("mqtt-ux.yaml (no core.config_entries on remote)")
 fi
 
 # --- Show diff summary ---
 echo
+echo "============================================================"
+echo "MQTT sensor files (msz_mqtt_sensors/):"
+if [ "${#MQTT_PULLED_FILES[@]}" -gt 0 ]; then
+  for f in "${MQTT_PULLED_FILES[@]}"; do
+    echo "  [pulled]  $f"
+  done
+else
+  echo "  (none pulled)"
+fi
+if [ "${#MQTT_SKIPPED_FILES[@]}" -gt 0 ]; then
+  for f in "${MQTT_SKIPPED_FILES[@]}"; do
+    echo "  [skipped] $f"
+  done
+fi
 echo "============================================================"
 echo "Done. Review changes with:"
 echo "  cd $REPO_ROOT && git status configs.private/$ENV_NAME/inventory/home_assistant_files/"

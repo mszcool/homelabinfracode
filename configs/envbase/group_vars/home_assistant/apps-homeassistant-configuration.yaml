@@ -181,7 +181,6 @@ ha_config_files:
   - automations.yaml
   - scenes.yaml
   - scripts.yaml
-  - mqtt.yaml
 
 # Subdirectories under ha_configs/ that contain *.yaml files which are
 # pulled in by configuration.yaml via `!include_dir_merge_*` directives.
@@ -194,6 +193,7 @@ ha_config_include_dirs:
   - msz_templates
   - msz_sensors
   - msz_utility_meters
+  - msz_mqtt_sensors
 
 # ---------- .storage files to deploy ----------
 # Files copied from ha_configs_storage/ to {{ ha_config_path }}/.storage/

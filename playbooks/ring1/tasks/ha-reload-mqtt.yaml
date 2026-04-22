@@ -19,7 +19,7 @@
 #     (rare since no restart happened) is logged but does not break the
 #     play. The next playbook run will try again.
 
-- name: Decide whether MQTT reload is needed (mqtt.yaml changed, no Core restart)
+- name: Decide whether MQTT reload is needed (msz_mqtt_sensors/* changed, no Core restart)
   ansible.builtin.set_fact:
     _mqtt_reload_needed: >-
       {{ (_mqtt_yaml_only_changed | default(false) | bool)
@@ -28,11 +28,11 @@
 - name: Display MQTT reload decision
   ansible.builtin.debug:
     msg: >-
-      {{ 'mqtt.yaml changed and HA Core was not restarted -- calling mqtt.reload.'
+      {{ 'msz_mqtt_sensors/* changed and HA Core was not restarted -- calling mqtt.reload.'
       if (_mqtt_reload_needed | bool)
       else (
         'No MQTT reload needed: '
-        ~ ('mqtt.yaml unchanged' if not (_mqtt_yaml_only_changed | default(false) | bool)
+        ~ ('msz_mqtt_sensors/* unchanged' if not (_mqtt_yaml_only_changed | default(false) | bool)
            else 'HA Core was restarted, entities reloaded on startup')
       ) }}
 

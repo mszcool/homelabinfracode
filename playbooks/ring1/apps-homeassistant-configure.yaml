@@ -176,9 +176,10 @@
     - name: Deploy .storage files and conditionally stop/restart HA
       ansible.builtin.include_tasks: tasks/ha-deploy-storage-and-restart.yaml
 
-    # Apply mqtt.yaml entity changes WITHOUT restarting HA Core, but only
-    # when mqtt.yaml was the sole config file that changed AND no restart
-    # happened. Otherwise the entities are picked up on Core restart.
+    # Apply MQTT YAML entity changes (msz_mqtt_sensors/*) WITHOUT
+    # restarting HA Core, but only when those were the sole config files
+    # that changed AND no restart happened. Otherwise the entities are
+    # picked up on Core restart.
     - name: Reload MQTT YAML entities (no restart) if applicable
       ansible.builtin.include_tasks: tasks/ha-reload-mqtt.yaml
 

@@ -4,8 +4,8 @@ ha-mqtt-subentries-to-yaml.py
 
 Converts a `core.config_entries.mqtt-subentries.json` file (the array of
 device-typed subentries that HA writes when MQTT entities are added via the
-UI) into the equivalent `mqtt.yaml` blocks that work under
-`mqtt: !include mqtt.yaml` in `configuration.yaml`.
+UI) into the equivalent MQTT entity YAML blocks that work under
+`mqtt: !include_dir_merge_list msz_mqtt_sensors` in `configuration.yaml`.
 
 Usage:
     ha-mqtt-subentries-to-yaml.py <input.json> <output.yaml>
@@ -216,9 +216,15 @@ def convert(subentries: list, warnings: list[str]) -> str:
         "# Generated from .storage/core.config_entries.mqtt-subentries.json",
         "# by scripts/ha-mqtt-subentries-to-yaml.py.",
         "#",
-        "# Loaded via `mqtt: !include mqtt.yaml` in configuration.yaml.",
-        "# The MQTT broker connection itself is still managed by Ansible",
-        "# in .storage/core.config_entries -- only entities live here.",
+        "# Loaded via `mqtt: !include_dir_merge_list msz_mqtt_sensors` in",
+        "# configuration.yaml. The MQTT broker connection itself is still",
+        "# managed by Ansible in .storage/core.config_entries -- only",
+        "# entities live here.",
+        "#",
+        "# This file (mqtt-ux.yaml) holds MQTT entities that were added",
+        "# through the Home Assistant UI on staging. Hand-curated entity",
+        "# files (mqtt_pool_sensors.yaml, mqtt_evcc_sensors.yaml, ...)",
+        "# live alongside it in this same directory.",
         "",
     ]
     if not subentries:

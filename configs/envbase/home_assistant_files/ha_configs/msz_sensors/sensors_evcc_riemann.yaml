@@ -1,0 +1,45 @@
+# Riemann sum integrations of EVCC power sensors -> energy counters (kWh)
+# suitable for the Home Assistant Energy Dashboard.
+#
+# Source sensors live in
+# msz_templates/templates_evcc_sensors.yaml. They emit instantaneous
+# power values in Watts; the integration platform accumulates them into
+# kWh totals with state_class: total_increasing (set automatically by
+# the integration sensor).
+#
+# Trapezoidal method is used (same as sensors_huawei_solar_riemann.yaml)
+# for better accuracy on smoothly varying loads.
+
+# --- Grid ---
+- platform: integration
+  source: sensor.evcc_grid_consumption_power
+  name: evcc_grid_consumption_energy_riemann
+  unique_id: evcc_grid_consumption_energy_riemann
+  unit_prefix: k
+  round: 3
+  method: trapezoidal
+
+- platform: integration
+  source: sensor.evcc_grid_export_power
+  name: evcc_grid_export_energy_riemann
+  unique_id: evcc_grid_export_energy_riemann
+  unit_prefix: k
+  round: 3
+  method: trapezoidal
+
+# --- Battery ---
+- platform: integration
+  source: sensor.evcc_battery_charge_power
+  name: evcc_battery_charge_energy_riemann
+  unique_id: evcc_battery_charge_energy_riemann
+  unit_prefix: k
+  round: 3
+  method: trapezoidal
+
+- platform: integration
+  source: sensor.evcc_battery_discharge_power
+  name: evcc_battery_discharge_energy_riemann
+  unique_id: evcc_battery_discharge_energy_riemann
+  unit_prefix: k
+  round: 3
+  method: trapezoidal

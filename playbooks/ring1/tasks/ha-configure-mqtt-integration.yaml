@@ -3,9 +3,9 @@
 #
 # Scope: BROKER ONLY (host, port, username, password). MQTT entities
 # (switches, sensors, lights, ...) are now defined in YAML via
-# `mqtt: !include mqtt.yaml` in configuration.yaml. They are deployed
-# by ha-deploy-config-files.yaml and reloaded by ha-reload-mqtt.yaml
-# without restarting HA Core.
+# `mqtt: !include_dir_merge_list msz_mqtt_sensors` in configuration.yaml.
+# They are deployed by ha-deploy-config-files.yaml and reloaded by
+# ha-reload-mqtt.yaml without restarting HA Core.
 #
 # This task writes `subentries: []` into the MQTT entry every run, so
 # any subentries left over from a UI flow on prod are cleared at the
@@ -185,7 +185,7 @@
   ansible.builtin.debug:
     msg: >-
       {{ 'MQTT broker entry prepared for ' ~ ha_mqtt_broker ~ ':' ~ ha_mqtt_port
-         ~ ' (subentries forced to []; entities are now in mqtt.yaml).'
+         ~ ' (subentries forced to []; entities are now in msz_mqtt_sensors/).'
          ~ ' Write pending stop window.'
       if (_mqtt_entry_write_needed | bool)
       else 'MQTT broker entry already matches source-of-truth -- nothing to do.' }}
