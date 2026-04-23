@@ -1,0 +1,18 @@
+# Daily aggregate of garden water meter (Zigbee/MQTT summation_delivered).
+garden_water_daily:
+  source: sensor.garten_wassertimer_und_zahler_summation_delivered
+  cycle: daily
+
+# Monthly aggregate of garden water meter.
+garden_water_monthly:
+  source: sensor.garten_wassertimer_und_zahler_summation_delivered
+  cycle: monthly
+
+# Monthly aggregate of combined pool energy consumption.
+# Source is the cumulative "Pool Energy Total" template sensor
+# (sum of pumplight_energy_total + redoxph_energy_total), because
+# utility_meter requires a monotonically increasing source and the
+# *_energy_today sensors reset every midnight.
+pool_energy_monthly:
+  source: sensor.pool_energy_total
+  cycle: monthly

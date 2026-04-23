@@ -1,0 +1,75 @@
+  - sensor:
+      # Combined instantaneous power draw of both pool Tasmota switches
+      # (PumpLight + RedoxPH).
+      - name: "Pool Total Power"
+        unique_id: "pool_total_power"
+        device_class: power
+        state_class: measurement
+        unit_of_measurement: "W"
+        icon: mdi:flash
+        availability: >
+          {{ has_value('sensor.switch_pumplight_pumplight_power')
+             and has_value('sensor.switch_redoxph_redoxph_power') }}
+        state: >
+          {% set p1 = states('sensor.switch_pumplight_pumplight_power') | float(0) %}
+          {% set p2 = states('sensor.switch_redoxph_redoxph_power') | float(0) %}
+          {{ (p1 + p2) | round(2) }}
+
+      # Combined energy consumed today (kWh) by both pool Tasmota switches.
+      # Both source sensors reset at midnight (Tasmota behavior).
+      - name: "Pool Energy Today"
+        unique_id: "pool_energy_today"
+        device_class: energy
+        state_class: total_increasing
+        unit_of_measurement: "kWh"
+        icon: mdi:lightning-bolt
+        availability: >
+          {{ has_value('sensor.switch_pumplight_pumplight_energy_today')
+             and has_value('sensor.switch_redoxph_redoxph_energy_today') }}
+        state: >
+          {% set e1 = states('sensor.switch_pumplight_pumplight_energy_today') | float(0) %}
+          {% set e2 = states('sensor.switch_redoxph_redoxph_energy_today') | float(0) %}
+          {{ (e1 + e2) | round(3) }}
+
+      # Combined cumulative energy (kWh) of both pool Tasmota switches.
+      # Used as the source for the monthly utility meter, because
+      # utility_meter expects a monotonically increasing source and
+      # *_energy_today resets daily.
+      - name: "Pool Energy Total"
+        unique_id: "pool_energy_total"
+        device_class: energy
+        state_class: total_increasing
+        unit_of_measurement: "kWh"
+        icon: mdi:lightning-bolt-circle
+        availability: >
+          {{ has_value('sensor.switch_pumplight_pumplight_energy_total')
+             and has_value('sensor.switch_redoxph_redoxph_energy_total') }}
+        state: >
+          {% set e1 = states('sensor.switch_pumplight_pumplight_energy_total') | float(0) %}
+          {% set e2 = states('sensor.switch_redoxph_redoxph_energy_total') | float(0) %}
+          {{ (e1 + e2) | round(3) }}
+
+      # ---------------------------------------------------------------------
+      # Garden water "current irrigation cycle" sensor.
+      #
+      # The Zigbee valve resets `summation_delivered` to 0 when the switch
+      # is turned on, and freezes it at the last value after turning off.
+      # For a line chart that should rise only while water is flowing and
+      # drop back to 0 when the valve closes, we therefore just need:
+      #   * while the switch is ON  -> mirror `summation_delivered`
+      #   * while the switch is OFF -> report 0
+      # ---------------------------------------------------------------------
+      - name: "Garden Water Current Cycle"
+        unique_id: garden_water_current_cycle
+        device_class: water
+        state_class: measurement
+        unit_of_measurement: "L"
+        icon: mdi:water-pump
+        availability: >
+          {{ has_value('sensor.garten_wassertimer_und_zahler_summation_delivered') }}
+        state: >
+          {% if is_state('switch.garten_wassertimer_und_zahler', 'on') %}
+            {{ states('sensor.garten_wassertimer_und_zahler_summation_delivered') | float(0) | round(3) }}
+          {% else %}
+            0
+          {% endif %}

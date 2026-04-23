@@ -6,17 +6,25 @@
     "energy_sources": [
       {
         "type": "battery",
-        "stat_energy_from": "sensor.batteries_day_discharge",
-        "stat_energy_to": "sensor.batteries_day_charge",
+        "stat_energy_from": "sensor.evcc_battery_discharge_energy_riemann",
+        "stat_energy_to": "sensor.evcc_battery_charge_energy_riemann",
         "power_config": {
-          "stat_rate": "sensor.batteries_charge_discharge_power"
+          "stat_rate": "sensor.evcc_evcc_battery_power"
         },
-        "stat_rate": "sensor.batteries_charge_discharge_power"
+        "stat_rate": "sensor.evcc_evcc_battery_power"
+      },
+      {
+        "type": "solar",
+        "stat_energy_from": "sensor.evcc_evcc_pv_energy_total",
+        "config_entry_solar_forecast": [
+          "01KP1581DT5M3N6V8B6VAMFYNN"
+        ],
+        "stat_rate": "sensor.evcc_evcc_pv_power_total"
       },
       {
         "type": "grid",
-        "stat_energy_from": "sensor.power_meter_consumption",
-        "stat_energy_to": "sensor.power_meter_exported",
+        "stat_energy_from": "sensor.evcc_grid_consumption_energy_riemann",
+        "stat_energy_to": "sensor.evcc_grid_export_energy_riemann",
         "stat_cost": null,
         "stat_compensation": null,
         "entity_energy_price": null,
@@ -25,17 +33,22 @@
         "number_energy_price_export": null,
         "cost_adjustment_day": 0.0,
         "power_config": {
-          "stat_rate": "sensor.power_meter_active_power"
+          "stat_rate": "sensor.evcc_evcc_grid_power"
         },
-        "stat_rate": "sensor.power_meter_active_power"
-      },
-      {
-        "type": "solar",
-        "stat_energy_from": "sensor.pv_daily_yield",
-        "stat_rate": "sensor.pv_active_power_all_inverters"
+        "stat_rate": "sensor.evcc_evcc_grid_power"
       }
     ],
-    "device_consumption": [],
+    "device_consumption": [
+      {
+        "stat_consumption": "sensor.switch_pumplight_pumplight_energy_today",
+        "name": "Pool Pump and Light"
+      },
+      {
+        "stat_consumption": "sensor.switch_redoxph_redoxph_energy_today",
+        "stat_rate": "sensor.switch_redoxph_redoxph_power",
+        "name": "Pool Redox PH"
+      }
+    ],
     "device_consumption_water": []
   }
 }

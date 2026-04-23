@@ -12,6 +12,15 @@
         "require_admin": false,
         "mode": "storage",
         "url_path": "energy-custom"
+      },
+      {
+        "id": "garden_and_pool",
+        "show_in_sidebar": true,
+        "icon": "mdi:shovel",
+        "title": "Garden and Pool",
+        "require_admin": false,
+        "mode": "storage",
+        "url_path": "garden-and-pool"
       }
     ]
   }

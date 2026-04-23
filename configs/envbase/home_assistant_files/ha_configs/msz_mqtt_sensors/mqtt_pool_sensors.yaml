@@ -1,0 +1,324 @@
+# Managed by Ansible (do not hand-edit on prod).
+# Generated from .storage/core.config_entries.mqtt-subentries.json
+# by scripts/ha-mqtt-subentries-to-yaml.py.
+#
+# Loaded via `mqtt: !include_dir_merge_list msz_mqtt_sensors` in
+# configuration.yaml. The MQTT broker connection itself is still managed
+# by Ansible in .storage/core.config_entries -- only entities live here.
+#
+# This file holds the pool-related Tasmota switches and energy sensors.
+# EVCC sensors live in mqtt_evcc_sensors.yaml in this same directory.
+
+- switch:
+    unique_id: "mqtt:pool-pumplight-tasmota-pump"
+    name: Pool Pump
+    command_topic: pumplight/cmnd/POWER1
+    device_class: switch
+    payload_off: "OFF"
+    payload_on: "ON"
+    state_off: "OFF"
+    state_on: "ON"
+    state_topic: pumplight/stat/POWER1
+    qos: 0
+    device:
+      name: Switch PumpLight
+      identifiers:
+        - "mszcool:mqtt:pool-pumplight-tasmota"
+      model: Tasmota
+      configuration_url: "http://iot.pumplightswitch"
+
+- switch:
+    unique_id: "mqtt:pool-pumplight-tasmota-light"
+    name: Pool Light
+    command_topic: pumplight/cmnd/POWER2
+    device_class: switch
+    payload_off: "OFF"
+    payload_on: "ON"
+    state_off: "OFF"
+    state_on: "ON"
+    state_topic: pumplight/stat/POWER2
+    qos: 0
+    device:
+      name: Switch PumpLight
+      identifiers:
+        - "mszcool:mqtt:pool-pumplight-tasmota"
+      model: Tasmota
+      configuration_url: "http://iot.pumplightswitch"
+
+- switch:
+    unique_id: "mqtt:pool-redoxph-tasmota-redox"
+    name: Pool Redox
+    command_topic: redoxph/cmnd/POWER1
+    device_class: switch
+    payload_off: "OFF"
+    payload_on: "ON"
+    state_off: "OFF"
+    state_on: "ON"
+    state_topic: redoxph/stat/POWER1
+    qos: 0
+    device:
+      name: Switch RedoxPH
+      identifiers:
+        - "mszcool:mqtt:pool-redoxph-tasmota"
+      model: Tasmota
+      configuration_url: "http://iot.pumplightswitch"
+
+- switch:
+    unique_id: "mqtt:pool-redoxph-tasmota-ph"
+    name: Pool PH
+    command_topic: redoxph/cmnd/POWER2
+    device_class: switch
+    payload_off: "OFF"
+    payload_on: "ON"
+    state_off: "OFF"
+    state_on: "ON"
+    state_topic: redoxph/stat/POWER2
+    qos: 0
+    device:
+      name: Switch RedoxPH
+      identifiers:
+        - "mszcool:mqtt:pool-redoxph-tasmota"
+      model: Tasmota
+      configuration_url: "http://iot.pumplightswitch"
+
+# --- PumpLight Energy Monitoring Sensors ---
+
+- sensor:
+    unique_id: "mqtt:pool-pumplight-tasmota-energy-voltage"
+    name: PumpLight Voltage
+    state_topic: pumplight/tele/SENSOR
+    value_template: "{{ value_json.ENERGY.Voltage }}"
+    unit_of_measurement: "V"
+    device_class: voltage
+    state_class: measurement
+    device:
+      name: Switch PumpLight
+      identifiers:
+        - "mszcool:mqtt:pool-pumplight-tasmota"
+      model: Tasmota
+      configuration_url: "http://iot.pumplightswitch"
+
+- sensor:
+    unique_id: "mqtt:pool-pumplight-tasmota-energy-current"
+    name: PumpLight Current
+    state_topic: pumplight/tele/SENSOR
+    value_template: "{{ value_json.ENERGY.Current }}"
+    unit_of_measurement: "A"
+    device_class: current
+    state_class: measurement
+    device:
+      name: Switch PumpLight
+      identifiers:
+        - "mszcool:mqtt:pool-pumplight-tasmota"
+      model: Tasmota
+      configuration_url: "http://iot.pumplightswitch"
+
+- sensor:
+    unique_id: "mqtt:pool-pumplight-tasmota-energy-power"
+    name: PumpLight Power
+    state_topic: pumplight/tele/SENSOR
+    value_template: "{{ value_json.ENERGY.Power }}"
+    unit_of_measurement: "W"
+    device_class: power
+    state_class: measurement
+    device:
+      name: Switch PumpLight
+      identifiers:
+        - "mszcool:mqtt:pool-pumplight-tasmota"
+      model: Tasmota
+      configuration_url: "http://iot.pumplightswitch"
+
+- sensor:
+    unique_id: "mqtt:pool-pumplight-tasmota-energy-apparentpower"
+    name: PumpLight Apparent Power
+    state_topic: pumplight/tele/SENSOR
+    value_template: "{{ value_json.ENERGY.ApparentPower }}"
+    unit_of_measurement: "VA"
+    device_class: apparent_power
+    state_class: measurement
+    device:
+      name: Switch PumpLight
+      identifiers:
+        - "mszcool:mqtt:pool-pumplight-tasmota"
+      model: Tasmota
+      configuration_url: "http://iot.pumplightswitch"
+
+- sensor:
+    unique_id: "mqtt:pool-pumplight-tasmota-energy-reactivepower"
+    name: PumpLight Reactive Power
+    state_topic: pumplight/tele/SENSOR
+    value_template: "{{ value_json.ENERGY.ReactivePower }}"
+    unit_of_measurement: "VAr"
+    device_class: reactive_power
+    state_class: measurement
+    device:
+      name: Switch PumpLight
+      identifiers:
+        - "mszcool:mqtt:pool-pumplight-tasmota"
+      model: Tasmota
+      configuration_url: "http://iot.pumplightswitch"
+
+- sensor:
+    unique_id: "mqtt:pool-pumplight-tasmota-energy-factor"
+    name: PumpLight Power Factor
+    state_topic: pumplight/tele/SENSOR
+    value_template: "{{ value_json.ENERGY.Factor }}"
+    device_class: power_factor
+    state_class: measurement
+    device:
+      name: Switch PumpLight
+      identifiers:
+        - "mszcool:mqtt:pool-pumplight-tasmota"
+      model: Tasmota
+      configuration_url: "http://iot.pumplightswitch"
+
+- sensor:
+    unique_id: "mqtt:pool-pumplight-tasmota-energy-today"
+    name: PumpLight Energy Today
+    state_topic: pumplight/tele/SENSOR
+    value_template: "{{ value_json.ENERGY.Today }}"
+    unit_of_measurement: "kWh"
+    device_class: energy
+    state_class: total_increasing
+    device:
+      name: Switch PumpLight
+      identifiers:
+        - "mszcool:mqtt:pool-pumplight-tasmota"
+      model: Tasmota
+      configuration_url: "http://iot.pumplightswitch"
+
+- sensor:
+    unique_id: "mqtt:pool-pumplight-tasmota-energy-total"
+    name: PumpLight Energy Total
+    state_topic: pumplight/tele/SENSOR
+    value_template: "{{ value_json.ENERGY.Total }}"
+    unit_of_measurement: "kWh"
+    device_class: energy
+    state_class: total_increasing
+    device:
+      name: Switch PumpLight
+      identifiers:
+        - "mszcool:mqtt:pool-pumplight-tasmota"
+      model: Tasmota
+      configuration_url: "http://iot.pumplightswitch"
+
+# --- RedoxPH Energy Monitoring Sensors ---
+
+- sensor:
+    unique_id: "mqtt:pool-redoxph-tasmota-energy-voltage"
+    name: RedoxPH Voltage
+    state_topic: redoxph/tele/SENSOR
+    value_template: "{{ value_json.ENERGY.Voltage }}"
+    unit_of_measurement: "V"
+    device_class: voltage
+    state_class: measurement
+    device:
+      name: Switch RedoxPH
+      identifiers:
+        - "mszcool:mqtt:pool-redoxph-tasmota"
+      model: Tasmota
+      configuration_url: "http://iot.pumplightswitch"
+
+- sensor:
+    unique_id: "mqtt:pool-redoxph-tasmota-energy-current"
+    name: RedoxPH Current
+    state_topic: redoxph/tele/SENSOR
+    value_template: "{{ value_json.ENERGY.Current }}"
+    unit_of_measurement: "A"
+    device_class: current
+    state_class: measurement
+    device:
+      name: Switch RedoxPH
+      identifiers:
+        - "mszcool:mqtt:pool-redoxph-tasmota"
+      model: Tasmota
+      configuration_url: "http://iot.pumplightswitch"
+
+- sensor:
+    unique_id: "mqtt:pool-redoxph-tasmota-energy-power"
+    name: RedoxPH Power
+    state_topic: redoxph/tele/SENSOR
+    value_template: "{{ value_json.ENERGY.Power }}"
+    unit_of_measurement: "W"
+    device_class: power
+    state_class: measurement
+    device:
+      name: Switch RedoxPH
+      identifiers:
+        - "mszcool:mqtt:pool-redoxph-tasmota"
+      model: Tasmota
+      configuration_url: "http://iot.pumplightswitch"
+
+- sensor:
+    unique_id: "mqtt:pool-redoxph-tasmota-energy-apparentpower"
+    name: RedoxPH Apparent Power
+    state_topic: redoxph/tele/SENSOR
+    value_template: "{{ value_json.ENERGY.ApparentPower }}"
+    unit_of_measurement: "VA"
+    device_class: apparent_power
+    state_class: measurement
+    device:
+      name: Switch RedoxPH
+      identifiers:
+        - "mszcool:mqtt:pool-redoxph-tasmota"
+      model: Tasmota
+      configuration_url: "http://iot.pumplightswitch"
+
+- sensor:
+    unique_id: "mqtt:pool-redoxph-tasmota-energy-reactivepower"
+    name: RedoxPH Reactive Power
+    state_topic: redoxph/tele/SENSOR
+    value_template: "{{ value_json.ENERGY.ReactivePower }}"
+    unit_of_measurement: "VAr"
+    device_class: reactive_power
+    state_class: measurement
+    device:
+      name: Switch RedoxPH
+      identifiers:
+        - "mszcool:mqtt:pool-redoxph-tasmota"
+      model: Tasmota
+      configuration_url: "http://iot.pumplightswitch"
+
+- sensor:
+    unique_id: "mqtt:pool-redoxph-tasmota-energy-factor"
+    name: RedoxPH Power Factor
+    state_topic: redoxph/tele/SENSOR
+    value_template: "{{ value_json.ENERGY.Factor }}"
+    device_class: power_factor
+    state_class: measurement
+    device:
+      name: Switch RedoxPH
+      identifiers:
+        - "mszcool:mqtt:pool-redoxph-tasmota"
+      model: Tasmota
+      configuration_url: "http://iot.pumplightswitch"
+
+- sensor:
+    unique_id: "mqtt:pool-redoxph-tasmota-energy-today"
+    name: RedoxPH Energy Today
+    state_topic: redoxph/tele/SENSOR
+    value_template: "{{ value_json.ENERGY.Today }}"
+    unit_of_measurement: "kWh"
+    device_class: energy
+    state_class: total_increasing
+    device:
+      name: Switch RedoxPH
+      identifiers:
+        - "mszcool:mqtt:pool-redoxph-tasmota"
+      model: Tasmota
+      configuration_url: "http://iot.pumplightswitch"
+
+- sensor:
+    unique_id: "mqtt:pool-redoxph-tasmota-energy-total"
+    name: RedoxPH Energy Total
+    state_topic: redoxph/tele/SENSOR
+    value_template: "{{ value_json.ENERGY.Total }}"
+    unit_of_measurement: "kWh"
+    device_class: energy
+    state_class: total_increasing
+    device:
+      name: Switch RedoxPH
+      identifiers:
+        - "mszcool:mqtt:pool-redoxph-tasmota"
+      model: Tasmota
+      configuration_url: "http://iot.pumplightswitch"
