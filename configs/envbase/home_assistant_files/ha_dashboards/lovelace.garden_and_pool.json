@@ -76,6 +76,14 @@
                       },
                       "color": "red"
                     }
+                  ],
+                  "yaxis": [
+                    {
+                      "id": "watts",
+                      "show": true,
+                      "decimals": 0,
+                      "align_to": 50
+                    }
                   ]
                 },
                 {
@@ -144,10 +152,12 @@
                   "series": [
                     {
                       "entity": "sensor.switch_pumplight_pumplight_power",
+                      "name": "Pump, Light",
                       "color": "darkred"
                     },
                     {
                       "entity": "sensor.switch_redoxph_redoxph_power",
+                      "name": "Redox, PH",
                       "color": "red"
                     }
                   ]
@@ -187,7 +197,7 @@
                   },
                   "series": [
                     {
-                      "entity": "sensor.pool_water_consumption",
+                      "entity": "sensor.pool_water_current_fill",
                       "color": "blue"
                     }
                   ]

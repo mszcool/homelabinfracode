@@ -50,47 +50,138 @@
           {{ (e1 + e2) | round(3) }}
 
       # ---------------------------------------------------------------------
-      # Garden water "current irrigation cycle" sensor.
-      #
-      # The Zigbee valve resets `summation_delivered` to 0 when the switch
-      # is turned on, and freezes it at the last value after turning off.
-      # For a line chart that should rise only while water is flowing and
-      # drop back to 0 when the valve closes, we therefore just need:
-      #   * while the switch is ON  -> mirror `summation_delivered`
-      #   * while the switch is OFF -> report 0
+      # Garden Water Current Cycle is defined as a trigger-based template
+      # sensor below (it needs `trigger:` semantics to keep cross-update
+      # state in attributes), so nothing more is added in this regular
+      # state-based block.
       # ---------------------------------------------------------------------
+# ---------------------------------------------------------------------------
+# Garden Water Current Cycle (trigger-based).
+#
+# Liters delivered during the current burst of flow. Designed so a line
+# chart rises while water is actually flowing and drops to 0 when flow
+# stops -- regardless of whether the Zigbee valve switch is on (the user
+# often leaves it open and gates flow externally with Gardena timers,
+# manual taps, etc.).
+#
+# The meter does NOT publish a usable instantaneous_demand reading on
+# this device, so "is flowing?" must be inferred purely from changes of
+# `summation_delivered`:
+#   * Each summation update means water flowed -> add the positive delta
+#     to the running cycle total and remember `now` as the last activity
+#     timestamp.
+#   * A time_pattern trigger fires once per minute and clears the cycle
+#     to 0 if no summation update has been seen for `stale_minutes`.
+#
+# `stale_minutes` is the only knob: increase it if your flow rate is so
+# low that several minutes pass between summation updates (chart would
+# otherwise zigzag). 2 min is safe for typical garden-irrigation rates.
+#
+# Device reset handling: when the Zigbee valve switch flips OFF -> ON the
+# device resets `summation_delivered` to 0. We catch the switch_on event
+# and zero `last_summation` so the next post-reset reading is treated as
+# a positive delta from 0 rather than a giant negative jump.
+# ---------------------------------------------------------------------------
+  - trigger:
+      - trigger: state
+        entity_id: sensor.garten_wassertimer_und_zahler_summation_delivered
+        id: summation
+      - trigger: time_pattern
+        minutes: "/1"
+        id: stale_check
+      - trigger: state
+        entity_id: switch.garten_wassertimer_und_zahler
+        to: "on"
+        id: switch_on
+    sensor:
       - name: "Garden Water Current Cycle"
         unique_id: garden_water_current_cycle
-        device_class: water
+        # No device_class: this is a per-cycle gauge that drops back to 0
+        # when flow stops, which is incompatible with device_class: water
+        # (requires state_class total/total_increasing). Leaving it off
+        # lets us keep state_class: measurement for nice line-chart
+        # behavior in the UI.
         state_class: measurement
         unit_of_measurement: "L"
         icon: mdi:water-pump
-        availability: >
-          {{ has_value('sensor.garten_wassertimer_und_zahler_summation_delivered') }}
         state: >
-          {% if is_state('switch.garten_wassertimer_und_zahler', 'on') %}
-            {{ states('sensor.garten_wassertimer_und_zahler_summation_delivered') | float(0) | round(3) }}
-          {% else %}
+          {% set stale_minutes = 2 %}
+          {% set prev_total = states('sensor.garden_water_current_cycle') | float(0) %}
+          {% set attrs = this.attributes if this is not none else {} %}
+          {% set last_summation = attrs.get('last_summation', 0) | float(0) %}
+          {% set last_change_at = attrs.get('last_change_at', none) %}
+          {% if trigger.id == 'switch_on' %}
+            {# Device is about to reset summation_delivered to 0; drop
+               the visible cycle to 0 too so a fresh burst starts cleanly. #}
             0
+          {% elif trigger.id == 'summation' %}
+            {% set current = trigger.to_state.state | float(0) %}
+            {% if current >= last_summation %}
+              {{ (prev_total + (current - last_summation)) | round(3) }}
+            {% else %}
+              {# Negative delta -> device reset between updates. Treat the
+                 new (post-reset) reading as flow we can still attribute. #}
+              {{ (prev_total + current) | round(3) }}
+            {% endif %}
+          {% elif trigger.id == 'stale_check' %}
+            {% if last_change_at is none %}
+              {{ prev_total | round(3) }}
+            {% else %}
+              {% set age = (now() - (last_change_at | as_datetime)).total_seconds() / 60 %}
+              {% if age >= stale_minutes %}
+                0
+              {% else %}
+                {{ prev_total | round(3) }}
+              {% endif %}
+            {% endif %}
+          {% else %}
+            {{ prev_total | round(3) }}
           {% endif %}
+        attributes:
+          # Last raw summation_delivered reading we processed -- used to
+          # compute the next delta. Forced to 0 on switch_on because the
+          # device is about to reset its counter to 0.
+          last_summation: >
+            {% set attrs = this.attributes if this is not none else {} %}
+            {% if trigger.id == 'switch_on' %}
+              0
+            {% elif trigger.id == 'summation' %}
+              {{ trigger.to_state.state | float(0) }}
+            {% else %}
+              {{ attrs.get('last_summation', 0) | float(0) }}
+            {% endif %}
+          # Timestamp of the last summation update we observed. Drives the
+          # stale-check that resets the cycle to 0 when flow has stopped.
+          last_change_at: >
+            {% set attrs = this.attributes if this is not none else {} %}
+            {% if trigger.id == 'summation' %}
+              {{ now().isoformat() }}
+            {% else %}
+              {{ attrs.get('last_change_at', none) }}
+            {% endif %}
 
 # ---------------------------------------------------------------------------
 # Pool water attribution.
 #
 # Lifetime cumulative liters drawn from the garden tap that should be
-# attributed to the swimming pool. Only accumulates when BOTH:
-#   * switch.garten_wassertimer_und_zahler is ON (water actually flowing), AND
-#   * input_boolean.attribute_water_to_pool is ON (user opted in for this run).
+# attributed to the swimming pool. Only accumulates when
+# input_boolean.attribute_water_to_pool is ON. The switch state is no
+# longer checked: if the switch is off, summation_delivered does not
+# change and there is nothing to add anyway.
 #
-# Implementation: trigger-based template sensor that listens to changes of
-# `summation_delivered`, computes the positive delta against the previous
-# reading kept in `this.attributes.last_summation`, and adds it to its own
-# previous state when attribution is enabled. State persists across HA
-# restarts via the recorder, just like a utility_meter.
+# Same race-condition handling as Garden Water Total Flow: a negative
+# delta (device reset between polls) is treated as "add current" rather
+# than discarded, so we don't drop the post-reset flow. We also listen
+# to switch->ON to resync the baseline before the device resets.
 # ---------------------------------------------------------------------------
   - trigger:
       - trigger: state
         entity_id: sensor.garten_wassertimer_und_zahler_summation_delivered
+        id: summation
+      - trigger: state
+        entity_id: switch.garten_wassertimer_und_zahler
+        to: "on"
+        id: switch_on
     sensor:
       - name: "Pool Water Consumption"
         unique_id: pool_water_consumption
@@ -100,26 +191,119 @@
         icon: mdi:pool
         state: >
           {% set prev_total = states('sensor.pool_water_consumption') | float(0) %}
-          {% set prev_summation = (this.attributes.last_summation
-                                    if this is not none else 0) | float(0) %}
-          {% set current = trigger.to_state.state | float(0) %}
-          {% set delta = current - prev_summation %}
-          {% set attribute = is_state('input_boolean.attribute_water_to_pool', 'on')
-                             and is_state('switch.garten_wassertimer_und_zahler', 'on') %}
-          {# Only positive deltas count -- a negative delta means the valve was
-             re-opened and `summation_delivered` was reset to 0 by the device. #}
-          {% if attribute and delta > 0 %}
-            {{ (prev_total + delta) | round(3) }}
+          {% set attrs = this.attributes if this is not none else {} %}
+          {% if trigger.id == 'switch_on' %}
+            {{ prev_total | round(3) }}
+          {% else %}
+            {% set prev_summation = attrs.get('last_summation', 0) | float(0) %}
+            {% set current = trigger.to_state.state | float(0) %}
+            {% set attribute = is_state('input_boolean.attribute_water_to_pool', 'on') %}
+            {% if not attribute %}
+              {{ prev_total | round(3) }}
+            {% elif current >= prev_summation %}
+              {{ (prev_total + (current - prev_summation)) | round(3) }}
+            {% else %}
+              {{ (prev_total + current) | round(3) }}
+            {% endif %}
+          {% endif %}
+        attributes:
+          last_summation: >
+            {% if trigger.id == 'switch_on' %}
+              0
+            {% else %}
+              {{ trigger.to_state.state | float(0) }}
+            {% endif %}
+          attribution_active: >
+            {{ is_state('input_boolean.attribute_water_to_pool', 'on') }}
+
+# ---------------------------------------------------------------------------
+# Pool Water Current Fill (trigger-based, gauge).
+#
+# Liters delivered to the pool during the current attributed fill burst.
+# Rises while water is actually flowing AND
+# input_boolean.attribute_water_to_pool is ON. Drops to 0 when:
+#   * flow has been stale for `stale_minutes` (no summation update), OR
+#   * the attribution boolean is turned OFF.
+#
+# Same stale-check pattern as Garden Water Current Cycle. Does NOT have a
+# device_class (would conflict with state_class: measurement).
+# ---------------------------------------------------------------------------
+  - trigger:
+      - trigger: state
+        entity_id: sensor.garten_wassertimer_und_zahler_summation_delivered
+        id: summation
+      - trigger: time_pattern
+        minutes: "/1"
+        id: stale_check
+      - trigger: state
+        entity_id: switch.garten_wassertimer_und_zahler
+        to: "on"
+        id: switch_on
+      - trigger: state
+        entity_id: input_boolean.attribute_water_to_pool
+        to: "off"
+        id: attribution_off
+    sensor:
+      - name: "Pool Water Current Fill"
+        unique_id: pool_water_current_fill
+        state_class: measurement
+        unit_of_measurement: "L"
+        icon: mdi:pool
+        state: >
+          {% set stale_minutes = 2 %}
+          {% set prev_total = states('sensor.pool_water_current_fill') | float(0) %}
+          {% set attrs = this.attributes if this is not none else {} %}
+          {% set last_summation = attrs.get('last_summation', 0) | float(0) %}
+          {% set last_change_at = attrs.get('last_change_at', none) %}
+          {% set attribute = is_state('input_boolean.attribute_water_to_pool', 'on') %}
+          {% if trigger.id == 'switch_on' %}
+            0
+          {% elif trigger.id == 'attribution_off' %}
+            0
+          {% elif trigger.id == 'summation' %}
+            {% if not attribute %}
+              {{ prev_total | round(3) }}
+            {% else %}
+              {% set current = trigger.to_state.state | float(0) %}
+              {% if current >= last_summation %}
+                {{ (prev_total + (current - last_summation)) | round(3) }}
+              {% else %}
+                {{ (prev_total + current) | round(3) }}
+              {% endif %}
+            {% endif %}
+          {% elif trigger.id == 'stale_check' %}
+            {% if not attribute %}
+              0
+            {% elif last_change_at is none %}
+              {{ prev_total | round(3) }}
+            {% else %}
+              {% set age = (now() - (last_change_at | as_datetime)).total_seconds() / 60 %}
+              {% if age >= stale_minutes %}
+                0
+              {% else %}
+                {{ prev_total | round(3) }}
+              {% endif %}
+            {% endif %}
           {% else %}
             {{ prev_total | round(3) }}
           {% endif %}
         attributes:
-          # Last raw reading of summation_delivered we processed. Used to
-          # compute the delta on the next trigger. Always updated, regardless
-          # of whether attribution was active, so we never double-count after
-          # the user toggles the input_boolean.
           last_summation: >
-            {{ trigger.to_state.state | float(0) }}
+            {% set attrs = this.attributes if this is not none else {} %}
+            {% if trigger.id == 'switch_on' %}
+              0
+            {% elif trigger.id == 'summation' %}
+              {{ trigger.to_state.state | float(0) }}
+            {% else %}
+              {{ attrs.get('last_summation', 0) | float(0) }}
+            {% endif %}
+          last_change_at: >
+            {% set attrs = this.attributes if this is not none else {} %}
+            {% if trigger.id == 'summation'
+                  and is_state('input_boolean.attribute_water_to_pool', 'on') %}
+              {{ now().isoformat() }}
+            {% else %}
+              {{ attrs.get('last_change_at', none) }}
+            {% endif %}
           attribution_active: >
-            {{ is_state('input_boolean.attribute_water_to_pool', 'on')
-               and is_state('switch.garten_wassertimer_und_zahler', 'on') }}
+            {{ is_state('input_boolean.attribute_water_to_pool', 'on') }}
