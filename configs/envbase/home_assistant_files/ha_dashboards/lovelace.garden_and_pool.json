@@ -69,7 +69,12 @@
                   "series": [
                     {
                       "entity": "sensor.pool_energy_monthly",
-                      "type": "column"
+                      "type": "column",
+                      "group_by": {
+                        "duration": "1month",
+                        "func": "max"
+                      },
+                      "color": "red"
                     }
                   ]
                 },
@@ -94,7 +99,12 @@
                   "series": [
                     {
                       "entity": "sensor.pool_energy_total",
-                      "type": "column"
+                      "type": "column",
+                      "group_by": {
+                        "duration": "1y",
+                        "func": "max"
+                      },
+                      "color": "darkred"
                     }
                   ]
                 },
@@ -110,9 +120,25 @@
                     "square": false,
                     "columns": 12
                   },
+                  "graph_span": "3h",
                   "apex_config": {
                     "chart": {
-                      "height": "315px"
+                      "height": "315px",
+                      "toolbar": {
+                        "show": true,
+                        "tools": {
+                          "zoom": true,
+                          "zoomin": true,
+                          "zoomout": true,
+                          "pan": true,
+                          "reset": true
+                        }
+                      },
+                      "zoom": {
+                        "enabled": true,
+                        "type": "x",
+                        "autoScaleYaxis": true
+                      }
                     }
                   },
                   "series": [
@@ -138,9 +164,25 @@
                     "square": false,
                     "columns": 12
                   },
+                  "graph_span": "1h",
                   "apex_config": {
                     "chart": {
-                      "height": "315px"
+                      "height": "315px",
+                      "toolbar": {
+                        "show": true,
+                        "tools": {
+                          "zoom": true,
+                          "zoomin": true,
+                          "zoomout": true,
+                          "pan": true,
+                          "reset": true
+                        }
+                      },
+                      "zoom": {
+                        "enabled": true,
+                        "type": "x",
+                        "autoScaleYaxis": true
+                      }
                     }
                   },
                   "series": [
@@ -201,9 +243,25 @@
                     "square": false,
                     "columns": "full"
                   },
+                  "graph_span": "1h",
                   "apex_config": {
                     "chart": {
-                      "height": "315px"
+                      "height": "315px",
+                      "toolbar": {
+                        "show": true,
+                        "tools": {
+                          "zoom": true,
+                          "zoomin": true,
+                          "zoomout": true,
+                          "pan": true,
+                          "reset": true
+                        }
+                      },
+                      "zoom": {
+                        "enabled": true,
+                        "type": "x",
+                        "autoScaleYaxis": true
+                      }
                     }
                   },
                   "series": [
@@ -231,14 +289,18 @@
                     }
                   },
                   "graph_span": "1y",
-                  "update_interval": "1h",
                   "span": {
                     "end": "month"
                   },
                   "series": [
                     {
                       "entity": "sensor.pool_water_monthly",
-                      "type": "column"
+                      "type": "column",
+                      "group_by": {
+                        "duration": "1month",
+                        "func": "max"
+                      },
+                      "color": "blue"
                     }
                   ]
                 },
@@ -267,7 +329,12 @@
                   "series": [
                     {
                       "entity": "sensor.garden_water_monthly",
-                      "type": "column"
+                      "type": "column",
+                      "group_by": {
+                        "duration": "1month",
+                        "func": "max"
+                      },
+                      "color": "lightblue"
                     }
                   ]
                 }
