@@ -1,0 +1,9 @@
+# Helpers managed via YAML so they live in the IaC repo and survive
+# rebuilds of the HA host. Toggleable from the UI like UI-created helpers.
+
+attribute_water_to_pool:
+  name: Attribute Water to Pool
+  icon: mdi:pool
+  # When ON, water flowing through the garden valve is added to
+  # sensor.pool_water_consumption. Toggle this manually before/after
+  # filling the pool from the garden tap.

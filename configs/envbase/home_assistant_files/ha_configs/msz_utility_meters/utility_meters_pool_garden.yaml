@@ -16,3 +16,11 @@ garden_water_monthly:
 pool_energy_monthly:
   source: sensor.pool_energy_total
   cycle: monthly
+
+# Monthly aggregate of water attributed to the swimming pool.
+# Source is the cumulative `sensor.pool_water_consumption` template,
+# which only grows while input_boolean.attribute_water_to_pool is on
+# and the garden valve is flowing.
+pool_water_monthly:
+  source: sensor.pool_water_consumption
+  cycle: monthly

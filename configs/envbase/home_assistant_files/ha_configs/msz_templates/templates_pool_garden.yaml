@@ -73,3 +73,53 @@
           {% else %}
             0
           {% endif %}
+
+# ---------------------------------------------------------------------------
+# Pool water attribution.
+#
+# Lifetime cumulative liters drawn from the garden tap that should be
+# attributed to the swimming pool. Only accumulates when BOTH:
+#   * switch.garten_wassertimer_und_zahler is ON (water actually flowing), AND
+#   * input_boolean.attribute_water_to_pool is ON (user opted in for this run).
+#
+# Implementation: trigger-based template sensor that listens to changes of
+# `summation_delivered`, computes the positive delta against the previous
+# reading kept in `this.attributes.last_summation`, and adds it to its own
+# previous state when attribution is enabled. State persists across HA
+# restarts via the recorder, just like a utility_meter.
+# ---------------------------------------------------------------------------
+  - trigger:
+      - trigger: state
+        entity_id: sensor.garten_wassertimer_und_zahler_summation_delivered
+    sensor:
+      - name: "Pool Water Consumption"
+        unique_id: pool_water_consumption
+        device_class: water
+        state_class: total_increasing
+        unit_of_measurement: "L"
+        icon: mdi:pool
+        state: >
+          {% set prev_total = states('sensor.pool_water_consumption') | float(0) %}
+          {% set prev_summation = (this.attributes.last_summation
+                                    if this is not none else 0) | float(0) %}
+          {% set current = trigger.to_state.state | float(0) %}
+          {% set delta = current - prev_summation %}
+          {% set attribute = is_state('input_boolean.attribute_water_to_pool', 'on')
+                             and is_state('switch.garten_wassertimer_und_zahler', 'on') %}
+          {# Only positive deltas count -- a negative delta means the valve was
+             re-opened and `summation_delivered` was reset to 0 by the device. #}
+          {% if attribute and delta > 0 %}
+            {{ (prev_total + delta) | round(3) }}
+          {% else %}
+            {{ prev_total | round(3) }}
+          {% endif %}
+        attributes:
+          # Last raw reading of summation_delivered we processed. Used to
+          # compute the delta on the next trigger. Always updated, regardless
+          # of whether attribution was active, so we never double-count after
+          # the user toggles the input_boolean.
+          last_summation: >
+            {{ trigger.to_state.state | float(0) }}
+          attribution_active: >
+            {{ is_state('input_boolean.attribute_water_to_pool', 'on')
+               and is_state('switch.garten_wassertimer_und_zahler', 'on') }}

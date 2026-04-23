@@ -8,6 +8,7 @@ frontend:
 automation: !include automations.yaml
 script: !include scripts.yaml
 scene: !include scenes.yaml
+input_boolean: !include input_booleans.yaml
 
 # MQTT entities (switches, sensors, lights, etc.). The MQTT broker
 # connection itself lives in .storage/core.config_entries and is managed
