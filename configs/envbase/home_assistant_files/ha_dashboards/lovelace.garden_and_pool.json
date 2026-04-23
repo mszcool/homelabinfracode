@@ -108,7 +108,7 @@
                   },
                   "grid_options": {
                     "square": false,
-                    "columns": "full"
+                    "columns": 12
                   },
                   "apex_config": {
                     "chart": {
@@ -118,11 +118,35 @@
                   "series": [
                     {
                       "entity": "sensor.switch_pumplight_pumplight_power",
-                      "color": "blue"
+                      "color": "darkred"
                     },
                     {
                       "entity": "sensor.switch_redoxph_redoxph_power",
                       "color": "red"
+                    }
+                  ]
+                },
+                {
+                  "type": "custom:apexcharts-card",
+                  "header": {
+                    "show": true,
+                    "title": "Pool Current Water Fill Flow",
+                    "show_states": true,
+                    "colorize_states": true
+                  },
+                  "grid_options": {
+                    "square": false,
+                    "columns": 12
+                  },
+                  "apex_config": {
+                    "chart": {
+                      "height": "315px"
+                    }
+                  },
+                  "series": [
+                    {
+                      "entity": "sensor.pool_water_consumption",
+                      "color": "blue"
                     }
                   ]
                 }
@@ -146,8 +170,15 @@
                 },
                 {
                   "type": "tile",
+                  "entity": "input_boolean.attribute_water_to_pool",
+                  "name": "Wasser Pool zuordnen",
+                  "vertical": false,
+                  "features_position": "bottom"
+                },
+                {
+                  "type": "tile",
                   "entity": "sensor.garten_wassertimer_und_zahler_battery",
-                  "name": "Batteriezustand",
+                  "name": "Batterie Wasser Garten",
                   "vertical": false,
                   "features_position": "bottom"
                 },
@@ -155,13 +186,6 @@
                   "type": "tile",
                   "entity": "sensor.garten_wassertimer_und_zahler_last_irrigation_duration",
                   "name": "Letzte Laufzeit",
-                  "vertical": false,
-                  "features_position": "bottom"
-                },
-                {
-                  "type": "tile",
-                  "entity": "sensor.garten_wassertimer_und_zahler_summation_delivered",
-                  "name": "Letzte Wassermenge",
                   "vertical": false,
                   "features_position": "bottom"
                 },
@@ -193,13 +217,42 @@
                   "type": "custom:apexcharts-card",
                   "header": {
                     "show": true,
+                    "title": "Pool Water Consumption Monthly",
+                    "show_states": true,
+                    "colorize_states": true
+                  },
+                  "grid_options": {
+                    "square": false,
+                    "columns": 12
+                  },
+                  "apex_config": {
+                    "chart": {
+                      "height": "315x"
+                    }
+                  },
+                  "graph_span": "1y",
+                  "update_interval": "1h",
+                  "span": {
+                    "end": "month"
+                  },
+                  "series": [
+                    {
+                      "entity": "sensor.pool_water_monthly",
+                      "type": "column"
+                    }
+                  ]
+                },
+                {
+                  "type": "custom:apexcharts-card",
+                  "header": {
+                    "show": true,
                     "title": "Water Consumption Monthly",
                     "show_states": true,
                     "colorize_states": true
                   },
                   "grid_options": {
                     "square": false,
-                    "columns": "full"
+                    "columns": 12
                   },
                   "apex_config": {
                     "chart": {
