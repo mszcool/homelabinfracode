@@ -117,3 +117,14 @@ iso_images:
     storage_pool: "incus-instances"
     iso_path: "/srv/iso/ubuntu-24.04.3-desktop-amd64.iso"
     iso_source_local: "{{ operator_home_dir }}/iso/ubuntu-24.04.3-desktop-amd64.iso"
+
+# ---------- QCOW2 VM images ----------
+# Appliance disk images imported via `incus image import`.
+# Download the file manually, decompress if needed, then run:
+#   ansible-playbook playbooks/ring0a/host-incus-import-qcow2.yaml \
+#     -i configs/envbase/ -i configs.private/envlocaldev/inventory/
+qcow2_images:
+  - name: "haos-17.1"
+    project: "prodlayer1"
+    source_local: "{{ operator_home_dir }}/iso/haos_ova-17.1.qcow2"
+    source_url: "https://github.com/home-assistant/operating-system/releases/download/17.1/haos_ova-17.1.qcow2.xz"
