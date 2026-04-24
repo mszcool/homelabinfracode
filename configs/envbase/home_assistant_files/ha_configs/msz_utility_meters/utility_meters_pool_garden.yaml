@@ -1,0 +1,26 @@
+# Daily aggregate of garden water meter (Z2M `water_consumed` cumulative).
+garden_water_daily:
+  source: sensor.garden_water_counter_1_water_consumed
+  cycle: daily
+
+# Monthly aggregate of garden water meter.
+garden_water_monthly:
+  source: sensor.garden_water_counter_1_water_consumed
+  cycle: monthly
+
+# Monthly aggregate of combined pool energy consumption.
+# Source is the cumulative "Pool Energy Total" template sensor
+# (sum of pumplight_energy_total + redoxph_energy_total), because
+# utility_meter requires a monotonically increasing source and the
+# *_energy_today sensors reset every midnight.
+pool_energy_monthly:
+  source: sensor.pool_energy_total
+  cycle: monthly
+
+# Monthly aggregate of water attributed to the swimming pool.
+# Source is the cumulative `sensor.pool_water_consumption` template,
+# which only grows while input_boolean.attribute_water_to_pool is on
+# and the garden valve is flowing.
+pool_water_monthly:
+  source: sensor.pool_water_consumption
+  cycle: monthly

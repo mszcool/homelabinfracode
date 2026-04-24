@@ -1,0 +1,290 @@
+---
+# Task: Deploy .storage files and conditionally stop/restart HA
+#
+# This task owns the single critical section where HA must be stopped so
+# we can safely write into .storage/. It also writes prepared HACS storage
+# entries from ha-register-hacs-storage.yaml inside the same window.
+#
+# Idempotency:
+#   - JSON-level comparison of every .storage/ file (not string compare):
+#     parsed objects are compared so whitespace / key-order / trailing newline
+#     differences don't trigger spurious restarts.
+# Resilience:
+#   - Block / rescue / always around the stop → write → start sequence.
+#   - A pre-change HA backup is created before the stop.
+#   - rescue ALWAYS attempts ha core start so HA never stays down.
+# Ordering:
+#   - HACS storage entries are written AFTER ha core stop so HA cannot
+#     overwrite them from its in-memory StorageManager on next save.
+
+# --- Load source .storage file contents from base/env layering ---
+
+- name: Load source storage file contents (ha_configs_storage)
+  ansible.builtin.set_fact:
+    _storage_source_contents: >-
+      {{ _storage_source_contents | default({}) | combine({
+        item: lookup('file', lookup('first_found', _search_paths))
+      }) }}
+  vars:
+    _search_paths: >-
+      {{ ([ha_config_env_path ~ '/ha_configs_storage/' ~ item] if ha_config_env_path | length > 0 else [])
+         + [ha_config_base_path ~ '/ha_configs_storage/' ~ item] }}
+  loop: "{{ ha_storage_files }}"
+
+- name: Load source dashboard file contents (ha_dashboards)
+  ansible.builtin.set_fact:
+    _dashboard_source_contents: >-
+      {{ _dashboard_source_contents | default({}) | combine({
+        item: lookup('file', lookup('first_found', _search_paths))
+      }) }}
+  vars:
+    _search_paths: >-
+      {{ ([ha_config_env_path ~ '/ha_dashboards/' ~ item] if ha_config_env_path | length > 0 else [])
+         + [ha_config_base_path ~ '/ha_dashboards/' ~ item] }}
+  loop: "{{ ha_dashboard_files }}"
+
+# --- Read existing .storage files for JSON comparison ---
+
+- name: Stat existing .storage files (ha_configs_storage)
+  ansible.builtin.stat:
+    path: "{{ ha_config_path }}/.storage/{{ item | regex_replace('\\.json$', '') }}"
+  register: _existing_storage_stats
+  loop: "{{ ha_storage_files }}"
+
+- name: Slurp existing .storage files (ha_configs_storage)
+  ansible.builtin.slurp:
+    src: "{{ ha_config_path }}/.storage/{{ item.item | regex_replace('\\.json$', '') }}"
+  register: _existing_storage_slurps
+  failed_when: false
+  when: item.stat.exists
+  loop: "{{ _existing_storage_stats.results }}"
+  loop_control:
+    label: "{{ item.item }}"
+
+- name: Stat existing .storage files (ha_dashboards)
+  ansible.builtin.stat:
+    path: "{{ ha_config_path }}/.storage/{{ item | regex_replace('\\.json$', '') }}"
+  register: _existing_dashboard_stats
+  loop: "{{ ha_dashboard_files }}"
+
+- name: Slurp existing .storage files (ha_dashboards)
+  ansible.builtin.slurp:
+    src: "{{ ha_config_path }}/.storage/{{ item.item | regex_replace('\\.json$', '') }}"
+  register: _existing_dashboard_slurps
+  failed_when: false
+  when: item.stat.exists
+  loop: "{{ _existing_dashboard_stats.results }}"
+  loop_control:
+    label: "{{ item.item }}"
+
+# --- Semantic (JSON-level) diff ---
+
+- name: Compare ha_configs_storage contents (parsed JSON)
+  ansible.builtin.set_fact:
+    _storage_files_changed: >-
+      {{ _storage_files_changed | default(false) or
+         (item.skipped | default(false)) or
+         ((item.content | b64decode | from_json) != (_storage_source_contents[item.item.item] | from_json)) }}
+  loop: "{{ _existing_storage_slurps.results }}"
+  loop_control:
+    label: "{{ item.item.item }}"
+
+- name: Compare ha_dashboards contents (parsed JSON)
+  ansible.builtin.set_fact:
+    _storage_files_changed: >-
+      {{ _storage_files_changed | default(false) or
+         (item.skipped | default(false)) or
+         ((item.content | b64decode | from_json) != (_dashboard_source_contents[item.item.item] | from_json)) }}
+  loop: "{{ _existing_dashboard_slurps.results }}"
+  loop_control:
+    label: "{{ item.item.item }}"
+
+- name: Determine if stop/start cycle is needed
+  ansible.builtin.set_fact:
+    _ha_needs_restart: >-
+      {{ (_non_mqtt_config_changed | default(_ha_config_changed) | bool) or
+         (_ha_storage_changed | bool) or
+         (_storage_files_changed | default(false) | bool) or
+         (_hacs_repos_write_needed | default(false) | bool) or
+         (_hacs_data_write_needed | default(false) | bool) or
+         (_mqtt_entry_write_needed | default(false) | bool) }}
+
+- name: Display restart decision
+  ansible.builtin.debug:
+    msg: >-
+      {{ 'Changes detected — HA will be backed up, stopped, files deployed, then restarted.'
+      if (_ha_needs_restart | bool)
+      else 'No changes detected — skipping backup and stop/start cycle.' }}
+
+# --- Drift report ---
+#
+# Per-file summary of which .storage files would change and why. Always
+# rendered when a restart is pending. Designed to be readable in CI logs
+# and in `--check --diff` runs (where the critical section below is gated
+# on _ha_needs_restart and ansible_check_mode).
+
+- name: Build drift report (ha_configs_storage)
+  ansible.builtin.set_fact:
+    _ha_drift_report: >-
+      {{ (_ha_drift_report | default([])) + [
+           {
+             'file': item.item.item,
+             'source': 'ha_configs_storage',
+             'status': ('NEW (file missing on target)'
+                        if (item.skipped | default(false))
+                        else ('CHANGED'
+                              if ((item.content | b64decode | from_json)
+                                  != (_storage_source_contents[item.item.item] | from_json))
+                              else 'unchanged'))
+           }
+         ] }}
+  loop: "{{ _existing_storage_slurps.results }}"
+  loop_control:
+    label: "{{ item.item.item }}"
+
+- name: Build drift report (ha_dashboards)
+  ansible.builtin.set_fact:
+    _ha_drift_report: >-
+      {{ (_ha_drift_report | default([])) + [
+           {
+             'file': item.item.item,
+             'source': 'ha_dashboards',
+             'status': ('NEW (file missing on target)'
+                        if (item.skipped | default(false))
+                        else ('CHANGED'
+                              if ((item.content | b64decode | from_json)
+                                  != (_dashboard_source_contents[item.item.item] | from_json))
+                              else 'unchanged'))
+           }
+         ] }}
+  loop: "{{ _existing_dashboard_slurps.results }}"
+  loop_control:
+    label: "{{ item.item.item }}"
+
+- name: Append HACS storage entries to drift report
+  ansible.builtin.set_fact:
+    _ha_drift_report: >-
+      {{ (_ha_drift_report | default([])) + [
+           { 'file': 'hacs.repositories', 'source': 'managed', 'status':
+               ('would write' if (_hacs_repos_write_needed | default(false) | bool)
+                else 'unchanged (mode=' ~ (hacs_install_mode | default('seed_only')) ~ ')') },
+           { 'file': 'hacs.data',         'source': 'managed', 'status':
+               ('would write' if (_hacs_data_write_needed | default(false) | bool)
+                else 'unchanged (mode=' ~ (hacs_install_mode | default('seed_only')) ~ ')') },
+           { 'file': 'core.config_entries (mqtt entry)', 'source': 'managed', 'status':
+               ('would write' if (_mqtt_entry_write_needed | default(false) | bool)
+                else 'unchanged') }
+         ] }}
+
+- name: Drift report — files that would change
+  ansible.builtin.debug:
+    msg: |-
+      ===== HA .storage drift report =====
+      {% for entry in (_ha_drift_report | default([])) | rejectattr('status', 'equalto', 'unchanged') | list %}
+      [{{ entry.status }}] {{ entry.source }} : {{ entry.file }}
+      {% else %}
+      (no drift — all .storage files match repo)
+      {% endfor %}
+      ====================================
+  when: (_ha_drift_report | default([])) | length > 0
+
+# --- Critical section: backup → stop → write → start (with rescue) ---
+
+- name: Deploy .storage files and HACS registration (critical section)
+  when:
+    - _ha_needs_restart | bool
+    - not ansible_check_mode
+  block:
+    - name: Create pre-change HA backup
+      ansible.builtin.shell: >
+        ha backups new
+        --name "ansible-pre-{{ ansible_facts['date_time']['iso8601_basic_short'] | default('run') }}"
+      register: _ha_backup_result
+      changed_when: _ha_backup_result.rc == 0
+      failed_when: _ha_backup_result.rc != 0
+
+    - name: Stop Home Assistant core
+      # `ha core stop` is synchronous: when it returns rc=0 Core is fully
+      # stopped, so no readiness polling is needed before we touch .storage.
+      ansible.builtin.shell: ha core stop
+      changed_when: true
+
+    - name: Ensure .storage directory exists
+      ansible.builtin.file:
+        path: "{{ ha_config_path }}/.storage"
+        state: directory
+        mode: "0755"
+
+    # --- Deploy .storage files ---
+
+    - name: Deploy .storage files from ha_configs_storage
+      ansible.builtin.copy:
+        content: "{{ _storage_source_contents[item] }}"
+        dest: "{{ ha_config_path }}/.storage/{{ item | regex_replace('\\.json$', '') }}"
+        mode: "0644"
+      loop: "{{ ha_storage_files }}"
+
+    - name: Deploy .storage files from ha_dashboards
+      ansible.builtin.copy:
+        content: "{{ _dashboard_source_contents[item] }}"
+        dest: "{{ ha_config_path }}/.storage/{{ item | regex_replace('\\.json$', '') }}"
+        mode: "0644"
+      loop: "{{ ha_dashboard_files }}"
+
+    # --- Write prepared HACS storage entries (now safe — HA is stopped) ---
+
+    - name: Write hacs.repositories (merged)
+      ansible.builtin.copy:
+        content: "{{ _hacs_repos_proposed | to_nice_json }}\n"
+        dest: "{{ ha_config_path }}/.storage/hacs.repositories"
+        mode: "0644"
+      when: _hacs_repos_write_needed | default(false) | bool
+
+    - name: Write hacs.data (merged)
+      ansible.builtin.copy:
+        content: "{{ _hacs_data_proposed | to_nice_json }}\n"
+        dest: "{{ ha_config_path }}/.storage/hacs.data"
+        mode: "0644"
+      when: _hacs_data_write_needed | default(false) | bool
+
+    # --- Write merged core.config_entries (MQTT entry appended, others preserved) ---
+
+    - name: Write core.config_entries (merged with new MQTT entry)
+      ansible.builtin.copy:
+        content: "{{ _mqtt_config_entries_proposed | to_nice_json }}\n"
+        dest: "{{ ha_config_path }}/.storage/core.config_entries"
+        mode: "0644"
+      when: _mqtt_entry_write_needed | default(false) | bool
+
+    - name: Start Home Assistant core
+      # Fire-and-forget. Core can take a while to fully come up (some
+      # integrations like huawei_solar are slow), but we don't need Core
+      # responsive for any subsequent task in this playbook *except* the
+      # MQTT integration step, which has its own readiness probe.
+      ansible.builtin.shell: ha core start
+      changed_when: true
+
+  rescue:
+    - name: Attempt to start HA after failure in critical section
+      # Best-effort restart so HA never stays down on our account. We do
+      # not poll for readiness -- the MQTT step (and any future Core-API
+      # step) is responsible for waiting until Core is responsive.
+      ansible.builtin.shell: ha core start
+      failed_when: false
+      changed_when: true
+
+    - name: Re-raise deploy failure with guidance
+      ansible.builtin.fail:
+        msg: |
+          Home Assistant deploy failed inside the critical stop/start section.
+          A best-effort 'ha core start' was attempted. Review the prior task
+          errors and the backup created at the start of this section
+          (ha backups list). The latest pre-change backup is named
+          "ansible-pre-{{ ansible_facts['date_time']['iso8601_basic_short'] | default('run') }}".
+
+- name: Home Assistant restart status
+  ansible.builtin.debug:
+    msg: >-
+      {{ 'Home Assistant stopped, .storage/HACS files deployed, and restarted successfully.'
+      if (_ha_needs_restart | bool)
+      else 'No restart needed — all .storage content unchanged.' }}

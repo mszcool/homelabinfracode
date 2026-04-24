@@ -128,6 +128,16 @@ variable "enable_boot_autostart" {
   default     = false
 }
 
+variable "wait_for_network" {
+  description = <<-EOT
+    Whether to wait for the Incus agent (VMs) or IPv4 address (containers) after
+    instance creation.  Set to false for appliance-type VMs (e.g., Home Assistant OS)
+    that do not include the Incus agent and therefore cannot report readiness.
+  EOT
+  type        = bool
+  default     = true
+}
+
 variable "root_username" {
   description = "Username for the privileged user (e.g., 'admin', 'sysadmin'). Only used with image-based VMs. Will be created with full sudo access."
   type        = string

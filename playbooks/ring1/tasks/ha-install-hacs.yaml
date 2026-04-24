@@ -1,0 +1,151 @@
+---
+# Task: Install HACS (Home Assistant Community Store)
+#
+# Ownership model: SEED-ONLY by default (see hacs_install_mode).
+#   - seed_only:      install HACS on first run only; never touch again.
+#                     This is the default and the right choice for production
+#                     where HACS itself manages its own upgrades through the UI.
+#   - force_redeploy: always re-evaluate version pin, atomically swap.
+#                     Use on staging when testing a HACS version bump or to
+#                     forcibly resync a corrupted install.
+#
+# Idempotency: Checks custom_components/hacs/manifest.json version field.
+#              Downloads only if missing, or version mismatch AND mode is
+#              force_redeploy.
+#
+# Resilience:  Uses staging-directory + atomic swap so a failed download
+#              or extraction never deletes a working installation.
+#              block/rescue/always guarantees cleanup and rollback.
+
+- name: Check if HACS manifest.json exists
+  ansible.builtin.stat:
+    path: "{{ ha_config_path }}/custom_components/hacs/manifest.json"
+  register: _hacs_manifest_stat
+
+- name: Read existing HACS manifest content
+  ansible.builtin.slurp:
+    src: "{{ ha_config_path }}/custom_components/hacs/manifest.json"
+  register: _hacs_manifest_slurp
+  when: _hacs_manifest_stat.stat.exists
+
+- name: Determine if HACS needs installation
+  # Always install if HACS is not yet present (seed). When already present,
+  # only re-install if mode is force_redeploy AND the on-disk version no
+  # longer matches the pinned ha_hacs_version.
+  ansible.builtin.set_fact:
+    _hacs_needs_install: >-
+      {{ (not _hacs_manifest_stat.stat.exists)
+         or (
+           (hacs_install_mode | default('seed_only')) == 'force_redeploy'
+           and ((_hacs_manifest_slurp.content | b64decode | from_json).version | default('')) != ha_hacs_version
+         ) }}
+
+- name: HACS install decision
+  ansible.builtin.debug:
+    msg: >-
+      {{ 'HACS not present — will install (seed).'
+         if (not _hacs_manifest_stat.stat.exists) else
+         ('HACS present and force_redeploy mode set; on-disk version differs — will reinstall.'
+          if (_hacs_needs_install | bool) else
+          'HACS already present (seed_only mode or version matches) — leaving HACS-managed install untouched.') }}
+
+- name: Install / upgrade HACS (atomic swap)
+  when: _hacs_needs_install | bool
+  block:
+    - name: Reset HACS staging directory
+      ansible.builtin.file:
+        path: /tmp/hacs_install
+        state: absent
+
+    - name: Create HACS staging directory
+      ansible.builtin.file:
+        path: /tmp/hacs_install/staging
+        state: directory
+        mode: "0755"
+
+    - name: Download HACS release zip
+      ansible.builtin.get_url:
+        url: "{{ ha_hacs_download_url }}"
+        dest: /tmp/hacs_install/hacs.zip
+        mode: "0644"
+        timeout: 60
+        force: true
+
+    - name: Extract HACS zip into staging (BusyBox unzip)
+      # The Ansible `unarchive` module requires GNU tar or full unzip with
+      # zipinfo, neither of which is available on HAOS (BusyBox-only).
+      # BusyBox unzip handles the archive with `-o` (overwrite) + `-d` (dest).
+      ansible.builtin.shell: |
+        set -e
+        rm -rf /tmp/hacs_install/staging
+        mkdir -p /tmp/hacs_install/staging
+        unzip -o -q /tmp/hacs_install/hacs.zip -d /tmp/hacs_install/staging
+      changed_when: true
+
+    - name: Verify staged HACS manifest
+      ansible.builtin.stat:
+        path: /tmp/hacs_install/staging/manifest.json
+      register: _hacs_staged_manifest
+
+    - name: Fail if staged HACS manifest missing
+      ansible.builtin.fail:
+        msg: "Extracted HACS zip does not contain manifest.json — refusing to swap."
+      when: not _hacs_staged_manifest.stat.exists
+
+    - name: Ensure custom_components parent directory exists
+      ansible.builtin.file:
+        path: "{{ ha_config_path }}/custom_components"
+        state: directory
+        mode: "0755"
+
+    - name: Move existing HACS install aside (backup)
+      ansible.builtin.shell: |
+        set -e
+        if [ -d "{{ ha_config_path }}/custom_components/hacs" ]; then
+          rm -rf "{{ ha_config_path }}/custom_components/hacs.bak"
+          mv "{{ ha_config_path }}/custom_components/hacs" "{{ ha_config_path }}/custom_components/hacs.bak"
+        fi
+      changed_when: true
+
+    - name: Move staged HACS into place (atomic swap)
+      ansible.builtin.shell: |
+        mv /tmp/hacs_install/staging "{{ ha_config_path }}/custom_components/hacs"
+      changed_when: true
+
+    - name: Remove HACS backup after successful install
+      ansible.builtin.file:
+        path: "{{ ha_config_path }}/custom_components/hacs.bak"
+        state: absent
+
+    - name: Set config changed flag (HACS installed)
+      ansible.builtin.set_fact:
+        _ha_config_changed: true
+
+  rescue:
+    - name: Restore previous HACS install after failure
+      ansible.builtin.shell: |
+        if [ -d "{{ ha_config_path }}/custom_components/hacs.bak" ]; then
+          rm -rf "{{ ha_config_path }}/custom_components/hacs"
+          mv "{{ ha_config_path }}/custom_components/hacs.bak" "{{ ha_config_path }}/custom_components/hacs"
+        fi
+      changed_when: true
+      failed_when: false
+
+    - name: Re-raise HACS installation failure
+      ansible.builtin.fail:
+        msg: "HACS installation failed and the previous version was restored (if present). See prior errors."
+
+  always:
+    - name: Clean up HACS staging directory
+      ansible.builtin.file:
+        path: /tmp/hacs_install
+        state: absent
+
+- name: HACS installation status
+  ansible.builtin.debug:
+    msg: >-
+      {{ 'HACS ' ~ ha_hacs_version ~ ' installed. MANUAL STEP: After HA restart,
+      activate HACS in Settings > Devices & Services > Add Integration > HACS
+      and complete GitHub OAuth authentication.'
+      if (_hacs_needs_install | bool)
+      else 'HACS ' ~ ha_hacs_version ~ ' already installed — skipped.' }}

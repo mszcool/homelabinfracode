@@ -1,0 +1,124 @@
+---
+# Import a QCOW2 disk image into Incus as a VM image.
+#
+# Unlike ISO imports (which create custom storage volumes), QCOW2 images are
+# imported via `incus image import` and become first-class Incus images that
+# can be referenced by alias in Terraform's `image` field.
+#
+# Incus requires a metadata tarball (containing metadata.yaml) alongside the
+# QCOW2 file.  This task file generates the metadata automatically in a
+# temporary directory before importing.
+#
+# Expected variables:
+#   qcow2.name           - Image alias in Incus (e.g., "haos-17.1")
+#   qcow2.source_local   - Local filesystem path to the QCOW2 file
+#   qcow2.source_url     - (Optional) Download URL; used only for documentation
+#   qcow2.project        - (Optional) Incus project; defaults to default_incus_project
+#   qcow2.architecture   - (Optional) CPU architecture; defaults to "x86_64"
+#   qcow2.description    - (Optional) Image description; defaults to "<name> VM image"
+#   incus_remote_name     - Target Incus remote
+
+- name: Determine target project for QCOW2 image
+  ansible.builtin.set_fact:
+    qcow2_target_project: "{{ qcow2.project | default(default_incus_project) }}"
+  delegate_to: localhost
+  become: false
+
+- name: Validate local QCOW2 source is provided
+  ansible.builtin.fail:
+    msg: |
+      ERROR: Local QCOW2 source is required but not provided for image '{{ qcow2.name }}'.
+      
+      Image configuration: {{ qcow2 }}
+      
+      Please ensure 'source_local' is defined in your qcow2_images configuration.
+      {% if qcow2.source_url is defined and qcow2.source_url != "" %}
+      
+      You can download the file with:
+        curl -fSL -o {{ qcow2.source_local | default('<target-path>') }} {{ qcow2.source_url }}
+      {% endif %}
+  when: qcow2.source_local is not defined or qcow2.source_local == ""
+  delegate_to: localhost
+  become: false
+
+- name: Check if local QCOW2 source file exists
+  ansible.builtin.stat:
+    path: "{{ qcow2.source_local }}"
+  register: qcow2_local_stat
+  delegate_to: localhost
+  become: false
+
+- name: Fail if local QCOW2 file doesn't exist
+  ansible.builtin.fail:
+    msg: |
+      ERROR: Local QCOW2 file not found: {{ qcow2.source_local }}
+      
+      Please ensure the file exists on your local machine.
+      {% if qcow2.source_url is defined and qcow2.source_url != "" %}
+      
+      Download it with:
+        curl -fSL -o {{ qcow2.source_local }} {{ qcow2.source_url }}
+      
+      If the file is compressed (.xz or .gz), decompress it first:
+        xz -dk {{ qcow2.source_local }}.xz
+      {% endif %}
+  when: not qcow2_local_stat.stat.exists
+  delegate_to: localhost
+  become: false
+
+- name: Check if image alias already exists on target remote
+  ansible.builtin.shell: |
+    incus image show {{ incus_remote_name }}:{{ qcow2.name }} --project={{ qcow2_target_project }} 2>/dev/null
+  register: qcow2_image_exists
+  failed_when: false
+  changed_when: false
+  delegate_to: localhost
+  become: false
+
+- name: Skip import if image already exists
+  ansible.builtin.debug:
+    msg: "Image '{{ qcow2.name }}' already exists on {{ incus_remote_name }} (project {{ qcow2_target_project }}), skipping import."
+  when: qcow2_image_exists.rc == 0
+  delegate_to: localhost
+  become: false
+
+- name: Import QCOW2 image into Incus (creates VM image with alias)
+  ansible.builtin.shell: |
+    set -e
+    TMPDIR=$(mktemp -d)
+    trap 'rm -rf "$TMPDIR"' EXIT
+
+    # Generate the metadata.yaml required by incus image import
+    cat > "$TMPDIR/metadata.yaml" <<EOF
+    architecture: {{ qcow2.architecture | default('x86_64') }}
+    creation_date: $(date +%s)
+    properties:
+      description: {{ qcow2.description | default(qcow2.name + ' VM image') }}
+      os: Linux
+      release: {{ qcow2.name }}
+    EOF
+
+    # Package it into a tarball
+    tar -czf "$TMPDIR/metadata.tar.gz" -C "$TMPDIR" metadata.yaml
+
+    # Import with metadata + QCOW2 disk image
+    incus image import "$TMPDIR/metadata.tar.gz" {{ qcow2.source_local }} {{ incus_remote_name }}: \
+      --alias {{ qcow2.name }} --project={{ qcow2_target_project }}
+  delegate_to: localhost
+  become: false
+  register: qcow2_import_result
+  when: qcow2_image_exists.rc != 0
+
+- name: Display QCOW2 import information
+  ansible.builtin.debug:
+    msg: |
+      QCOW2 Import {{ 'Successful' if qcow2_image_exists.rc != 0 else 'Skipped (already exists)' }}:
+      Image Alias: {{ qcow2.name }}
+      Local Source: {{ qcow2.source_local }}
+      Project: {{ qcow2_target_project }}
+      Remote: {{ incus_remote_name }}
+      {% if qcow2.source_url is defined and qcow2.source_url != "" %}
+      Source URL: {{ qcow2.source_url }}
+      {% endif %}
+  delegate_to: localhost
+  become: false

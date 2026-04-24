@@ -1,0 +1,64 @@
+---
+# Task: Reload MQTT YAML entities WITHOUT restarting HA Core.
+#
+# When this runs:
+#   - configuration.yaml or any !included file changed
+#     (_ha_config_changed is true), AND
+#   - we did NOT restart HA Core in the critical section
+#     (_ha_needs_restart is false). If a restart happened, the YAML
+#     entities are picked up naturally on startup -- reload would be
+#     redundant and wasteful.
+#
+# How: POST to the HA Core REST API at /api/services/mqtt/reload via the
+# Supervisor reverse proxy at http://supervisor/core/api/... using the
+# captured SUPERVISOR_TOKEN.
+#
+# Resilience:
+#   - status_code accepts 200 (typical) and 201 (some HA versions).
+#   - failed_when only on hard failures; transient connection refused
+#     (rare since no restart happened) is logged but does not break the
+#     play. The next playbook run will try again.
+
+- name: Decide whether MQTT reload is needed (msz_mqtt_sensors/* changed, no Core restart)
+  ansible.builtin.set_fact:
+    _mqtt_reload_needed: >-
+      {{ (_mqtt_yaml_only_changed | default(false) | bool)
+         and not (_ha_needs_restart | default(false) | bool) }}
+
+- name: Display MQTT reload decision
+  ansible.builtin.debug:
+    msg: >-
+      {{ 'msz_mqtt_sensors/* changed and HA Core was not restarted -- calling mqtt.reload.'
+      if (_mqtt_reload_needed | bool)
+      else (
+        'No MQTT reload needed: '
+        ~ ('msz_mqtt_sensors/* unchanged' if not (_mqtt_yaml_only_changed | default(false) | bool)
+           else 'HA Core was restarted, entities reloaded on startup')
+      ) }}
+
+- name: Call HA Core service mqtt.reload via Supervisor proxy
+  ansible.builtin.uri:
+    url: "http://supervisor/core/api/services/mqtt/reload"
+    method: POST
+    headers:
+      Authorization: "Bearer {{ _supervisor_token }}"
+      Content-Type: "application/json"
+    body_format: json
+    body: {}
+    status_code: [200, 201]
+    timeout: 30
+  register: _mqtt_reload_result
+  failed_when:
+    - _mqtt_reload_result.status not in [200, 201]
+    - _mqtt_reload_result.status != -1   # tolerate connection-level errors
+  when: _mqtt_reload_needed | bool
+
+- name: MQTT reload result
+  ansible.builtin.debug:
+    msg: >-
+      {{ 'mqtt.reload returned HTTP ' ~ _mqtt_reload_result.status
+         ~ ' -- entity changes are now live without a Core restart.' }}
+  when:
+    - _mqtt_reload_needed | bool
+    - _mqtt_reload_result is defined
+    - _mqtt_reload_result.status is defined

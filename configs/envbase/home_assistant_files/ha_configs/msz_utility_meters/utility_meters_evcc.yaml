@@ -1,0 +1,21 @@
+# Daily-cycle utility meters layered over the EVCC Riemann integrations.
+# The Riemann sensors themselves are lifetime cumulative (required for the
+# Energy Dashboard); these meters reset every day at 00:00 so dashboards
+# and ApexCharts can plot "today's energy" as a value that returns to 0
+# at midnight.
+
+evcc_utility_grid_consumption_daily:
+  source: sensor.evcc_grid_consumption_energy_riemann
+  cycle: daily
+
+evcc_utility_grid_export_daily:
+  source: sensor.evcc_grid_export_energy_riemann
+  cycle: daily
+
+evcc_utility_battery_charge_daily:
+  source: sensor.evcc_battery_charge_energy_riemann
+  cycle: daily
+
+evcc_utility_battery_discharge_daily:
+  source: sensor.evcc_battery_discharge_energy_riemann
+  cycle: daily

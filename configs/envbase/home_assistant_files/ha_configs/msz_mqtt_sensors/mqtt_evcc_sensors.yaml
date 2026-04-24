@@ -1,0 +1,176 @@
+# EVCC site-level MQTT sensors.
+#
+# Loaded via `mqtt: !include_dir_merge_list msz_mqtt_sensors` in
+# configuration.yaml. EVCC publishes site values under the `evcc/` root
+# topic (configured in playbooks/ring1/templates/evcc.yaml.j2 -> mqtt.topic).
+#
+# All entities are grouped onto a single virtual HA device named "EVCC"
+# so they show up together in the UI and energy dashboard.
+
+- sensor:
+    unique_id: "mqtt:evcc-site-pv-1-power"
+    name: EVCC PV Inverter 1 Power
+    state_topic: evcc/site/pv/1/power
+    unit_of_measurement: "W"
+    device_class: power
+    state_class: measurement
+    device:
+      name: EVCC
+      identifiers:
+        - "mszcool:mqtt:evcc-site"
+      manufacturer: evcc.io
+      model: EVCC
+
+- sensor:
+    unique_id: "mqtt:evcc-site-pv-1-energy"
+    name: EVCC PV Inverter 1 Energy
+    state_topic: evcc/site/pv/1/energy
+    unit_of_measurement: "kWh"
+    device_class: energy
+    state_class: total_increasing
+    device:
+      name: EVCC
+      identifiers:
+        - "mszcool:mqtt:evcc-site"
+      manufacturer: evcc.io
+      model: EVCC
+
+- sensor:
+    unique_id: "mqtt:evcc-site-pv-2-power"
+    name: EVCC PV Inverter 2 Power
+    state_topic: evcc/site/pv/2/power
+    unit_of_measurement: "W"
+    device_class: power
+    state_class: measurement
+    device:
+      name: EVCC
+      identifiers:
+        - "mszcool:mqtt:evcc-site"
+      manufacturer: evcc.io
+      model: EVCC
+
+- sensor:
+    unique_id: "mqtt:evcc-site-pv-2-energy"
+    name: EVCC PV Inverter 2 Energy
+    state_topic: evcc/site/pv/2/energy
+    unit_of_measurement: "kWh"
+    device_class: energy
+    state_class: total_increasing
+    device:
+      name: EVCC
+      identifiers:
+        - "mszcool:mqtt:evcc-site"
+      manufacturer: evcc.io
+      model: EVCC
+
+- sensor:
+    unique_id: "mqtt:evcc-site-battery-power"
+    name: EVCC Battery Power
+    state_topic: evcc/site/battery/power
+    unit_of_measurement: "W"
+    device_class: power
+    state_class: measurement
+    device:
+      name: EVCC
+      identifiers:
+        - "mszcool:mqtt:evcc-site"
+      manufacturer: evcc.io
+      model: EVCC
+
+- sensor:
+    unique_id: "mqtt:evcc-site-battery-energy"
+    name: EVCC Battery Energy
+    state_topic: evcc/site/battery/energy
+    unit_of_measurement: "kWh"
+    device_class: energy
+    state_class: total_increasing
+    device:
+      name: EVCC
+      identifiers:
+        - "mszcool:mqtt:evcc-site"
+      manufacturer: evcc.io
+      model: EVCC
+
+- sensor:
+    unique_id: "mqtt:evcc-site-battery-soc"
+    name: EVCC Battery State of Charge
+    state_topic: evcc/site/battery/soc
+    unit_of_measurement: "%"
+    device_class: battery
+    state_class: measurement
+    device:
+      name: EVCC
+      identifiers:
+        - "mszcool:mqtt:evcc-site"
+      manufacturer: evcc.io
+      model: EVCC
+
+- sensor:
+    unique_id: "mqtt:evcc-site-grid-power"
+    name: EVCC Grid Power
+    state_topic: evcc/site/grid/power
+    unit_of_measurement: "W"
+    device_class: power
+    state_class: measurement
+    device:
+      name: EVCC
+      identifiers:
+        - "mszcool:mqtt:evcc-site"
+      manufacturer: evcc.io
+      model: EVCC
+
+- sensor:
+    unique_id: "mqtt:evcc-site-grid-energy"
+    name: EVCC Grid Energy
+    state_topic: evcc/site/grid/energy
+    unit_of_measurement: "kWh"
+    device_class: energy
+    state_class: total_increasing
+    device:
+      name: EVCC
+      identifiers:
+        - "mszcool:mqtt:evcc-site"
+      manufacturer: evcc.io
+      model: EVCC
+
+- sensor:
+    unique_id: "mqtt:evcc-site-pv-energy-total"
+    name: EVCC PV Energy Total
+    state_topic: evcc/site/pvEnergy
+    unit_of_measurement: "kWh"
+    device_class: energy
+    state_class: total_increasing
+    device:
+      name: EVCC
+      identifiers:
+        - "mszcool:mqtt:evcc-site"
+      manufacturer: evcc.io
+      model: EVCC
+
+- sensor:
+    unique_id: "mqtt:evcc-site-pv-power-total"
+    name: EVCC PV Power Total
+    state_topic: evcc/site/pvPower
+    unit_of_measurement: "W"
+    device_class: power
+    state_class: measurement
+    device:
+      name: EVCC
+      identifiers:
+        - "mszcool:mqtt:evcc-site"
+      manufacturer: evcc.io
+      model: EVCC
+
+- sensor:
+    unique_id: "mqtt:evcc-site-home-power"
+    name: EVCC Home Power
+    state_topic: evcc/site/homePower
+    unit_of_measurement: "W"
+    device_class: power
+    state_class: measurement
+    device:
+      name: EVCC
+      identifiers:
+        - "mszcool:mqtt:evcc-site"
+      manufacturer: evcc.io
+      model: EVCC

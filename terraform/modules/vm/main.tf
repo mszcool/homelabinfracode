@@ -149,8 +149,9 @@ resource "incus_instance" "vm" {
   # For image-based VMs: wait for agent to be ready
   # For containers: wait for IPv4 address (agent is not supported)
   # For ISO-based VMs: skip (agent won't be available during OS installation)
+  # For appliance VMs (wait_for_network=false): skip (no Incus agent available)
   dynamic "wait_for" {
-    for_each = var.image != "" && var.iso_volume_name == "" ? [1] : []
+    for_each = var.wait_for_network && var.image != "" && var.iso_volume_name == "" ? [1] : []
     content {
       type = var.type == "container" ? "ipv4" : "agent"
     }
@@ -182,6 +183,12 @@ resource "null_resource" "ansible_configure" {
     command = <<-SCRIPT
       set -e
       cd ${jsonencode(var.repo_root_dir)}
+
+      # Remove stale known_hosts entry for this IP so a recreated VM
+      # with a new host key does not cause SSH to abort the connection.
+      if [ -n "$TARGET_IP" ]; then
+        ssh-keygen -R "$TARGET_IP" 2>/dev/null || true
+      fi
 
       # Wait for SSH to become available on newly created VM
       if [ -n "$TARGET_IP" ]; then

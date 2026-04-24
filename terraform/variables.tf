@@ -45,6 +45,10 @@ variable "vms" {
     enable_pcie_passthrough = optional(bool, false)
     pcie_controller         = optional(string, "")
     enable_boot_autostart   = optional(bool, false)
+    # Whether to wait for the Incus agent (VMs) or IPv4 (containers) after creation.
+    # Set to false for appliance-type VMs (e.g., Home Assistant OS) that do not
+    # include the Incus agent and cannot report readiness.
+    wait_for_network        = optional(bool, true)
     root_username           = optional(string, "admin")
     sudo_passwordless       = optional(bool, false)
     ssh_public_key          = optional(string, "")
@@ -114,6 +118,10 @@ variable "docker_containers" {
     enable_boot_autostart = optional(bool, true)
     running               = optional(bool, true) # Set false for containers configured by Ansible before first start
     environment           = optional(map(string), {})
+    # Override the OCI container's entrypoint. Combines the image entrypoint and
+    # command into a single string (e.g., "dumb-init -- ak server").
+    # Leave empty to use the image's default ENTRYPOINT/CMD.
+    oci_cmd               = optional(string, "")
     # Map of environment variable names to other docker_container names.
     # At deploy time Terraform resolves each referenced container's IPv4
     # address and injects it as the named environment variable.

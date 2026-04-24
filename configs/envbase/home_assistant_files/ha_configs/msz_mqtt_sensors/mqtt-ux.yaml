@@ -1,0 +1,15 @@
+# Managed by Ansible (do not hand-edit on prod).
+# Generated from .storage/core.config_entries.mqtt-subentries.json
+# by scripts/ha-mqtt-subentries-to-yaml.py.
+#
+# Loaded via `mqtt: !include_dir_merge_list msz_mqtt_sensors` in
+# configuration.yaml. The MQTT broker connection itself is still
+# managed by Ansible in .storage/core.config_entries -- only
+# entities live here.
+#
+# This file (mqtt-ux.yaml) holds MQTT entities that were added
+# through the Home Assistant UI on staging. Hand-curated entity
+# files (mqtt_pool_sensors.yaml, mqtt_evcc_sensors.yaml, ...)
+# live alongside it in this same directory.
+
+[]

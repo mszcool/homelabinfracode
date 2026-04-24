@@ -42,5 +42,10 @@ all:
     # Remote maintenance shell containers (SSH-accessible LXC)
     remote_maintenance:
 
+    # Home Assistant OS VM (Ring 1 - Operations)
+    # Managed via SSH through the Terminal & SSH add-on.
+    # Actual host assignment in <env>/hosts.yaml.
+    home_assistant:
+
     # Raspberry Pi edge devices (garage-edge, pool-edge are hosts)
     edge_devices:

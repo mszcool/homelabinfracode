@@ -98,6 +98,20 @@ variable "environment" {
   default     = {}
 }
 
+variable "oci_cmd" {
+  description = <<-EOT
+    Override the OCI container's CMD (appended to the image ENTRYPOINT).
+    
+    This sets 'oci.entrypoint' in Incus, which overrides the full container
+    command line. Combine the image entrypoint and your command into a single
+    string, e.g., "dumb-init -- ak server".
+    
+    Leave empty to use the image's default ENTRYPOINT/CMD.
+  EOT
+  type    = string
+  default = ""
+}
+
 variable "volumes" {
   description = "Persistent filesystem volumes to create and mount into the container"
   type = list(object({

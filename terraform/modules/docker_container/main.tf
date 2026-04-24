@@ -27,11 +27,14 @@ resource "null_resource" "oci_image_copy" {
 
   provisioner "local-exec" {
     command     = <<-EOT
-      # First, remove any existing image with this alias in the target project
-      # (ignore errors if it doesn't exist)
-      incus image delete "$REMOTE:$ALIAS" --project "$PROJECT" 2>/dev/null || true
-      # Copy the fresh image (--target-project targets the destination project)
-      incus image copy "$IMAGE" "$REMOTE:" --alias "$ALIAS" --target-project "$PROJECT"
+      # If the image alias already exists in the target project, skip the copy.
+      # This handles the case where multiple containers share the same OCI image
+      # and their oci_image_copy resources run in parallel.
+      if incus image show "$REMOTE:$ALIAS" --project "$PROJECT" >/dev/null 2>&1; then
+        echo "Image alias $ALIAS already exists on $REMOTE — skipping copy."
+      else
+        incus image copy "$IMAGE" "$REMOTE:" --alias "$ALIAS" --target-project "$PROJECT"
+      fi
     EOT
     environment = {
       IMAGE   = var.image
@@ -141,7 +144,9 @@ resource "incus_instance" "container" {
       "boot.autostart" = var.enable_boot_autostart ? "true" : "false"
     },
     # Pass environment variables to the OCI container
-    { for k, v in var.environment : "environment.${k}" => v }
+    { for k, v in var.environment : "environment.${k}" => v },
+    # Override OCI entrypoint when oci_cmd is set (Incus oci.entrypoint config key)
+    var.oci_cmd != "" ? { "oci.entrypoint" = var.oci_cmd } : {}
   )
 
   # Root disk — specifies the storage pool (and optional size limit) for the container rootfs

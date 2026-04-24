@@ -1,0 +1,27 @@
+{
+  "version": 1,
+  "minor_version": 3,
+  "key": "core.floor_registry",
+  "data": {
+    "floors": [
+      {
+        "aliases": [],
+        "floor_id": "erdgeschoss",
+        "icon": null,
+        "level": 0,
+        "name": "Erdgeschoss",
+        "created_at": "2026-04-10T20:33:40.473894+00:00",
+        "modified_at": "2026-04-10T20:33:40.473901+00:00"
+      },
+      {
+        "aliases": [],
+        "floor_id": "dachgeschoss",
+        "icon": null,
+        "level": 2,
+        "name": "Dachgeschoss",
+        "created_at": "2026-04-10T20:36:24.677438+00:00",
+        "modified_at": "2026-04-10T20:36:24.677443+00:00"
+      }
+    ]
+  }
+}

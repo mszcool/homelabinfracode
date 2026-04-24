@@ -1,0 +1,89 @@
+# EVCC-derived helper sensors for the Home Assistant Energy Dashboard.
+#
+# Source topics (published by EVCC, mapped to MQTT entities in
+# msz_mqtt_sensors/mqtt_evcc_sensors.yaml). Note the doubled `evcc_`
+# prefix: HA derives the entity_id from device name ("EVCC") + entity
+# name ("EVCC ...").
+#
+#   sensor.evcc_evcc_grid_power           evcc/site/grid/power      (W, +import / -export)
+#   sensor.evcc_evcc_battery_power        evcc/site/battery/power   (W, +discharge / -charge)
+#   sensor.evcc_evcc_pv_power_total       evcc/site/pvPower         (W, >= 0)
+#   sensor.evcc_evcc_pv_energy_total      evcc/site/pvEnergy        (kWh, total_increasing)
+#
+# Sign conventions (https://docs.evcc.io/en/docs/integrations/mqtt-api):
+#   grid/power      positive = import from grid
+#   battery/power   positive = discharge from battery
+#   pvPower         always >= 0
+#
+# These are POWER (W) splits suitable for live energy-flow cards. To feed
+# them into the Energy Dashboard (which needs kWh / total_increasing
+# counters), wrap each one with an `integration:` (Riemann sum) helper or
+# a `utility_meter:` -- the EVCC pvEnergy counter can be used directly.
+
+- sensor:
+    - name: EVCC Grid Consumption Power
+      unique_id: evcc_grid_consumption_power
+      device_class: power
+      state_class: measurement
+      unit_of_measurement: W
+      availability: >
+        {{ states('sensor.evcc_evcc_grid_power') not in ['unknown', 'unavailable', 'none', ''] }}
+      state: >
+        {% set p = states('sensor.evcc_evcc_grid_power') | float(0) %}
+        {{ [p, 0] | max | round(0) }}
+
+    - name: EVCC Grid Export Power
+      unique_id: evcc_grid_export_power
+      device_class: power
+      state_class: measurement
+      unit_of_measurement: W
+      availability: >
+        {{ states('sensor.evcc_evcc_grid_power') not in ['unknown', 'unavailable', 'none', ''] }}
+      state: >
+        {% set p = states('sensor.evcc_evcc_grid_power') | float(0) %}
+        {{ [-p, 0] | max | round(0) }}
+
+    - name: EVCC Battery Charge Power
+      unique_id: evcc_battery_charge_power
+      device_class: power
+      state_class: measurement
+      unit_of_measurement: W
+      availability: >
+        {{ states('sensor.evcc_evcc_battery_power') not in ['unknown', 'unavailable', 'none', ''] }}
+      state: >
+        {% set p = states('sensor.evcc_evcc_battery_power') | float(0) %}
+        {{ [-p, 0] | max | round(0) }}
+
+    - name: EVCC Battery Discharge Power
+      unique_id: evcc_battery_discharge_power
+      device_class: power
+      state_class: measurement
+      unit_of_measurement: W
+      availability: >
+        {{ states('sensor.evcc_evcc_battery_power') not in ['unknown', 'unavailable', 'none', ''] }}
+      state: >
+        {% set p = states('sensor.evcc_evcc_battery_power') | float(0) %}
+        {{ [p, 0] | max | round(0) }}
+
+    # Pass-through PV production sensors -- thin wrappers that give the
+    # derived bundle a stable, documented entity_id alongside the split
+    # grid/battery sensors above. They mirror the EVCC site totals.
+    - name: EVCC PV Production Power
+      unique_id: evcc_pv_production_power
+      device_class: power
+      state_class: measurement
+      unit_of_measurement: W
+      availability: >
+        {{ states('sensor.evcc_evcc_pv_power_total') not in ['unknown', 'unavailable', 'none', ''] }}
+      state: >
+        {{ (states('sensor.evcc_evcc_pv_power_total') | float(0)) | round(0) }}
+
+    - name: EVCC PV Production Energy
+      unique_id: evcc_pv_production_energy
+      device_class: energy
+      state_class: total_increasing
+      unit_of_measurement: kWh
+      availability: >
+        {{ states('sensor.evcc_evcc_pv_energy_total') not in ['unknown', 'unavailable', 'none', ''] }}
+      state: >
+        {{ (states('sensor.evcc_evcc_pv_energy_total') | float(0)) | round(3) }}

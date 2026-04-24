@@ -1,0 +1,153 @@
+---
+# Task: Deploy HA configuration files using first_found layering
+#
+# Idempotency: Ansible copy module uses built-in checksum comparison.
+#              Only reports 'changed' when file content actually differs.
+
+# --- Deploy main config files ---
+
+- name: Deploy configuration files (first_found layering)
+  ansible.builtin.copy:
+    src: "{{ lookup('first_found', _search_paths) }}"
+    dest: "{{ ha_config_path }}/{{ item }}"
+    mode: "0644"
+  vars:
+    _search_paths: >-
+      {{ ([ha_config_env_path ~ '/ha_configs/' ~ item] if ha_config_env_path | length > 0 else [])
+         + [ha_config_base_path ~ '/ha_configs/' ~ item] }}
+  loop: "{{ ha_config_files }}"
+  register: _config_files_result
+
+# --- Deploy secrets.yaml via template (needs variable interpolation) ---
+
+- name: Deploy secrets.yaml (templated, first_found layering)
+  ansible.builtin.template:
+    src: "{{ lookup('first_found', _search_paths) }}"
+    dest: "{{ ha_config_path }}/secrets.yaml"
+    mode: "0600"
+  vars:
+    _search_paths: >-
+      {{ ([ha_config_env_path ~ '/ha_configs/secrets.yaml'] if ha_config_env_path | length > 0 else [])
+         + [ha_config_base_path ~ '/ha_configs/secrets.yaml'] }}
+  register: _secrets_file_result
+
+# --- Deploy include-directory files (msz_templates, msz_sensors, msz_utility_meters, ...) ---
+# For each entry in ha_config_include_dirs we:
+#   1. find *.yaml/*.yml in the base + env source dirs
+#   2. union the basenames so env files override base files of the same name
+#   3. copy each file to {{ ha_config_path }}/<dir-name>/ so HA's
+#      `!include_dir_*` directive (which uses the same dir name) finds them
+
+- name: Ensure include directories exist on target
+  ansible.builtin.file:
+    path: "{{ ha_config_path }}/{{ item }}"
+    state: directory
+    mode: "0755"
+  loop: "{{ ha_config_include_dirs }}"
+
+- name: Find include-dir files in base path
+  ansible.builtin.find:
+    paths: "{{ ha_config_base_path }}/ha_configs/{{ item }}"
+    patterns: "*.yaml,*.yml"
+    file_type: file
+  register: _base_include_files
+  delegate_to: localhost
+  failed_when: false
+  loop: "{{ ha_config_include_dirs }}"
+
+- name: Find include-dir files in env path
+  ansible.builtin.find:
+    paths: "{{ ha_config_env_path }}/ha_configs/{{ item }}"
+    patterns: "*.yaml,*.yml"
+    file_type: file
+  register: _env_include_files
+  delegate_to: localhost
+  when: ha_config_env_path | length > 0
+  failed_when: false
+  loop: "{{ ha_config_include_dirs }}"
+
+- name: Build per-directory list of files to deploy
+  ansible.builtin.set_fact:
+    _include_files_to_deploy: >-
+      {{ _include_files_to_deploy | default([]) + (
+           (((env_files | default([])) | map(attribute='path') | map('basename') | list)
+            + (base_files | default([]) | map(attribute='path') | map('basename') | list))
+           | unique
+           | map('regex_replace', '^(.*)$', item.0 ~ '/\1')
+           | list
+         ) }}
+  vars:
+    base_files: "{{ (item.1.files | default([])) }}"
+    env_files: >-
+      {{ ((_env_include_files.results | default([]))
+          | selectattr('item', 'equalto', item.0)
+          | map(attribute='files') | list | first | default([])) }}
+  loop: "{{ ha_config_include_dirs | zip(_base_include_files.results) | list }}"
+  loop_control:
+    label: "{{ item.0 }}"
+
+- name: Deploy include-dir files (first_found layering)
+  ansible.builtin.copy:
+    src: "{{ lookup('first_found', _search_paths) }}"
+    dest: "{{ ha_config_path }}/{{ item }}"
+    mode: "0644"
+  vars:
+    _search_paths: >-
+      {{ ([ha_config_env_path ~ '/ha_configs/' ~ item] if ha_config_env_path | length > 0 else [])
+         + [ha_config_base_path ~ '/ha_configs/' ~ item] }}
+  loop: "{{ _include_files_to_deploy | default([]) }}"
+  register: _template_files_result
+
+# --- Check if any config file changed ---
+
+- name: Track config file changes
+  ansible.builtin.set_fact:
+    _ha_config_changed: >-
+      {{ _ha_config_changed | bool or
+         (_config_files_result.results | selectattr('changed', 'equalto', true) | list | length > 0) or
+         (_secrets_file_result is changed) or
+         (_template_files_result.results | selectattr('changed', 'equalto', true) | list | length > 0) }}
+
+# --- Classify the change: msz_mqtt_sensors/*.yaml-only vs anything else ---
+# MQTT entity changes (any file under msz_mqtt_sensors/) can be applied
+# via mqtt.reload (no Core restart). Any other YAML file change still
+# requires a restart for safety.
+
+- name: Compute changed config file names
+  ansible.builtin.set_fact:
+    _changed_config_file_names: >-
+      {{ (_config_files_result.results
+          | selectattr('changed', 'equalto', true)
+          | map(attribute='item') | list)
+         + ((_template_files_result.results
+             | selectattr('changed', 'equalto', true)
+             | map(attribute='item') | list) | default([]))
+         + (['secrets.yaml'] if (_secrets_file_result is changed) else []) }}
+
+- name: Decide if change is reload-only (msz_mqtt_sensors/* exclusively)
+  ansible.builtin.set_fact:
+    _mqtt_yaml_only_changed: >-
+      {{ (_changed_config_file_names | length) > 0
+         and (_changed_config_file_names
+              | reject('match', '^msz_mqtt_sensors/')
+              | list | length) == 0 }}
+    _non_mqtt_config_changed: >-
+      {{ (_changed_config_file_names
+          | reject('match', '^msz_mqtt_sensors/')
+          | list | length) > 0 }}
+
+# --- Validate configuration (only if changed) ---
+
+- name: Validate HA configuration
+  ansible.builtin.shell: ha core check
+  register: _ha_core_check
+  changed_when: false
+  failed_when: _ha_core_check.rc != 0
+  when: _ha_config_changed | bool
+
+- name: Config deployment status
+  ansible.builtin.debug:
+    msg: >-
+      {{ 'Configuration files deployed and validated.'
+      if (_ha_config_changed | bool)
+      else 'All configuration files unchanged — skipped validation.' }}

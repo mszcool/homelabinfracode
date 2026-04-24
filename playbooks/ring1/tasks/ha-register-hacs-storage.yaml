@@ -1,0 +1,187 @@
+---
+# Task: PREPARE HACS storage entries (no writes yet)
+#
+# Ownership model: SEED-ONLY by default (see hacs_install_mode).
+#   - seed_only:      only seed hacs.repositories / hacs.data when the
+#                     files are MISSING. If they already exist, leave them
+#                     completely alone -- HACS UI manages versions and
+#                     installed flags.
+#   - force_redeploy: deep-merge our managed components on top of the
+#                     existing files (forces installed_version etc. back
+#                     to the repo-pinned values). Use when reseeding
+#                     a corrupted install or after bumping pinned versions
+#                     on staging.
+#
+# This task reads existing .storage/hacs.repositories and .storage/hacs.data,
+# (conditionally) deep-merges required entries for Ansible-installed
+# components, and stores the proposed content in facts. The actual file
+# write happens later, inside the stop → write → start block in
+# ha-deploy-storage-and-restart.yaml, so HA cannot rewrite the files
+# from its in-memory copy while we work.
+#
+# Idempotency: Only sets _hacs_storage_write_needed=true if the proposed
+#              content differs semantically from what is on disk.
+# Resilience:  Read-only here — cannot break running HA.
+
+# --- hacs.repositories ---
+
+- name: Check if hacs.repositories exists
+  ansible.builtin.stat:
+    path: "{{ ha_config_path }}/.storage/hacs.repositories"
+  register: _hacs_repos_stat
+
+- name: Read existing hacs.repositories
+  ansible.builtin.slurp:
+    src: "{{ ha_config_path }}/.storage/hacs.repositories"
+  register: _hacs_repos_slurp
+  when: _hacs_repos_stat.stat.exists
+
+- name: Parse existing hacs.repositories
+  # NOTE: HACS uses VERSION_STORAGE = "6" (a STRING, not an int) when
+  # instantiating its Store. HA's storage loader then compares the file's
+  # `version` field against that string with `>`. If we write an int,
+  # HA crashes with `TypeError: '>' not supported between instances of
+  # 'int' and 'str'`. So the version MUST be the string "6".
+  ansible.builtin.set_fact:
+    _hacs_repos_existing: >-
+      {{ (_hacs_repos_slurp.content | b64decode | from_json)
+         if _hacs_repos_stat.stat.exists
+         else {'data': {}, 'key': 'hacs.repositories', 'version': '6'} }}
+
+- name: Build merged hacs.repositories data (deep-merge, preserve existing fields)
+  ansible.builtin.set_fact:
+    _hacs_repos_merged_data: >-
+      {{ _hacs_repos_merged_data | default(_hacs_repos_existing.data | default({}))
+         | combine({
+             (item.repo_id | string):
+               ((_hacs_repos_existing.data | default({}))[item.repo_id | string] | default({
+                 'first_install': true
+               }))
+               | combine({
+                   'full_name': item.full_name,
+                   'category': item.category,
+                   'installed': true,
+                   'installed_version': item.version,
+                   'show_beta': false
+                 })
+           },
+           recursive=True) }}
+  loop: "{{ ha_hacs_components }}"
+  loop_control:
+    label: "{{ item.manifest_name }}"
+
+- name: Build final hacs.repositories proposed content
+  # Force version to the string "6" -- see VERSION_STORAGE note in the
+  # "Parse existing hacs.repositories" task above. Even if we read an
+  # older or corrupted file with an int version, we always rewrite as "6".
+  ansible.builtin.set_fact:
+    _hacs_repos_proposed: >-
+      {{ _hacs_repos_existing
+         | combine({
+             'data': _hacs_repos_merged_data,
+             'version': '6'
+           }, recursive=True) }}
+
+- name: Detect if hacs.repositories write is needed
+  # seed_only: only write when the file is missing entirely. If HACS
+  #            wrote it, we never touch it again.
+  # force_redeploy: write whenever our proposed (deep-merged) content
+  #                 differs from what's on disk.
+  ansible.builtin.set_fact:
+    _hacs_repos_write_needed: >-
+      {{ (not _hacs_repos_stat.stat.exists)
+         or (
+           (hacs_install_mode | default('seed_only')) == 'force_redeploy'
+           and _hacs_repos_existing != _hacs_repos_proposed
+         ) }}
+
+# --- hacs.data ---
+
+- name: Check if hacs.data exists
+  ansible.builtin.stat:
+    path: "{{ ha_config_path }}/.storage/hacs.data"
+  register: _hacs_data_stat
+
+- name: Read existing hacs.data
+  ansible.builtin.slurp:
+    src: "{{ ha_config_path }}/.storage/hacs.data"
+  register: _hacs_data_slurp
+  when: _hacs_data_stat.stat.exists
+
+- name: Parse existing hacs.data
+  # See note on hacs.repositories above -- version must be the string "6".
+  ansible.builtin.set_fact:
+    _hacs_data_existing: >-
+      {{ (_hacs_data_slurp.content | b64decode | from_json)
+         if _hacs_data_stat.stat.exists
+         else {
+           'data': {
+             'archived_repositories': [],
+             'renamed_repositories': {},
+             'repositories': {}
+           },
+           'key': 'hacs.data',
+           'version': '6'
+         } }}
+
+- name: Build merged hacs.data repositories (deep-merge, preserve fields)
+  ansible.builtin.set_fact:
+    _hacs_data_repos_merged: >-
+      {{ _hacs_data_repos_merged | default(_hacs_data_existing.data.repositories | default({}))
+         | combine({
+             (item.repo_id | string):
+               ((_hacs_data_existing.data.repositories | default({}))[item.repo_id | string] | default({
+                 'first_install': true
+               }))
+               | combine(
+                   {
+                     'full_name': item.full_name,
+                     'category': item.category,
+                     'installed': true,
+                     'installed_version': item.version,
+                     'manifest_name': item.manifest_name,
+                     'show_beta': false
+                   }
+                   | combine({'domain': item.domain} if item.domain else {})
+                 )
+           },
+           recursive=True) }}
+  loop: "{{ ha_hacs_components }}"
+  loop_control:
+    label: "{{ item.manifest_name }}"
+
+- name: Build final hacs.data proposed content
+  # See note on hacs.repositories above -- version must be the string "6".
+  ansible.builtin.set_fact:
+    _hacs_data_proposed: >-
+      {{ _hacs_data_existing
+         | combine({
+             'data': {'repositories': _hacs_data_repos_merged},
+             'version': '6'
+           }, recursive=True) }}
+
+- name: Detect if hacs.data write is needed
+  # See note on hacs.repositories above -- seed-only ownership.
+  ansible.builtin.set_fact:
+    _hacs_data_write_needed: >-
+      {{ (not _hacs_data_stat.stat.exists)
+         or (
+           (hacs_install_mode | default('seed_only')) == 'force_redeploy'
+           and _hacs_data_existing != _hacs_data_proposed
+         ) }}
+
+# --- Summary + trigger flag ---
+
+- name: Set storage changed flag (HACS registration pending)
+  ansible.builtin.set_fact:
+    _ha_storage_changed: true
+  when: (_hacs_repos_write_needed | bool) or (_hacs_data_write_needed | bool)
+
+- name: HACS registration prepared
+  ansible.builtin.debug:
+    msg: >-
+      {{ 'HACS storage entries prepared (write pending restart, mode='
+         ~ (hacs_install_mode | default('seed_only')) ~ '): '
+         ~ (ha_hacs_components | map(attribute='manifest_name') | join(', '))
+      if ((_hacs_repos_write_needed | bool) or (_hacs_data_write_needed | bool))
+      else 'All HACS storage entries already up to date — no write needed.' }}

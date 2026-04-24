@@ -93,6 +93,7 @@ module "vm" {
   pcie_controller         = each.value.pcie_controller
   data_disks              = each.value.data_disks
   enable_boot_autostart   = each.value.enable_boot_autostart
+  wait_for_network        = each.value.wait_for_network
   root_username           = each.value.root_username
   sudo_passwordless       = each.value.sudo_passwordless
   ssh_public_key          = each.value.ssh_public_key
@@ -208,6 +209,7 @@ module "docker_container" {
     each.value.environment,
     lookup(local.container_resolved_secrets, each.key, {})
   )
+  oci_cmd               = each.value.oci_cmd
   volumes               = each.value.volumes
   tags                  = var.tags
 
@@ -245,6 +247,7 @@ module "docker_container_with_deps" {
       env_key => module.docker_container[container_name].instance_ipv4_address
     }
   )
+  oci_cmd        = each.value.oci_cmd
   volumes = each.value.volumes
   tags    = var.tags
 

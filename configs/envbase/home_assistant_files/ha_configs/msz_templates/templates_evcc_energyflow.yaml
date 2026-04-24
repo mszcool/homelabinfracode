@@ -1,0 +1,193 @@
+# EVCC-derived energy-flow split sensors for the
+# tesla-style-solar-power-card and similar Sankey/flow visualisations.
+#
+# Source MQTT entities (from msz_mqtt_sensors/mqtt_evcc_sensors.yaml):
+#   sensor.evcc_evcc_pv_power_total       evcc/site/pvPower         (W, >= 0)
+#   sensor.evcc_evcc_grid_power           evcc/site/grid/power      (W, +import / -export)
+#   sensor.evcc_evcc_battery_power        evcc/site/battery/power   (W, +discharge / -charge)
+#   sensor.evcc_evcc_home_power           evcc/site/homePower       (W, >= 0)
+#   sensor.evcc_evcc_battery_state_of_charge   evcc/site/battery/soc (%)
+#
+# Sign conventions: https://docs.evcc.io/en/docs/integrations/mqtt-api
+#
+# Decomposition logic (priority): solar covers house first, then battery
+# (charge), then export to grid. House demand not met by solar is taken
+# from battery first, then from grid. Battery charging not met by solar
+# is taken from grid (rare; only happens when EVCC force-charges from
+# grid). Battery export to grid only happens when battery discharges and
+# grid simultaneously exports.
+#
+# All seven flow sensors are clamped to non-negative values so they are
+# safe to integrate with utility_meter / Riemann into kWh totals.
+#
+# `evcc_battery_capacity` is published as a static informational sensor
+# in kWh -- EVCC does NOT publish capacity as a flat MQTT topic (it's
+# nested in the evcc/site/battery JSON struct). Override the default in
+# an env overlay (e.g. configs.private/<env>/.../msz_templates/) if your
+# total battery capacity differs from the value below.
+
+- sensor:
+    - name: EVCC Solar to House
+      unique_id: evcc_solar_to_house
+      device_class: power
+      state_class: measurement
+      unit_of_measurement: W
+      availability: >
+        {{ states('sensor.evcc_evcc_pv_power_total') not in ['unknown', 'unavailable', 'none', '']
+           and states('sensor.evcc_evcc_home_power') not in ['unknown', 'unavailable', 'none', ''] }}
+      state: >
+        {% set pv    = states('sensor.evcc_evcc_pv_power_total') | float(0) %}
+        {% set house = states('sensor.evcc_evcc_home_power')     | float(0) %}
+        {{ ([[pv, house] | min, 0] | max) | round(0) }}
+
+    - name: EVCC Solar to Battery
+      unique_id: evcc_solar_to_battery
+      device_class: power
+      state_class: measurement
+      unit_of_measurement: W
+      availability: >
+        {{ states('sensor.evcc_evcc_pv_power_total') not in ['unknown', 'unavailable', 'none', '']
+           and states('sensor.evcc_evcc_battery_power') not in ['unknown', 'unavailable', 'none', '']
+           and states('sensor.evcc_evcc_home_power')    not in ['unknown', 'unavailable', 'none', ''] }}
+      state: >
+        {% set pv      = states('sensor.evcc_evcc_pv_power_total') | float(0) %}
+        {% set house   = states('sensor.evcc_evcc_home_power')     | float(0) %}
+        {% set bat     = states('sensor.evcc_evcc_battery_power')  | float(0) %}
+        {% set bat_chg = [-bat, 0] | max %}
+        {% set s2h     = [[pv, house] | min, 0] | max %}
+        {% set pv_left = [pv - s2h, 0] | max %}
+        {{ ([pv_left, bat_chg] | min) | round(0) }}
+
+    - name: EVCC Solar to Grid
+      unique_id: evcc_solar_to_grid
+      device_class: power
+      state_class: measurement
+      unit_of_measurement: W
+      availability: >
+        {{ states('sensor.evcc_evcc_pv_power_total') not in ['unknown', 'unavailable', 'none', '']
+           and states('sensor.evcc_evcc_grid_power')    not in ['unknown', 'unavailable', 'none', '']
+           and states('sensor.evcc_evcc_battery_power') not in ['unknown', 'unavailable', 'none', '']
+           and states('sensor.evcc_evcc_home_power')    not in ['unknown', 'unavailable', 'none', ''] }}
+      state: >
+        {% set pv      = states('sensor.evcc_evcc_pv_power_total') | float(0) %}
+        {% set grid    = states('sensor.evcc_evcc_grid_power')     | float(0) %}
+        {% set bat     = states('sensor.evcc_evcc_battery_power')  | float(0) %}
+        {% set house   = states('sensor.evcc_evcc_home_power')     | float(0) %}
+        {% set bat_chg = [-bat, 0] | max %}
+        {% set grid_exp = [-grid, 0] | max %}
+        {% set s2h     = [[pv, house] | min, 0] | max %}
+        {% set pv_left = [pv - s2h, 0] | max %}
+        {% set s2b     = [pv_left, bat_chg] | min %}
+        {% set pv_left2 = [pv_left - s2b, 0] | max %}
+        {{ ([pv_left2, grid_exp] | min) | round(0) }}
+
+    - name: EVCC Battery to House
+      unique_id: evcc_battery_to_house
+      device_class: power
+      state_class: measurement
+      unit_of_measurement: W
+      availability: >
+        {{ states('sensor.evcc_evcc_battery_power') not in ['unknown', 'unavailable', 'none', '']
+           and states('sensor.evcc_evcc_home_power')    not in ['unknown', 'unavailable', 'none', '']
+           and states('sensor.evcc_evcc_pv_power_total') not in ['unknown', 'unavailable', 'none', ''] }}
+      state: >
+        {% set pv      = states('sensor.evcc_evcc_pv_power_total') | float(0) %}
+        {% set house   = states('sensor.evcc_evcc_home_power')     | float(0) %}
+        {% set bat     = states('sensor.evcc_evcc_battery_power')  | float(0) %}
+        {% set bat_dis = [bat, 0] | max %}
+        {% set s2h     = [[pv, house] | min, 0] | max %}
+        {% set h_left  = [house - s2h, 0] | max %}
+        {{ ([bat_dis, h_left] | min) | round(0) }}
+
+    - name: EVCC Grid to House
+      unique_id: evcc_grid_to_house
+      device_class: power
+      state_class: measurement
+      unit_of_measurement: W
+      availability: >
+        {{ states('sensor.evcc_evcc_grid_power')     not in ['unknown', 'unavailable', 'none', '']
+           and states('sensor.evcc_evcc_battery_power') not in ['unknown', 'unavailable', 'none', '']
+           and states('sensor.evcc_evcc_home_power')    not in ['unknown', 'unavailable', 'none', '']
+           and states('sensor.evcc_evcc_pv_power_total') not in ['unknown', 'unavailable', 'none', ''] }}
+      state: >
+        {% set pv      = states('sensor.evcc_evcc_pv_power_total') | float(0) %}
+        {% set grid    = states('sensor.evcc_evcc_grid_power')     | float(0) %}
+        {% set bat     = states('sensor.evcc_evcc_battery_power')  | float(0) %}
+        {% set house   = states('sensor.evcc_evcc_home_power')     | float(0) %}
+        {% set bat_dis = [bat, 0] | max %}
+        {% set grid_imp = [grid, 0] | max %}
+        {% set s2h     = [[pv, house] | min, 0] | max %}
+        {% set h_left1 = [house - s2h, 0] | max %}
+        {% set b2h     = [bat_dis, h_left1] | min %}
+        {% set h_left2 = [h_left1 - b2h, 0] | max %}
+        {{ ([grid_imp, h_left2] | min) | round(0) }}
+
+    - name: EVCC Grid to Battery
+      unique_id: evcc_grid_to_battery
+      device_class: power
+      state_class: measurement
+      unit_of_measurement: W
+      availability: >
+        {{ states('sensor.evcc_evcc_grid_power')     not in ['unknown', 'unavailable', 'none', '']
+           and states('sensor.evcc_evcc_battery_power') not in ['unknown', 'unavailable', 'none', '']
+           and states('sensor.evcc_evcc_home_power')    not in ['unknown', 'unavailable', 'none', '']
+           and states('sensor.evcc_evcc_pv_power_total') not in ['unknown', 'unavailable', 'none', ''] }}
+      state: >
+        {% set pv       = states('sensor.evcc_evcc_pv_power_total') | float(0) %}
+        {% set grid     = states('sensor.evcc_evcc_grid_power')     | float(0) %}
+        {% set bat      = states('sensor.evcc_evcc_battery_power')  | float(0) %}
+        {% set house    = states('sensor.evcc_evcc_home_power')     | float(0) %}
+        {% set bat_chg  = [-bat, 0] | max %}
+        {% set grid_imp = [grid, 0]  | max %}
+        {% set s2h      = [[pv, house] | min, 0] | max %}
+        {% set pv_left  = [pv - s2h, 0] | max %}
+        {% set s2b      = [pv_left, bat_chg] | min %}
+        {% set chg_left = [bat_chg - s2b, 0] | max %}
+        {# Grid first feeds the house, then any leftover charges the battery #}
+        {% set h_left1  = [house - s2h, 0] | max %}
+        {% set bat_dis  = [bat, 0] | max %}
+        {% set b2h      = [bat_dis, h_left1] | min %}
+        {% set h_left2  = [h_left1 - b2h, 0] | max %}
+        {% set g2h      = [grid_imp, h_left2] | min %}
+        {% set grid_left = [grid_imp - g2h, 0] | max %}
+        {{ ([grid_left, chg_left] | min) | round(0) }}
+
+    - name: EVCC Battery to Grid
+      unique_id: evcc_battery_to_grid
+      device_class: power
+      state_class: measurement
+      unit_of_measurement: W
+      availability: >
+        {{ states('sensor.evcc_evcc_grid_power')     not in ['unknown', 'unavailable', 'none', '']
+           and states('sensor.evcc_evcc_battery_power') not in ['unknown', 'unavailable', 'none', '']
+           and states('sensor.evcc_evcc_home_power')    not in ['unknown', 'unavailable', 'none', '']
+           and states('sensor.evcc_evcc_pv_power_total') not in ['unknown', 'unavailable', 'none', ''] }}
+      state: >
+        {% set pv       = states('sensor.evcc_evcc_pv_power_total') | float(0) %}
+        {% set grid     = states('sensor.evcc_evcc_grid_power')     | float(0) %}
+        {% set bat      = states('sensor.evcc_evcc_battery_power')  | float(0) %}
+        {% set house    = states('sensor.evcc_evcc_home_power')     | float(0) %}
+        {% set bat_dis  = [bat, 0] | max %}
+        {% set grid_exp = [-grid, 0] | max %}
+        {% set s2h      = [[pv, house] | min, 0] | max %}
+        {% set pv_left  = [pv - s2h, 0] | max %}
+        {% set bat_chg  = [-bat, 0] | max %}
+        {% set s2b      = [pv_left, bat_chg] | min %}
+        {% set pv_left2 = [pv_left - s2b, 0] | max %}
+        {% set s2g      = [pv_left2, grid_exp] | min %}
+        {% set h_left1  = [house - s2h, 0] | max %}
+        {% set b2h      = [bat_dis, h_left1] | min %}
+        {% set dis_left = [bat_dis - b2h, 0] | max %}
+        {% set exp_left = [grid_exp - s2g, 0] | max %}
+        {{ ([dis_left, exp_left] | min) | round(0) }}
+
+    # ---------- Battery capacity (informational, static) ----------
+    # EVCC does not publish a flat MQTT topic for total battery capacity.
+    # Override this in an env overlay if your total kWh differs from the
+    # default (5 kWh = Huawei LUNA2000-5kW-C0 single module).
+    - name: EVCC Battery Capacity
+      unique_id: evcc_battery_capacity
+      device_class: energy_storage
+      state_class: measurement
+      unit_of_measurement: kWh
+      state: "5"

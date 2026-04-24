@@ -1,0 +1,148 @@
+---
+# Base (shared) constants for EVCC on Incus
+#
+# This file lives in group_vars/incus_scope/ because the EVCC container is
+# managed via Incus CLI from localhost (same scope as incus cluster vars).
+#
+# Environment-specific overrides are provided by:
+#   <env>/group_vars/incus_scope/apps-evcc-configuration.yaml
+#   (e.g., configs.private/envlocaldev/inventory/)
+#
+# All variables are flattened to the root level so that environment overrides
+# only need to restate the key that actually differs. Private details such
+# as the inverter DNS names / IPs / Modbus unit ids are intentionally NOT
+# set here — they must be provided by the environment layer.
+#
+# DESIGN NOTE — no Modbus proxy:
+# The Huawei SUN2000 SDongleA does not respond to Modbus/TCP requests when
+# they are relayed by an intermediate proxy (verified empirically with both
+# EVCC's built-in modbusproxy and tiagocoutinho/modbus-proxy). EVCC's
+# meters therefore connect to the dongles directly using the connect-read-
+# close pattern of the huawei-sun2000-hybrid template. Each dongle's
+# single Modbus/TCP slot is owned by EVCC; data sharing with other systems
+# (Home Assistant, …) must go through MQTT.
+#
+# Required seed variables from the environment layer:
+#   evcc_incus_remote:      Incus remote name (e.g., "incus.peladin.mszlocal")
+#   evcc_incus_project:     Incus project (e.g., "default")
+#   evcc_inverter1_host:    DNS/IP of the first Huawei SUN2000 dongle
+#   evcc_inverter1_port:    TCP port (typically 502)
+#   evcc_inverter1_id:      Modbus unit id (typically 1)
+#   evcc_inverter2_host:    DNS/IP of the second Huawei SUN2000 dongle
+#   evcc_inverter2_port:    TCP port (typically 502)
+#   evcc_inverter2_id:      Modbus unit id (typically 1)
+#   evcc_inverter1_battery_maxchargepower: Max battery charge power in W
+#                          (required by huawei-sun2000-hybrid for usage=battery)
+#
+# References:
+#   - https://docs.evcc.io/en/docs/installation/configuration
+#   - https://docs.evcc.io/en/docs/devices/meters#sun2000-hybrid-inverter
+#
+# NOTE: The EVCC admin password cannot be set via env-var or config file.
+# It must be set on first launch through the Web UI at http://<ip>:7070/
+# (or via `incus exec evcc -- evcc password set`).
+
+# ---------- Container identity ----------
+evcc_instance: evcc
+evcc_config_file: /etc/evcc.yaml
+
+# ---------- Global EVCC settings ----------
+evcc_network:
+  schema: http
+  host: 0.0.0.0
+  port: 7070
+
+# Sample interval used by EVCC to poll meters. The Huawei SDongleA has a
+# very small CPU budget and returns Modbus exception 4 ("server device
+# failure") when polled too aggressively, especially while it is uploading
+# to the FusionSolar cloud. 60s is a community-tested compromise — feel
+# free to override per environment if your dongle is on LAN with cloud
+# upload disabled.
+evcc_interval: 60s
+
+# Per-meter Modbus timeout. The default in the SUN2000 templates is 15s;
+# we bump it so a momentarily busy dongle does not surface an error.
+evcc_meter_timeout: 30s
+
+# ---------- MQTT integration ----------
+# When evcc_mqtt is defined the template renders an `mqtt:` block so EVCC
+# publishes its internal values (and accepts commands) on a shared MQTT
+# broker. The environment layer must supply the broker host plus the user
+# / password (typically resolved from a vault lookup); everything else has
+# sensible defaults below.
+#
+# References:
+#   - https://docs.evcc.io/en/docs/reference/configuration/mqtt
+#   - https://docs.evcc.io/en/docs/integrations/mqtt-api
+evcc_mqtt:
+  topic: evcc
+  port: 1883
+  # host:      <set in env override>
+  # user:      <set in env override>
+  # password:  <set in env override>
+  # clientid:  evcc
+  # insecure:  false
+
+# ---------- Site (binds meters so they appear in the EVCC UI) ----------
+# EVCC only displays meters from `evcc_meters` when they are referenced via
+# the `site.meters` block. Leaving this section empty would still load the
+# meters but the UI would be blank.
+evcc_site:
+  title: HomeLab
+  meters:
+    grid: huawei_inv1_grid
+    pv:
+      - huawei_inv1_pv
+      - huawei_inv2_pv
+    battery:
+      - huawei_inv1_battery
+
+# Optional log levels — uncomment in the Jinja template if needed.
+# evcc_log: info
+# evcc_log_levels:
+#   site: debug
+#   modbus: trace
+
+# ---------- Meters ----------
+# Inverter 1 acts as the hybrid (grid + PV + battery) — three meters are
+# derived from the same SUN2000 register set. Inverter 2 is PV-only.
+# Generic enough to ship here; the inverter endpoints come from the env
+# layer and point at the dongles directly.
+evcc_meters:
+  - name: huawei_inv1_grid
+    type: template
+    template: huawei-sun2000-hybrid
+    usage: grid
+    modbus: tcpip
+    host: "{{ evcc_inverter1_host }}"
+    port: "{{ evcc_inverter1_port }}"
+    id: "{{ evcc_inverter1_id }}"
+    timeout: "{{ evcc_meter_timeout }}"
+  - name: huawei_inv1_pv
+    type: template
+    template: huawei-sun2000-hybrid
+    usage: pv
+    modbus: tcpip
+    host: "{{ evcc_inverter1_host }}"
+    port: "{{ evcc_inverter1_port }}"
+    id: "{{ evcc_inverter1_id }}"
+    timeout: "{{ evcc_meter_timeout }}"
+  - name: huawei_inv1_battery
+    type: template
+    template: huawei-sun2000-hybrid
+    usage: battery
+    modbus: tcpip
+    host: "{{ evcc_inverter1_host }}"
+    port: "{{ evcc_inverter1_port }}"
+    id: "{{ evcc_inverter1_id }}"
+    timeout: "{{ evcc_meter_timeout }}"
+    maxchargepower: "{{ evcc_inverter1_battery_maxchargepower }}"
+  - name: huawei_inv2_pv
+    type: template
+    template: huawei-sun2000-inverter
+    usage: pv
+    modbus: tcpip
+    host: "{{ evcc_inverter2_host }}"
+    port: "{{ evcc_inverter2_port }}"
+    id: "{{ evcc_inverter2_id }}"
+    timeout: "{{ evcc_meter_timeout }}"
