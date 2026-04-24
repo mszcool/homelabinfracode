@@ -35,6 +35,12 @@
   unit_prefix: k
   round: 3
   method: trapezoidal
+  # Force the integration to tick at least once a minute even when the
+  # source value is constant (or the source briefly flapped to
+  # unavailable). Without this, a steady charge of e.g. 270 W that the
+  # template re-emits unchanged is only counted at the next state change,
+  # and a short EVCC MQTT blip can lose minutes of accumulation.
+  max_sub_interval: "00:01:00"
 
 - platform: integration
   source: sensor.evcc_battery_discharge_power
@@ -43,3 +49,4 @@
   unit_prefix: k
   round: 3
   method: trapezoidal
+  max_sub_interval: "00:01:00"

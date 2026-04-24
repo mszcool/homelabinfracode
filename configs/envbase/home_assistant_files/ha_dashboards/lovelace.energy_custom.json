@@ -147,18 +147,16 @@
                       }
                     },
                     {
-                      "entity": "sensor.evcc_battery_charge_energy_riemann",
-                      "name": "Battery Charge",
-                      "transform": "return Math.max(0,x);",
+                      "entity": "sensor.evcc_utility_battery_charge_daily",
+                      "name": "Battery Charge (today)",
                       "color": "darkgreen",
-                      "yaxis_id": "watts"
+                      "yaxis_id": "kwh"
                     },
                     {
-                      "entity": "sensor.evcc_battery_discharge_energy_riemann",
-                      "name": "Battery Discharge",
+                      "entity": "sensor.evcc_utility_battery_discharge_daily",
+                      "name": "Battery Discharge (today)",
                       "color": "#800080",
-                      "transform": "return -Math.min(0,x);",
-                      "yaxis_id": "watts"
+                      "yaxis_id": "kwh"
                     }
                   ],
                   "yaxis": [
@@ -171,9 +169,10 @@
                       "min": 15
                     },
                     {
-                      "id": "watts",
+                      "id": "kwh",
                       "show": true,
-                      "decimals": 0,
+                      "decimals": 2,
+                      "min": 0,
                       "align_to": 12
                     }
                   ]
