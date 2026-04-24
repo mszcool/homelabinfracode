@@ -1,0 +1,104 @@
+---
+# Task: Set the HAOS host hostname (idempotent).
+#
+# Why:
+#   HAOS publishes its hostname (e.g. 'homeassistant') over mDNS via the
+#   host-level Avahi daemon as <hostname>.local. That advertising cannot
+#   be turned off from HA Core configuration.yaml and the Avahi config
+#   inside the HAOS image is not user-editable. The only supported way
+#   to stop 'homeassistant.local' from being advertised on the LAN is
+#   to rename the host so a different <hostname>.local is published.
+#
+# How:
+#   We talk to the Supervisor REST API via the in-host proxy:
+#     GET  http://supervisor/host/info        -> current hostname
+#     POST http://supervisor/host/options     -> {"hostname": "<new>"}
+#   The same SUPERVISOR_TOKEN captured in the parent playbook is reused.
+#
+# Idempotency:
+#   The POST is only issued when the current hostname differs from the
+#   desired ha_hostname. No HA Core restart is required for this change
+#   (Avahi picks up the new hostname automatically).
+#
+# Mandatory:
+#   ha_hostname MUST be defined per environment overlay. The parent
+#   playbook asserts this before this task runs, but we re-validate
+#   here so this file is also safe to include from other plays.
+
+- name: Validate ha_hostname is set
+  ansible.builtin.assert:
+    that:
+      - ha_hostname is defined
+      - ha_hostname | length > 0
+      - ha_hostname is match('^[a-z0-9][a-z0-9-]{0,62}$')
+    fail_msg: >
+      ha_hostname must be defined in the environment overlay
+      (e.g. configs.private/envlocaldev/inventory/group_vars/home_assistant/
+      apps-homeassistant-configuration.yaml) and contain only lowercase
+      letters, digits and hyphens (RFC 1123, max 63 chars, must start
+      with a letter or digit).
+
+- name: Read current HAOS host info from Supervisor
+  ansible.builtin.uri:
+    url: "http://supervisor/host/info"
+    method: GET
+    headers:
+      Authorization: "Bearer {{ _supervisor_token }}"
+    status_code: [200]
+    timeout: 30
+  register: _ha_host_info
+
+- name: Capture current hostname
+  ansible.builtin.set_fact:
+    _ha_current_hostname: "{{ _ha_host_info.json.data.hostname | default('') }}"
+
+- name: Decide whether hostname update is needed
+  ansible.builtin.set_fact:
+    _ha_hostname_change_needed: "{{ _ha_current_hostname != ha_hostname }}"
+
+- name: Display hostname decision
+  ansible.builtin.debug:
+    msg: >-
+      {{ 'Renaming HAOS host from ' ~ _ha_current_hostname
+         ~ ' to ' ~ ha_hostname
+         ~ ' (mDNS will publish ' ~ ha_hostname ~ '.local instead of '
+         ~ _ha_current_hostname ~ '.local).'
+      if _ha_hostname_change_needed
+      else 'HAOS hostname already set to ' ~ ha_hostname ~ ' -- no change.' }}
+
+- name: Set HAOS hostname via Supervisor /host/options
+  ansible.builtin.uri:
+    url: "http://supervisor/host/options"
+    method: POST
+    headers:
+      Authorization: "Bearer {{ _supervisor_token }}"
+      Content-Type: "application/json"
+    body_format: json
+    body:
+      hostname: "{{ ha_hostname }}"
+    status_code: [200]
+    timeout: 30
+  register: _ha_hostname_set
+  changed_when: _ha_hostname_change_needed | bool
+  when: _ha_hostname_change_needed | bool
+
+- name: Confirm new hostname after update
+  ansible.builtin.uri:
+    url: "http://supervisor/host/info"
+    method: GET
+    headers:
+      Authorization: "Bearer {{ _supervisor_token }}"
+    status_code: [200]
+    timeout: 30
+  register: _ha_host_info_after
+  when: _ha_hostname_change_needed | bool
+
+- name: Assert hostname update took effect
+  ansible.builtin.assert:
+    that:
+      - _ha_host_info_after.json.data.hostname == ha_hostname
+    fail_msg: >
+      Supervisor reported hostname
+      '{{ _ha_host_info_after.json.data.hostname | default('<unknown>') }}'
+      after the rename request, expected '{{ ha_hostname }}'.
+  when: _ha_hostname_change_needed | bool

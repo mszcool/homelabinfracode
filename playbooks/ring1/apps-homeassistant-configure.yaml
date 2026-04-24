@@ -106,10 +106,14 @@
           - ha_config_files is defined
           - ha_storage_files is defined
           - ha_dashboard_files is defined
+          - ha_hostname is defined
+          - ha_hostname | length > 0
         fail_msg: >
           Missing Home Assistant configuration variables. Ensure
           group_vars/home_assistant/apps-homeassistant-configuration.yaml is present
-          in both envbase and your environment inventory.
+          in both envbase and your environment inventory. ha_hostname must be
+          set per environment overlay (it is intentionally not defaulted to
+          force an explicit choice -- see tasks/ha-set-hostname.yaml).
 
     - name: Probe `ha core info` (single shot, for diagnostics)
       ansible.builtin.shell: ha core info --raw-json
@@ -149,6 +153,12 @@
         _ha_storage_changed: false
 
   tasks:
+    # Rename the HAOS host so its Avahi-published <hostname>.local mDNS
+    # record is no longer 'homeassistant.local'. Runs first so the rest
+    # of the play (which may restart Core) cannot race the rename.
+    - name: Set HAOS hostname (disables homeassistant.local advertising)
+      ansible.builtin.include_tasks: tasks/ha-set-hostname.yaml
+
     - name: Install HACS
       ansible.builtin.include_tasks: tasks/ha-install-hacs.yaml
 
@@ -218,11 +228,7 @@
           - "║     - for evcc: EVCC configuration details.                     ║"
           - "║     - IMPORTANT: YOU CANNOT USE BOTH AT THE SAME TIME!!!        ║"
           - "║                                                                 ║"
-          - "║  3. Configure Zigbee Home Automation (one-time):                ║"
-          - "║     Settings > Devices & Services > Add Integration > Zigbee    ║"
-          - "║     Complete Zigbee configuration.                              ║"
-          - "║                                                                 ║"
-          - "║  4. Zigbee2MQTT onboarding (one-time):                          ║"
+          - "║  3. Zigbee2MQTT onboarding (one-time):                          ║"
           - "║     Open the Zigbee2MQTT add-on > OPEN WEB UI and complete the  ║"
           - "║     onboarding wizard: select your USB adapter, pick the        ║"
           - "║     Closest WiFi Channel, and enable HA MQTT discovery by       ║"

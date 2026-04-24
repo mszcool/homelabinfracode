@@ -9,9 +9,10 @@
 #   (e.g., configs.private/envlocaldev/inventory/ or configs.private/envprod/inventory/)
 #
 # Required seed variables from the environment layer:
-#   ha_config_env_path:  Path to environment-specific HA config files
-#   ha_mqtt_password:    MQTT broker password for the homeassistant user
-#   ha_recorder_db_url:  MariaDB connection string for the recorder
+#   ha_config_env_path:                       Path to environment-specific HA config files
+#   ha_mqtt_password:                         MQTT broker password for the homeassistant user
+#   ha_recorder_db_url:                       MariaDB connection string for the recorder
+#   zigbee_zstack_adapter_address_and_port:   Z2M serial port (e.g. tcp://host:port)
 
 # ---------- HAOS config path ----------
 # In HAOS 2026+, the config directory from the Terminal add-on is /homeassistant/
@@ -81,10 +82,54 @@ ha_addons:
     name: Studio Code Server
   - slug: "45df7312_zigbee2mqtt"
     name: Zigbee2MQTT
-    # No `options:` here -- onboarding (USB adapter selection, MQTT
-    # broker settings, enabling HA MQTT discovery) is performed
-    # manually via the add-on's web UI after first start. See:
-    # https://www.zigbee2mqtt.io/guide/usage/integrations/home_assistant.html
+    # The Z2M Hass.io add-on accepts the following root keys in its
+    # options schema: data_path (required), mqtt, serial, socat,
+    # watchdog. Everything else (advanced, frontend, homeassistant,
+    # devices, ...) lives in the add-on's `configuration.yaml` and is
+    # owned by Z2M / the user.
+    #
+    # NOTE: settings pushed here OVERRIDE the same key in
+    # `configuration.yaml`. So once we manage `mqtt` and `serial` from
+    # Ansible, do not also edit them via the Z2M frontend.
+    options:
+      # Required by the add-on schema. /config/zigbee2mqtt is the
+      # add-on's documented default and the path Z2M uses for its
+      # database, coordinator backup, and configuration.yaml. Changing
+      # it on an existing install would orphan the device database, so
+      # leave at the default.
+      data_path: /config/zigbee2mqtt
+      mqtt:
+        base_topic: zigbee
+        server: "mqtt://{{ ha_mqtt_broker }}:{{ ha_mqtt_port }}"
+        user: "{{ ha_mqtt_username }}"
+        password: "{{ ha_mqtt_password }}"
+      serial:
+        adapter: zstack
+        port: "{{ zigbee_zstack_adapter_address_and_port }}"
+      # The add-on schema requires the `socat` block to be present
+      # even when unused. Disabled here -- the serial adapter is
+      # already exposed over TCP by an external bridge, so Z2M does
+      # not need its own socat forwarder. The other fields carry the
+      # add-on's documented defaults to satisfy the schema.
+      socat:
+        enabled: false
+        master: "pty,raw,echo=0,link=/tmp/ttyZ2M,mode=777"
+        slave: "tcp-listen:8485,keepalive,nodelay,reuseaddr,keepidle=1,keepintvl=1,keepcnt=5"
+        options: "-d -d"
+        log: false
+      # Watchdog retry delays in MINUTES (comma-separated). Restart
+      # Z2M after 2, 4, 8, 16, 32 then 60 min if the adapter drops -- a
+      # 2-minute first interval matches the user's preference and the
+      # escalating tail prevents log spam if the adapter stays gone.
+      watchdog: "2,4,8,16,32,60"
+
+# ---------- Zigbee2MQTT serial adapter ----------
+# Z2M serial port for the zstack adapter. Override per environment
+# (e.g. a USB-by-id path on direct-attached coordinators or a tcp://
+# URL when the adapter is behind a serial-over-IP bridge like ser2net
+# / esphome stream_server). Empty default forces the env overlay to
+# set it; the playbook will fail-fast if it is missing.
+zigbee_zstack_adapter_address_and_port: ""
 
 # ---------- HACS integration ----------
 # Install mode controls how the HACS install / component / storage tasks
