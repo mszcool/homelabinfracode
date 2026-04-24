@@ -214,7 +214,7 @@
                 },
                 {
                   "type": "tile",
-                  "entity": "switch.garten_wassertimer_und_zahler",
+                  "entity": "input_boolean.garden_water_counter_1_target",
                   "name": "Gartenwasser Schalter",
                   "icon": "mdi:water-outline",
                   "vertical": false,
@@ -229,14 +229,14 @@
                 },
                 {
                   "type": "tile",
-                  "entity": "sensor.garten_wassertimer_und_zahler_battery",
+                  "entity": "sensor.garden_water_counter_1_battery",
                   "name": "Batterie Wasser Garten",
                   "vertical": false,
                   "features_position": "bottom"
                 },
                 {
                   "type": "tile",
-                  "entity": "sensor.garten_wassertimer_und_zahler_last_irrigation_duration",
+                  "entity": "sensor.garden_water_counter_1_last_irrigation_duration",
                   "name": "Letzte Laufzeit",
                   "vertical": false,
                   "features_position": "bottom"

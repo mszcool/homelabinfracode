@@ -7,3 +7,17 @@ attribute_water_to_pool:
   # When ON, water flowing through the garden valve is added to
   # sensor.pool_water_consumption. Toggle this manually before/after
   # filling the pool from the garden tap.
+
+# Desired-state helper for the Zigbee2MQTT garden water valve
+# (`switch.garden_water_counter_1_state`). The Z2M switch entity is
+# unreliable as a control: HA optimistically flips it to the new state
+# but an in-flight MQTT update from the device can revert it, leaving
+# the UI out of sync with reality.
+#
+# The dashboard toggles THIS helper; an automation
+# (msz_automations/autom-garden-water-counter-1.yaml) reconciles the
+# actual switch by publishing to the Z2M `set/state` topic and polling
+# the device-reported state until it matches.
+garden_water_counter_1_target:
+  name: Garden Water Valve (desired)
+  icon: mdi:water-outline

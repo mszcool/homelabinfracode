@@ -1,0 +1,183 @@
+# Zigbee2MQTT Garden Water Counter 1 -- reconcile desired vs reported state.
+#
+# The Z2M switch (`switch.garden_water_counter_1_state`) is unreliable as
+# a control: HA flips it optimistically, but a delayed MQTT message from
+# the device can revert it and leave the UI out of sync. To make the
+# valve behave like a normal switch, the dashboard toggles a helper
+# (`input_boolean.garden_water_counter_1_target`) that reflects the
+# DESIRED state, and the two automations below reconcile the real device:
+#
+#   1. Publish ON/OFF to `zigbee/Garden Water Counter 1/set/state`.
+#   2. Wait for the device to publish its status back on
+#      `zigbee/Garden Water Counter 1` and check the JSON `state` field.
+#   3. Loop up to `max_attempts` times; abort if the device disagrees
+#      after that many retries to avoid spamming the radio.
+#
+# `mode: restart` guarantees that flipping the target quickly (on -> off
+# -> on) does not leave two reconciliation loops fighting each other:
+# the newest run cancels the previous one.
+
+- id: garden_water_counter_1_reconcile_on
+  alias: "Garden Water Counter 1 - Reconcile ON"
+  description: >
+    Drive switch.garden_water_counter_1_state to ON by publishing to the
+    Z2M set topic and verifying the device-reported JSON state.
+  mode: restart
+  max_exceeded: silent
+  trigger:
+    - platform: state
+      entity_id: input_boolean.garden_water_counter_1_target
+      to: "on"
+  variables:
+    max_attempts: 6
+  action:
+    - repeat:
+        sequence:
+          - service: mqtt.publish
+            data:
+              topic: "zigbee/Garden Water Counter 1/set/state"
+              payload: "ON"
+              qos: 0
+              retain: false
+          # Wait for the device to echo its new state. Z2M publishes the
+          # full device JSON to `zigbee/Garden Water Counter 1` shortly
+          # after accepting the set; we wait for a message whose `state`
+          # field equals ON. `timeout` bounds one iteration; the `until:`
+          # condition below checks whether we actually succeeded.
+          - wait_for_trigger:
+              - platform: mqtt
+                topic: "zigbee/Garden Water Counter 1"
+                value_template: "{{ value_json.state }}"
+                payload: "ON"
+            timeout: "00:00:10"
+            continue_on_timeout: true
+        until:
+          - condition: or
+            conditions:
+              - condition: template
+                value_template: >-
+                  {{ (wait.trigger is defined) and (wait.trigger is not none) }}
+              - condition: template
+                value_template: >-
+                  {{ (states('switch.garden_water_counter_1_state') | lower) == 'on' }}
+              - condition: template
+                value_template: "{{ repeat.index >= max_attempts }}"
+
+- id: garden_water_counter_1_reconcile_off
+  alias: "Garden Water Counter 1 - Reconcile OFF"
+  description: >
+    Drive switch.garden_water_counter_1_state to OFF by publishing to the
+    Z2M set topic and verifying the device-reported JSON state.
+  mode: restart
+  max_exceeded: silent
+  trigger:
+    - platform: state
+      entity_id: input_boolean.garden_water_counter_1_target
+      to: "off"
+  variables:
+    max_attempts: 6
+  action:
+    - repeat:
+        sequence:
+          - service: mqtt.publish
+            data:
+              topic: "zigbee/Garden Water Counter 1/set/state"
+              payload: "OFF"
+              qos: 0
+              retain: false
+          - wait_for_trigger:
+              - platform: mqtt
+                topic: "zigbee/Garden Water Counter 1"
+                value_template: "{{ value_json.state }}"
+                payload: "OFF"
+            timeout: "00:00:10"
+            continue_on_timeout: true
+        until:
+          - condition: or
+            conditions:
+              - condition: template
+                value_template: >-
+                  {{ (wait.trigger is defined) and (wait.trigger is not none) }}
+              - condition: template
+                value_template: >-
+                  {{ (states('switch.garden_water_counter_1_state') | lower) == 'off' }}
+              - condition: template
+                value_template: "{{ repeat.index >= max_attempts }}"
+
+# Keep the desired-state helper in sync when someone (or something)
+# toggles the underlying Z2M switch directly -- e.g. via the Z2M
+# frontend, a physical button, or an external automation. Without this,
+# the input_boolean would stay stale and show the wrong state on the
+# dashboard.
+- id: garden_water_counter_1_sync_target_from_switch
+  alias: "Garden Water Counter 1 - Sync target from reported state"
+  description: >
+    Mirror the actual device state back into the desired-state helper so
+    the dashboard reflects reality when the switch is flipped outside of
+    the reconciliation automations.
+  mode: single
+  trigger:
+    - platform: state
+      entity_id: switch.garden_water_counter_1_state
+      to: "on"
+      id: switch_on
+    - platform: state
+      entity_id: switch.garden_water_counter_1_state
+      to: "off"
+      id: switch_off
+  condition:
+    # Skip when the helper already matches -- avoids ping-pong with the
+    # reconcile automations above.
+    - condition: template
+      value_template: >-
+        {{ states('input_boolean.garden_water_counter_1_target')
+           != states('switch.garden_water_counter_1_state') }}
+  action:
+    - service: "input_boolean.turn_{{ 'on' if trigger.id == 'switch_on' else 'off' }}"
+      target:
+        entity_id: input_boolean.garden_water_counter_1_target
+
+# Reconcile the desired-state helper with the actual device state on
+# Home Assistant startup.
+#
+# Why this matters: `input_boolean` defaults to restoring its last value
+# from the recorder across restarts. If we left that as-is, the helper
+# could disagree with the real valve after a restart while we're away
+# (e.g. on vacation), and the next time someone toggled it the
+# automation might publish a spurious ON/OFF -- or worse, do nothing
+# while the dashboard shows the wrong state.
+#
+# Strategy: on the `homeassistant.start` event, wait until the Z2M
+# integration has actually published the switch state (entity not
+# `unknown`/`unavailable`), then copy that real state into the helper
+# WITHOUT publishing to MQTT. The reconcile-on/-off automations are
+# only triggered by user-driven transitions of the helper, so calling
+# `input_boolean.turn_*` from here is safe -- it will fire the
+# `sync_target_from_switch` guard but that is a no-op when helper and
+# switch already agree.
+- id: garden_water_counter_1_sync_target_on_startup
+  alias: "Garden Water Counter 1 - Sync target on HA startup"
+  description: >
+    On HA start, snap the desired-state helper to whatever the Z2M
+    switch reports so a restart never changes the physical valve.
+  mode: single
+  trigger:
+    - platform: homeassistant
+      event: start
+  action:
+    # Z2M may not have re-published the device state at the exact moment
+    # `homeassistant.start` fires; wait briefly for a real value before
+    # syncing. If the switch never reports (device offline, etc.),
+    # leave the helper as-is rather than guess.
+    - wait_template: >-
+        {{ states('switch.garden_water_counter_1_state') not in
+           ['unknown', 'unavailable', 'none', None] }}
+      timeout: "00:02:00"
+      continue_on_timeout: true
+    - condition: template
+      value_template: >-
+        {{ states('switch.garden_water_counter_1_state') in ['on', 'off'] }}
+    - service: >-
+        input_boolean.turn_{{ states('switch.garden_water_counter_1_state') }}
+      target:
+        entity_id: input_boolean.garden_water_counter_1_target

@@ -100,6 +100,7 @@
           - ha_config_path is defined
           - ha_config_base_path is defined
           - ha_addons is defined
+          - ha_addon_repositories is defined
           - ha_hacs_version is defined
           - ha_hacs_components is defined
           - ha_config_files is defined
@@ -150,6 +151,13 @@
   tasks:
     - name: Install HACS
       ansible.builtin.include_tasks: tasks/ha-install-hacs.yaml
+
+    # Register third-party Supervisor add-on repositories BEFORE
+    # ha-install-addons.yaml so that any add-on slugs that come from
+    # those repositories (e.g. 45df7312_zigbee2mqtt) are resolvable
+    # when the install step runs.
+    - name: Register Supervisor add-on repositories
+      ansible.builtin.include_tasks: tasks/ha-add-addon-repositories.yaml
 
     - name: Install Home Assistant add-ons
       ansible.builtin.include_tasks: tasks/ha-install-addons.yaml
@@ -213,5 +221,11 @@
           - "║  3. Configure Zigbee Home Automation (one-time):                ║"
           - "║     Settings > Devices & Services > Add Integration > Zigbee    ║"
           - "║     Complete Zigbee configuration.                              ║"
+          - "║                                                                 ║"
+          - "║  4. Zigbee2MQTT onboarding (one-time):                          ║"
+          - "║     Open the Zigbee2MQTT add-on > OPEN WEB UI and complete the  ║"
+          - "║     onboarding wizard: select your USB adapter, pick the        ║"
+          - "║     Closest WiFi Channel, and enable HA MQTT discovery by       ║"
+          - "║     setting `homeassistant: enabled: true` in the Z2M config.   ║"
           - "║                                                                 ║"
           - "╚═════════════════════════════════════════════════════════════════╝"

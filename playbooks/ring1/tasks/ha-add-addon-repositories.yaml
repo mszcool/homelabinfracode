@@ -1,0 +1,131 @@
+---
+# Task: Register Supervisor add-on repositories
+#
+# Manages the list of third-party Hass.io add-on repositories declared in
+# `ha_addon_repositories`. Idempotent: only POSTs repositories that are not
+# already registered with the Supervisor.
+#
+# Why Supervisor REST and not the `ha` CLI?
+#   The `ha` / `ha repositories` CLI subcommand exists but its output is
+#   inconsistent across HAOS versions (and absent on some). The Supervisor
+#   REST API is stable and exposes the exact same operation:
+#     GET  /store                  -> includes `data.repositories[]`
+#     POST /store/repositories     -> body: {"repository": "<url>"}
+#     POST /store/reload           -> refresh the store after add/change
+#
+# Auth: Bearer SUPERVISOR_TOKEN (captured in the parent playbook).
+#
+# Order: This task MUST run BEFORE ha-install-addons.yaml so that the
+# slugs declared in `ha_addons` (e.g. 45df7312_zigbee2mqtt) are
+# resolvable when the install step runs.
+
+# Empty-list short-circuit: if no repositories are declared, every task
+# below either no-ops naturally (loops over []) or is guarded by `when`.
+
+# --- Read currently registered repositories ---
+
+- name: Query Supervisor store (current repositories)
+  when: (ha_addon_repositories | default([])) | length > 0
+  ansible.builtin.uri:
+    url: "http://supervisor/store"
+    method: GET
+    headers:
+      Authorization: "Bearer {{ _supervisor_token }}"
+    status_code: [200]
+    return_content: true
+  register: _supervisor_store
+
+- name: Extract registered repository URLs
+  ansible.builtin.set_fact:
+    _registered_repo_urls: >-
+      {{ (_supervisor_store.json.data.repositories | default([]))
+         | map(attribute='source') | list }}
+  when: (ha_addon_repositories | default([])) | length > 0
+
+- name: Show registered Supervisor repositories
+  ansible.builtin.debug:
+    msg: "Currently registered: {{ _registered_repo_urls }}"
+  when: (ha_addon_repositories | default([])) | length > 0
+
+# --- Compute repositories that need to be added ---
+
+- name: Determine missing add-on repositories
+  ansible.builtin.set_fact:
+    _addon_repos_to_add: >-
+      {{ ha_addon_repositories
+         | rejectattr('url', 'in', _registered_repo_urls) | list }}
+  when: (ha_addon_repositories | default([])) | length > 0
+
+- name: Add-on repository registration plan
+  ansible.builtin.debug:
+    msg: >-
+      {{ 'All declared add-on repositories already registered -- nothing to do.'
+         if (_addon_repos_to_add | length) == 0
+         else ('Will register: '
+               ~ (_addon_repos_to_add | map(attribute='name') | list | join(', '))) }}
+  when: (ha_addon_repositories | default([])) | length > 0
+
+# --- Register missing repositories ---
+
+- name: Register missing add-on repositories with Supervisor
+  ansible.builtin.uri:
+    url: "http://supervisor/store/repositories"
+    method: POST
+    headers:
+      Authorization: "Bearer {{ _supervisor_token }}"
+      Content-Type: "application/json"
+    body_format: json
+    body:
+      repository: "{{ item.url }}"
+    # Supervisor returns 200 for "added" and may return 400 if it failed
+    # to clone (network / 404 / not a hass.io repo). We surface 400 as a
+    # failure so the user notices a bad URL early.
+    status_code: [200]
+  loop: "{{ _addon_repos_to_add | default([]) }}"
+  loop_control:
+    label: "{{ item.name }} ({{ item.url }})"
+  register: _addon_repo_add_result
+
+- name: Reload Supervisor store after registering new repositories
+  ansible.builtin.uri:
+    url: "http://supervisor/store/reload"
+    method: POST
+    headers:
+      Authorization: "Bearer {{ _supervisor_token }}"
+    status_code: [200]
+  when: (_addon_repos_to_add | default([]) | length) > 0
+  changed_when: true
+
+# --- Wait until the new repositories appear in the store ---
+# `POST /store/repositories` returns 200 immediately but the clone runs
+# asynchronously on the Supervisor; subsequent `GET /store` may briefly
+# omit the new entry. Poll until all declared URLs are visible so the
+# follow-up addon install step doesn't race.
+
+- name: Wait for newly added repositories to appear in the store
+  ansible.builtin.uri:
+    url: "http://supervisor/store"
+    method: GET
+    headers:
+      Authorization: "Bearer {{ _supervisor_token }}"
+    status_code: [200]
+    return_content: true
+  register: _store_recheck
+  retries: 30
+  delay: 5
+  until: >-
+    (ha_addon_repositories | map(attribute='url') | list)
+    | difference(
+        (_store_recheck.json.data.repositories | default([]))
+        | map(attribute='source') | list
+      ) | length == 0
+  when: (_addon_repos_to_add | default([]) | length) > 0
+
+- name: Add-on repository registration summary
+  ansible.builtin.debug:
+    msg: >-
+      {{ 'Registered ' ~ (_addon_repos_to_add | length) ~ ' new add-on repository/repositories: '
+         ~ (_addon_repos_to_add | map(attribute='name') | list | join(', '))
+      if ((_addon_repos_to_add | default([])) | length) > 0
+      else 'All add-on repositories already registered -- skipped.' }}
+  when: (ha_addon_repositories | default([])) | length > 0

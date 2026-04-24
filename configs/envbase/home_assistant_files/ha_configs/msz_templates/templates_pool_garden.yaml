@@ -84,13 +84,13 @@
 # ---------------------------------------------------------------------------
   - trigger:
       - trigger: state
-        entity_id: sensor.garten_wassertimer_und_zahler_summation_delivered
+        entity_id: sensor.garden_water_counter_1_water_consumed
         id: summation
       - trigger: time_pattern
         minutes: "/1"
         id: stale_check
       - trigger: state
-        entity_id: switch.garten_wassertimer_und_zahler
+        entity_id: switch.garden_water_counter_1_state
         to: "on"
         id: switch_on
     sensor:
@@ -176,10 +176,10 @@
 # ---------------------------------------------------------------------------
   - trigger:
       - trigger: state
-        entity_id: sensor.garten_wassertimer_und_zahler_summation_delivered
+        entity_id: sensor.garden_water_counter_1_water_consumed
         id: summation
       - trigger: state
-        entity_id: switch.garten_wassertimer_und_zahler
+        entity_id: switch.garden_water_counter_1_state
         to: "on"
         id: switch_on
     sensor:
@@ -230,13 +230,13 @@
 # ---------------------------------------------------------------------------
   - trigger:
       - trigger: state
-        entity_id: sensor.garten_wassertimer_und_zahler_summation_delivered
+        entity_id: sensor.garden_water_counter_1_water_consumed
         id: summation
       - trigger: time_pattern
         minutes: "/1"
         id: stale_check
       - trigger: state
-        entity_id: switch.garten_wassertimer_und_zahler
+        entity_id: switch.garden_water_counter_1_state
         to: "on"
         id: switch_on
       - trigger: state

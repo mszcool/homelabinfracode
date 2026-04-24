@@ -1,11 +1,11 @@
-# Daily aggregate of garden water meter (Zigbee/MQTT summation_delivered).
+# Daily aggregate of garden water meter (Z2M `water_consumed` cumulative).
 garden_water_daily:
-  source: sensor.garten_wassertimer_und_zahler_summation_delivered
+  source: sensor.garden_water_counter_1_water_consumed
   cycle: daily
 
 # Monthly aggregate of garden water meter.
 garden_water_monthly:
-  source: sensor.garten_wassertimer_und_zahler_summation_delivered
+  source: sensor.garden_water_counter_1_water_consumed
   cycle: monthly
 
 # Monthly aggregate of combined pool energy consumption.
