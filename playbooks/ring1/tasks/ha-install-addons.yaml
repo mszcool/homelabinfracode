@@ -80,8 +80,8 @@
   register: _addon_wait_result
   until: >
     (_addon_wait_result.stdout | from_json).data.state == 'started'
-  retries: 30
-  delay: 10
+  retries: 60
+  delay: 15
   changed_when: false
   when: >
     (not _addon_states[item.slug].installed) or

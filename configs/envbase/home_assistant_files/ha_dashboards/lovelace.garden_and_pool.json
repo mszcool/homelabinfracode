@@ -13,7 +13,37 @@
               "cards": [
                 {
                   "type": "heading",
-                  "heading": "Garten Wassertimer und Zähler"
+                  "heading_style": "title",
+                  "heading": "Kontrolle im Garten"
+                },
+                {
+                  "type": "tile",
+                  "entity": "input_boolean.garden_water_counter_1_target",
+                  "name": "Gartenwasser Schalter",
+                  "icon": "mdi:water-outline",
+                  "vertical": false,
+                  "features_position": "bottom"
+                },
+                {
+                  "type": "tile",
+                  "entity": "input_boolean.attribute_water_to_pool",
+                  "name": "Wasser Pool zuordnen",
+                  "vertical": false,
+                  "features_position": "bottom"
+                },
+                {
+                  "type": "tile",
+                  "entity": "sensor.garden_water_counter_1_battery",
+                  "name": "Batterie Wasser Garten",
+                  "vertical": false,
+                  "features_position": "bottom"
+                },
+                {
+                  "type": "tile",
+                  "entity": "sensor.garden_water_counter_1_last_irrigation_duration",
+                  "name": "Letzte Laufzeit",
+                  "vertical": false,
+                  "features_position": "bottom"
                 },
                 {
                   "type": "tile",
@@ -21,14 +51,6 @@
                   "name": "Pool Pumpe",
                   "icon": "mdi:pump",
                   "show_entity_picture": true,
-                  "vertical": false,
-                  "features_position": "bottom"
-                },
-                {
-                  "type": "tile",
-                  "entity": "switch.switch_pumplight_pool_light",
-                  "name": "Pool Licht",
-                  "icon": "mdi:lightbulb-auto-outline",
                   "vertical": false,
                   "features_position": "bottom"
                 },
@@ -47,6 +69,228 @@
                   "icon": "mdi:ph",
                   "vertical": false,
                   "features_position": "bottom"
+                },
+                {
+                  "type": "tile",
+                  "entity": "switch.switch_pumplight_pool_light",
+                  "name": "Pool Licht",
+                  "icon": "mdi:lightbulb-auto-outline",
+                  "vertical": false,
+                  "features_position": "bottom"
+                }
+              ],
+              "column_span": 4
+            },
+            {
+              "type": "grid",
+              "cards": [
+                {
+                  "type": "heading",
+                  "heading": "Garten Wassertimer und Zähler"
+                },
+                {
+                  "type": "custom:apexcharts-card",
+                  "header": {
+                    "show": true,
+                    "title": "Water Consumption",
+                    "show_states": true,
+                    "colorize_states": true
+                  },
+                  "grid_options": {
+                    "square": false,
+                    "columns": "full"
+                  },
+                  "graph_span": "1h",
+                  "apex_config": {
+                    "chart": {
+                      "height": "315px",
+                      "toolbar": {
+                        "show": true,
+                        "tools": {
+                          "zoom": true,
+                          "zoomin": true,
+                          "zoomout": true,
+                          "pan": true,
+                          "reset": true
+                        }
+                      },
+                      "zoom": {
+                        "enabled": true,
+                        "type": "x",
+                        "autoScaleYaxis": true
+                      }
+                    }
+                  },
+                  "series": [
+                    {
+                      "entity": "sensor.garden_water_current_cycle",
+                      "color": "lightblue"
+                    }
+                  ]
+                },
+                {
+                  "type": "custom:apexcharts-card",
+                  "header": {
+                    "show": true,
+                    "title": "Water Consumption Monthly",
+                    "show_states": true,
+                    "colorize_states": true
+                  },
+                  "grid_options": {
+                    "square": false,
+                    "columns": 12
+                  },
+                  "apex_config": {
+                    "chart": {
+                      "height": "315x"
+                    }
+                  },
+                  "graph_span": "1y",
+                  "update_interval": "1h",
+                  "span": {
+                    "end": "month"
+                  },
+                  "series": [
+                    {
+                      "entity": "sensor.garden_water_monthly",
+                      "type": "column",
+                      "group_by": {
+                        "duration": "1month",
+                        "func": "max"
+                      },
+                      "color": "lightblue"
+                    }
+                  ]
+                },
+                {
+                  "type": "custom:apexcharts-card",
+                  "header": {
+                    "show": true,
+                    "title": "Pool Water Consumption Monthly",
+                    "show_states": true,
+                    "colorize_states": true
+                  },
+                  "grid_options": {
+                    "square": false,
+                    "columns": 12
+                  },
+                  "apex_config": {
+                    "chart": {
+                      "height": "315x"
+                    }
+                  },
+                  "graph_span": "1y",
+                  "span": {
+                    "end": "month"
+                  },
+                  "series": [
+                    {
+                      "entity": "sensor.pool_water_monthly",
+                      "type": "column",
+                      "group_by": {
+                        "duration": "1month",
+                        "func": "max"
+                      },
+                      "color": "blue"
+                    }
+                  ]
+                }
+              ],
+              "column_span": 2
+            },
+            {
+              "type": "grid",
+              "cards": [
+                {
+                  "type": "heading",
+                  "heading": "Pool Statistiken",
+                  "heading_style": "title"
+                },
+                {
+                  "type": "custom:apexcharts-card",
+                  "header": {
+                    "show": true,
+                    "title": "Pool Current Water Fill Flow",
+                    "show_states": true,
+                    "colorize_states": true
+                  },
+                  "grid_options": {
+                    "square": false,
+                    "columns": 12
+                  },
+                  "graph_span": "1h",
+                  "apex_config": {
+                    "chart": {
+                      "height": "315px",
+                      "toolbar": {
+                        "show": true,
+                        "tools": {
+                          "zoom": true,
+                          "zoomin": true,
+                          "zoomout": true,
+                          "pan": true,
+                          "reset": true
+                        }
+                      },
+                      "zoom": {
+                        "enabled": true,
+                        "type": "x",
+                        "autoScaleYaxis": true
+                      }
+                    }
+                  },
+                  "series": [
+                    {
+                      "entity": "sensor.pool_water_current_fill",
+                      "color": "blue"
+                    }
+                  ]
+                },
+                {
+                  "type": "custom:apexcharts-card",
+                  "header": {
+                    "show": true,
+                    "title": "Pool Current Power",
+                    "show_states": true,
+                    "colorize_states": true
+                  },
+                  "grid_options": {
+                    "square": false,
+                    "columns": 12
+                  },
+                  "graph_span": "3h",
+                  "apex_config": {
+                    "chart": {
+                      "height": "315px",
+                      "toolbar": {
+                        "show": true,
+                        "tools": {
+                          "zoom": true,
+                          "zoomin": true,
+                          "zoomout": true,
+                          "pan": true,
+                          "reset": true
+                        }
+                      },
+                      "zoom": {
+                        "enabled": true,
+                        "type": "x",
+                        "autoScaleYaxis": true
+                      }
+                    }
+                  },
+                  "series": [
+                    {
+                      "entity": "sensor.switch_pumplight_pumplight_power",
+                      "name": "Pump, Light",
+                      "color": "darkred"
+                    },
+                    {
+                      "entity": "sensor.switch_redoxph_redoxph_power",
+                      "name": "Redox, PH",
+                      "color": "red"
+                    }
+                  ]
                 },
                 {
                   "type": "custom:apexcharts-card",
@@ -113,238 +357,6 @@
                         "func": "max"
                       },
                       "color": "darkred"
-                    }
-                  ]
-                },
-                {
-                  "type": "custom:apexcharts-card",
-                  "header": {
-                    "show": true,
-                    "title": "Pool Current Power",
-                    "show_states": true,
-                    "colorize_states": true
-                  },
-                  "grid_options": {
-                    "square": false,
-                    "columns": 12
-                  },
-                  "graph_span": "3h",
-                  "apex_config": {
-                    "chart": {
-                      "height": "315px",
-                      "toolbar": {
-                        "show": true,
-                        "tools": {
-                          "zoom": true,
-                          "zoomin": true,
-                          "zoomout": true,
-                          "pan": true,
-                          "reset": true
-                        }
-                      },
-                      "zoom": {
-                        "enabled": true,
-                        "type": "x",
-                        "autoScaleYaxis": true
-                      }
-                    }
-                  },
-                  "series": [
-                    {
-                      "entity": "sensor.switch_pumplight_pumplight_power",
-                      "name": "Pump, Light",
-                      "color": "darkred"
-                    },
-                    {
-                      "entity": "sensor.switch_redoxph_redoxph_power",
-                      "name": "Redox, PH",
-                      "color": "red"
-                    }
-                  ]
-                },
-                {
-                  "type": "custom:apexcharts-card",
-                  "header": {
-                    "show": true,
-                    "title": "Pool Current Water Fill Flow",
-                    "show_states": true,
-                    "colorize_states": true
-                  },
-                  "grid_options": {
-                    "square": false,
-                    "columns": 12
-                  },
-                  "graph_span": "1h",
-                  "apex_config": {
-                    "chart": {
-                      "height": "315px",
-                      "toolbar": {
-                        "show": true,
-                        "tools": {
-                          "zoom": true,
-                          "zoomin": true,
-                          "zoomout": true,
-                          "pan": true,
-                          "reset": true
-                        }
-                      },
-                      "zoom": {
-                        "enabled": true,
-                        "type": "x",
-                        "autoScaleYaxis": true
-                      }
-                    }
-                  },
-                  "series": [
-                    {
-                      "entity": "sensor.pool_water_current_fill",
-                      "color": "blue"
-                    }
-                  ]
-                }
-              ],
-              "column_span": 2
-            },
-            {
-              "type": "grid",
-              "cards": [
-                {
-                  "type": "heading",
-                  "heading": "Garten Wassertimer und Zähler"
-                },
-                {
-                  "type": "tile",
-                  "entity": "input_boolean.garden_water_counter_1_target",
-                  "name": "Gartenwasser Schalter",
-                  "icon": "mdi:water-outline",
-                  "vertical": false,
-                  "features_position": "bottom"
-                },
-                {
-                  "type": "tile",
-                  "entity": "input_boolean.attribute_water_to_pool",
-                  "name": "Wasser Pool zuordnen",
-                  "vertical": false,
-                  "features_position": "bottom"
-                },
-                {
-                  "type": "tile",
-                  "entity": "sensor.garden_water_counter_1_battery",
-                  "name": "Batterie Wasser Garten",
-                  "vertical": false,
-                  "features_position": "bottom"
-                },
-                {
-                  "type": "tile",
-                  "entity": "sensor.garden_water_counter_1_last_irrigation_duration",
-                  "name": "Letzte Laufzeit",
-                  "vertical": false,
-                  "features_position": "bottom"
-                },
-                {
-                  "type": "custom:apexcharts-card",
-                  "header": {
-                    "show": true,
-                    "title": "Water Consumption",
-                    "show_states": true,
-                    "colorize_states": true
-                  },
-                  "grid_options": {
-                    "square": false,
-                    "columns": "full"
-                  },
-                  "graph_span": "1h",
-                  "apex_config": {
-                    "chart": {
-                      "height": "315px",
-                      "toolbar": {
-                        "show": true,
-                        "tools": {
-                          "zoom": true,
-                          "zoomin": true,
-                          "zoomout": true,
-                          "pan": true,
-                          "reset": true
-                        }
-                      },
-                      "zoom": {
-                        "enabled": true,
-                        "type": "x",
-                        "autoScaleYaxis": true
-                      }
-                    }
-                  },
-                  "series": [
-                    {
-                      "entity": "sensor.garden_water_current_cycle",
-                      "color": "lightblue"
-                    }
-                  ]
-                },
-                {
-                  "type": "custom:apexcharts-card",
-                  "header": {
-                    "show": true,
-                    "title": "Pool Water Consumption Monthly",
-                    "show_states": true,
-                    "colorize_states": true
-                  },
-                  "grid_options": {
-                    "square": false,
-                    "columns": 12
-                  },
-                  "apex_config": {
-                    "chart": {
-                      "height": "315x"
-                    }
-                  },
-                  "graph_span": "1y",
-                  "span": {
-                    "end": "month"
-                  },
-                  "series": [
-                    {
-                      "entity": "sensor.pool_water_monthly",
-                      "type": "column",
-                      "group_by": {
-                        "duration": "1month",
-                        "func": "max"
-                      },
-                      "color": "blue"
-                    }
-                  ]
-                },
-                {
-                  "type": "custom:apexcharts-card",
-                  "header": {
-                    "show": true,
-                    "title": "Water Consumption Monthly",
-                    "show_states": true,
-                    "colorize_states": true
-                  },
-                  "grid_options": {
-                    "square": false,
-                    "columns": 12
-                  },
-                  "apex_config": {
-                    "chart": {
-                      "height": "315x"
-                    }
-                  },
-                  "graph_span": "1y",
-                  "update_interval": "1h",
-                  "span": {
-                    "end": "month"
-                  },
-                  "series": [
-                    {
-                      "entity": "sensor.garden_water_monthly",
-                      "type": "column",
-                      "group_by": {
-                        "duration": "1month",
-                        "func": "max"
-                      },
-                      "color": "lightblue"
                     }
                   ]
                 }

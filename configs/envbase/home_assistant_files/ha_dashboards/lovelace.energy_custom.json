@@ -25,7 +25,7 @@
                   "generation_to_house_entity": "sensor.evcc_solar_to_house",
                   "battery_to_house_entity": "sensor.evcc_battery_to_house",
                   "battery_to_grid_entity": "sensor.evcc_battery_to_grid",
-                  "battery_extra_entity": "sensor.msz_evcc_battery_soc",
+                  "battery_extra_entity": "sensor.evcc_battery_soc",
                   "show_gap": true,
                   "threshold_in_k": 1
                 },
