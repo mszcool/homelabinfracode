@@ -38,6 +38,8 @@
     - poolStatus.sh
     - pumpOn.sh
     - redoxOn.sh
+    - depthForward.sh
+    - depthForward.py
 
 # -- c. Copy depth/ subfolder (Python scripts + requirements) ---------------
 

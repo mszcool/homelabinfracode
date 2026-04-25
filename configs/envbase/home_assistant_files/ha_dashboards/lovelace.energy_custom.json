@@ -12,6 +12,15 @@
               "type": "grid",
               "cards": [
                 {
+                  "type": "energy-date-selection",
+                  "vertical_opening_direction": "auto",
+                  "opening_direction": "center",
+                  "grid_options": {
+                    "columns": 12,
+                    "rows": 1
+                  }
+                },
+                {
                   "type": "custom:tesla-style-solar-power-card",
                   "name": "Current Energy Flows",
                   "grid_options": {
@@ -30,40 +39,12 @@
                   "threshold_in_k": 1
                 },
                 {
-                  "type": "custom:apexcharts-card",
-                  "section_mode": true,
+                  "type": "energy-distribution",
+                  "title": "Daily Energy Distribution",
                   "grid_options": {
-                    "columns": 12,
-                    "rows": 6
-                  },
-                  "header": {
-                    "show": true,
-                    "title": "Power Statistics Inverter House",
-                    "show_states": true,
-                    "colorize_states": true
-                  },
-                  "graph_span": "12h",
-                  "all_series_config": {
-                    "type": "area",
-                    "opacity": 0.1,
-                    "stroke_width": 1,
-                    "group_by": {
-                      "func": "last",
-                      "duration": "5m"
-                    }
-                  },
-                  "series": [
-                    {
-                      "entity": "sensor.evcc_evcc_pv_inverter_1_power",
-                      "name": "Inverter Garage",
-                      "color": "blue"
-                    },
-                    {
-                      "entity": "sensor.evcc_evcc_pv_inverter_2_power",
-                      "name": "Inverter House",
-                      "color": "green"
-                    }
-                  ]
+                    "rows": "auto",
+                    "columns": 12
+                  }
                 }
               ]
             },
@@ -76,23 +57,6 @@
                 "rows": 5
               },
               "cards": [
-                {
-                  "type": "energy-date-selection",
-                  "vertical_opening_direction": "auto",
-                  "opening_direction": "center",
-                  "grid_options": {
-                    "columns": 21,
-                    "rows": 2
-                  }
-                },
-                {
-                  "type": "energy-solar-consumed-gauge",
-                  "title": "Solar Home Usage",
-                  "grid_options": {
-                    "rows": 2,
-                    "columns": 3
-                  }
-                },
                 {
                   "type": "power-sources-graph",
                   "title": "Energy Usage",
@@ -176,6 +140,42 @@
                       "align_to": 12
                     }
                   ]
+                },
+                {
+                  "type": "custom:apexcharts-card",
+                  "section_mode": true,
+                  "grid_options": {
+                    "columns": "full",
+                    "rows": 6
+                  },
+                  "header": {
+                    "show": true,
+                    "title": "Power Statistics Inverter House",
+                    "show_states": true,
+                    "colorize_states": true
+                  },
+                  "graph_span": "12h",
+                  "all_series_config": {
+                    "type": "area",
+                    "opacity": 0.1,
+                    "stroke_width": 1,
+                    "group_by": {
+                      "func": "last",
+                      "duration": "5m"
+                    }
+                  },
+                  "series": [
+                    {
+                      "entity": "sensor.evcc_evcc_pv_inverter_1_power",
+                      "name": "Inverter Garage",
+                      "color": "blue"
+                    },
+                    {
+                      "entity": "sensor.evcc_evcc_pv_inverter_2_power",
+                      "name": "Inverter House",
+                      "color": "green"
+                    }
+                  ]
                 }
               ],
               "column_span": 2
@@ -184,10 +184,10 @@
               "type": "grid",
               "cards": [
                 {
-                  "type": "energy-distribution",
-                  "title": "Daily Energy Distribution",
+                  "type": "energy-solar-consumed-gauge",
+                  "title": "Solar Home Usage",
                   "grid_options": {
-                    "rows": "auto",
+                    "rows": 3,
                     "columns": 12
                   }
                 },
