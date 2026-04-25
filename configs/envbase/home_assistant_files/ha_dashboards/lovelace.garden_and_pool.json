@@ -250,13 +250,58 @@
                   "type": "custom:apexcharts-card",
                   "header": {
                     "show": true,
-                    "title": "Pool Current Power",
+                    "title": "Pool Tank Level (higher is emptier)",
                     "show_states": true,
                     "colorize_states": true
                   },
                   "grid_options": {
                     "square": false,
                     "columns": 12
+                  },
+                  "graph_span": "1h",
+                  "apex_config": {
+                    "chart": {
+                      "height": "315px",
+                      "toolbar": {
+                        "show": true,
+                        "tools": {
+                          "zoom": true,
+                          "zoomin": true,
+                          "zoomout": true,
+                          "pan": true,
+                          "reset": true
+                        }
+                      },
+                      "zoom": {
+                        "enabled": true,
+                        "type": "x",
+                        "autoScaleYaxis": false
+                      }
+                    },
+                    "yaxis": {
+                      "reversed": true,
+                      "min": 0,
+                      "max": 90
+                    }
+                  },
+                  "series": [
+                    {
+                      "entity": "sensor.pool_tank_depth_sensor_pool_tank_water_level",
+                      "color": "cyan"
+                    }
+                  ]
+                },
+                {
+                  "type": "custom:apexcharts-card",
+                  "header": {
+                    "show": true,
+                    "title": "Pool Current Power",
+                    "show_states": true,
+                    "colorize_states": true
+                  },
+                  "grid_options": {
+                    "square": false,
+                    "columns": 24
                   },
                   "graph_span": "3h",
                   "apex_config": {
