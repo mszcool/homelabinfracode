@@ -322,3 +322,23 @@
         - "mszcool:mqtt:pool-redoxph-tasmota"
       model: Tasmota
       configuration_url: "http://iot.pumplightswitch"
+
+# --- Pool Tank Water Level Sensor ---
+# Published by the depthForward.sh cron job on the remote-maintenance shell.
+# Payload: {"centimeters": <float>, "measureTime": "YYYY-MM-DD HH:MM:SS"}
+
+- sensor:
+    unique_id: "mqtt:pool-tank-waterlevel-centimeters"
+    name: Pool Tank Water Level
+    state_topic: waterlevels/pooltank
+    value_template: "{{ value_json.centimeters | float }}"
+    unit_of_measurement: "cm"
+    device_class: distance
+    state_class: measurement
+    suggested_display_precision: 1
+    device:
+      name: Pool Tank Depth Sensor
+      identifiers:
+        - "mszcool:mqtt:pool-tank-depthsensor"
+      model: ESP32 Depth Sensor
+      configuration_url: "http://iot.pooldepthsensor"
