@@ -26,19 +26,24 @@
 # an env overlay (e.g. configs.private/<env>/.../msz_templates/) if your
 # total battery capacity differs from the value below.
 #
-# Staleness guard: every flow sensor's `availability:` additionally
-# requires that each MQTT input it consumes was last updated within
-# `evcc_flow_max_age_s` seconds. This prevents phantom flows (e.g.
-# `evcc_grid_to_battery` reading hundreds of W under Maximum Self-
-# Consumption) caused by EVCC publishing the four meters at different
-# moments inside one `evcc_interval` (default 60 s) — a stale battery
-# value paired with a fresh grid value can otherwise misattribute a
-# real grid import to grid->battery. 90 s = 1.5x the 60 s polling
-# interval, so a single missed publish is tolerated but multi-cycle
-# stale data is rejected, leaving the affected flow sensor in the
-# `unavailable` state until consistent inputs arrive again. Riemann /
-# utility_meter integrations downstream simply pause during
-# `unavailable` and do not reset, so kWh history is preserved.
+# Staleness guard (scoped): only `evcc_grid_to_battery` and
+# `evcc_battery_to_grid` additionally require their MQTT inputs to
+# have been updated within 90 s (= 1.5x the 60 s `evcc_interval`).
+# These two sensors are the ones that produce highly visible phantom
+# readings (hundreds to >1000 W) under Maximum Self-Consumption when
+# EVCC publishes the four meters at slightly different moments inside
+# one polling tick — a stale battery value paired with a fresh grid
+# value misattributes a real grid import to grid->battery. The other
+# five flow sensors do NOT produce harmful phantoms from the same
+# skew, so their availability stays untouched. This matters in
+# practice: when the SUN2000 inverters / SDongleA back off (e.g. low
+# DC voltage at dawn/dusk, idle hybrid in standby with empty battery
+# and zero PV), keeping the broader sensors available ensures that
+# `evcc_grid_to_house` continues to report the real-time house draw
+# from grid even if PV/battery topics have stopped refreshing.
+# Riemann / utility_meter integrations downstream simply pause during
+# `unavailable` and do not reset, so kWh history is preserved when
+# the staleness guard does trip.
 #
 # Dead-band: `evcc_grid_to_battery` and `evcc_battery_to_grid` are
 # the two flow sensors that are most prone to small phantom readings,
@@ -61,11 +66,8 @@
       state_class: measurement
       unit_of_measurement: W
       availability: >
-        {% set max_age = 90 %}
         {{ states('sensor.evcc_evcc_pv_power_total') not in ['unknown', 'unavailable', 'none', '']
-           and states('sensor.evcc_evcc_home_power') not in ['unknown', 'unavailable', 'none', '']
-           and (now() - states.sensor.evcc_evcc_pv_power_total.last_updated).total_seconds() < max_age
-           and (now() - states.sensor.evcc_evcc_home_power.last_updated).total_seconds()     < max_age }}
+           and states('sensor.evcc_evcc_home_power') not in ['unknown', 'unavailable', 'none', ''] }}
       state: >
         {% set pv    = states('sensor.evcc_evcc_pv_power_total') | float(0) %}
         {% set house = states('sensor.evcc_evcc_home_power')     | float(0) %}
@@ -77,13 +79,9 @@
       state_class: measurement
       unit_of_measurement: W
       availability: >
-        {% set max_age = 90 %}
         {{ states('sensor.evcc_evcc_pv_power_total') not in ['unknown', 'unavailable', 'none', '']
            and states('sensor.evcc_evcc_battery_power') not in ['unknown', 'unavailable', 'none', '']
-           and states('sensor.evcc_evcc_home_power')    not in ['unknown', 'unavailable', 'none', '']
-           and (now() - states.sensor.evcc_evcc_pv_power_total.last_updated).total_seconds() < max_age
-           and (now() - states.sensor.evcc_evcc_battery_power.last_updated).total_seconds()  < max_age
-           and (now() - states.sensor.evcc_evcc_home_power.last_updated).total_seconds()     < max_age }}
+           and states('sensor.evcc_evcc_home_power')    not in ['unknown', 'unavailable', 'none', ''] }}
       state: >
         {% set pv      = states('sensor.evcc_evcc_pv_power_total') | float(0) %}
         {% set house   = states('sensor.evcc_evcc_home_power')     | float(0) %}
@@ -99,15 +97,10 @@
       state_class: measurement
       unit_of_measurement: W
       availability: >
-        {% set max_age = 90 %}
         {{ states('sensor.evcc_evcc_pv_power_total') not in ['unknown', 'unavailable', 'none', '']
            and states('sensor.evcc_evcc_grid_power')    not in ['unknown', 'unavailable', 'none', '']
            and states('sensor.evcc_evcc_battery_power') not in ['unknown', 'unavailable', 'none', '']
-           and states('sensor.evcc_evcc_home_power')    not in ['unknown', 'unavailable', 'none', '']
-           and (now() - states.sensor.evcc_evcc_pv_power_total.last_updated).total_seconds() < max_age
-           and (now() - states.sensor.evcc_evcc_grid_power.last_updated).total_seconds()    < max_age
-           and (now() - states.sensor.evcc_evcc_battery_power.last_updated).total_seconds()  < max_age
-           and (now() - states.sensor.evcc_evcc_home_power.last_updated).total_seconds()     < max_age }}
+           and states('sensor.evcc_evcc_home_power')    not in ['unknown', 'unavailable', 'none', ''] }}
       state: >
         {% set pv      = states('sensor.evcc_evcc_pv_power_total') | float(0) %}
         {% set grid    = states('sensor.evcc_evcc_grid_power')     | float(0) %}
@@ -127,13 +120,9 @@
       state_class: measurement
       unit_of_measurement: W
       availability: >
-        {% set max_age = 90 %}
         {{ states('sensor.evcc_evcc_battery_power') not in ['unknown', 'unavailable', 'none', '']
            and states('sensor.evcc_evcc_home_power')    not in ['unknown', 'unavailable', 'none', '']
-           and states('sensor.evcc_evcc_pv_power_total') not in ['unknown', 'unavailable', 'none', '']
-           and (now() - states.sensor.evcc_evcc_battery_power.last_updated).total_seconds()  < max_age
-           and (now() - states.sensor.evcc_evcc_home_power.last_updated).total_seconds()     < max_age
-           and (now() - states.sensor.evcc_evcc_pv_power_total.last_updated).total_seconds() < max_age }}
+           and states('sensor.evcc_evcc_pv_power_total') not in ['unknown', 'unavailable', 'none', ''] }}
       state: >
         {% set pv      = states('sensor.evcc_evcc_pv_power_total') | float(0) %}
         {% set house   = states('sensor.evcc_evcc_home_power')     | float(0) %}
@@ -149,15 +138,10 @@
       state_class: measurement
       unit_of_measurement: W
       availability: >
-        {% set max_age = 90 %}
         {{ states('sensor.evcc_evcc_grid_power')     not in ['unknown', 'unavailable', 'none', '']
            and states('sensor.evcc_evcc_battery_power') not in ['unknown', 'unavailable', 'none', '']
            and states('sensor.evcc_evcc_home_power')    not in ['unknown', 'unavailable', 'none', '']
-           and states('sensor.evcc_evcc_pv_power_total') not in ['unknown', 'unavailable', 'none', '']
-           and (now() - states.sensor.evcc_evcc_grid_power.last_updated).total_seconds()    < max_age
-           and (now() - states.sensor.evcc_evcc_battery_power.last_updated).total_seconds()  < max_age
-           and (now() - states.sensor.evcc_evcc_home_power.last_updated).total_seconds()     < max_age
-           and (now() - states.sensor.evcc_evcc_pv_power_total.last_updated).total_seconds() < max_age }}
+           and states('sensor.evcc_evcc_pv_power_total') not in ['unknown', 'unavailable', 'none', ''] }}
       state: >
         {% set pv      = states('sensor.evcc_evcc_pv_power_total') | float(0) %}
         {% set grid    = states('sensor.evcc_evcc_grid_power')     | float(0) %}
