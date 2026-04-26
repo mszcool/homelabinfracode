@@ -103,22 +103,7 @@
                   "graph_span": "1h",
                   "apex_config": {
                     "chart": {
-                      "height": "315px",
-                      "toolbar": {
-                        "show": true,
-                        "tools": {
-                          "zoom": true,
-                          "zoomin": true,
-                          "zoomout": true,
-                          "pan": true,
-                          "reset": true
-                        }
-                      },
-                      "zoom": {
-                        "enabled": true,
-                        "type": "x",
-                        "autoScaleYaxis": true
-                      }
+                      "height": "315px"
                     }
                   },
                   "series": [
@@ -186,11 +171,11 @@
                     {
                       "entity": "sensor.pool_water_monthly",
                       "type": "column",
-                      "statistics": {
-                        "type": "state",
-                        "period": "month"
+                      "group_by": {
+                        "duration": "1month",
+                        "func": "last",
+                        "fill": "last"
                       },
-                      "transform": "return x * 1000",
                       "unit": "L",
                       "color": "blue"
                     }
@@ -222,22 +207,7 @@
                   "graph_span": "1h",
                   "apex_config": {
                     "chart": {
-                      "height": "315px",
-                      "toolbar": {
-                        "show": true,
-                        "tools": {
-                          "zoom": true,
-                          "zoomin": true,
-                          "zoomout": true,
-                          "pan": true,
-                          "reset": true
-                        }
-                      },
-                      "zoom": {
-                        "enabled": true,
-                        "type": "x",
-                        "autoScaleYaxis": true
-                      }
+                      "height": "315px"
                     }
                   },
                   "series": [
@@ -259,25 +229,10 @@
                     "square": false,
                     "columns": 12
                   },
-                  "graph_span": "1h",
+                  "graph_span": "24h",
                   "apex_config": {
                     "chart": {
-                      "height": "315px",
-                      "toolbar": {
-                        "show": true,
-                        "tools": {
-                          "zoom": true,
-                          "zoomin": true,
-                          "zoomout": true,
-                          "pan": true,
-                          "reset": true
-                        }
-                      },
-                      "zoom": {
-                        "enabled": true,
-                        "type": "x",
-                        "autoScaleYaxis": false
-                      }
+                      "height": "315px"
                     },
                     "yaxis": {
                       "reversed": true,
@@ -307,22 +262,7 @@
                   "graph_span": "3h",
                   "apex_config": {
                     "chart": {
-                      "height": "315px",
-                      "toolbar": {
-                        "show": true,
-                        "tools": {
-                          "zoom": true,
-                          "zoomin": true,
-                          "zoomout": true,
-                          "pan": true,
-                          "reset": true
-                        }
-                      },
-                      "zoom": {
-                        "enabled": true,
-                        "type": "x",
-                        "autoScaleYaxis": true
-                      }
+                      "height": "315px"
                     }
                   },
                   "series": [
