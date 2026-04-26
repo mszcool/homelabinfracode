@@ -106,6 +106,16 @@
         icon: mdi:water-pump
         state: >
           {% set stale_minutes = 2 %}
+          {# Cap on what we accept as a single positive delta between two
+             summation updates. Above this we assume a stale/glitch reading
+             rather than real flow. Typical garden flow rates make 500 L
+             between two updates implausible. #}
+          {% set max_delta = 500 %}
+          {# A negative delta is only treated as a real device reset when
+             the post-reset reading is small. Anything larger is a glitch
+             (stale retained MQTT message, race with switch_on baseline
+             write, etc.) and is silently rebaselined. #}
+          {% set reset_threshold = 50 %}
           {% set prev_total = states('sensor.garden_water_current_cycle') | float(0) %}
           {% set attrs = this.attributes if this is not none else {} %}
           {% set last_summation = attrs.get('last_summation', 0) | float(0) %}
@@ -117,11 +127,22 @@
           {% elif trigger.id == 'summation' %}
             {% set current = trigger.to_state.state | float(0) %}
             {% if current >= last_summation %}
-              {{ (prev_total + (current - last_summation)) | round(3) }}
-            {% else %}
-              {# Negative delta -> device reset between updates. Treat the
-                 new (post-reset) reading as flow we can still attribute. #}
+              {% set delta = current - last_summation %}
+              {% if delta <= max_delta %}
+                {{ (prev_total + delta) | round(3) }}
+              {% else %}
+                {# Implausibly large positive delta -> treat as glitch,
+                   rebaseline without adding. #}
+                {{ prev_total | round(3) }}
+              {% endif %}
+            {% elif current <= reset_threshold %}
+              {# Plausible device reset: counter restarted, add the small
+                 post-reset reading as new flow. #}
               {{ (prev_total + current) | round(3) }}
+            {% else %}
+              {# Implausible negative delta -> glitch/stale message.
+                 Don't add anything; last_summation is rebaselined below. #}
+              {{ prev_total | round(3) }}
             {% endif %}
           {% elif trigger.id == 'stale_check' %}
             {% if last_change_at is none %}
@@ -190,6 +211,8 @@
         unit_of_measurement: "L"
         icon: mdi:pool
         state: >
+          {% set max_delta = 500 %}
+          {% set reset_threshold = 50 %}
           {% set prev_total = states('sensor.pool_water_consumption') | float(0) %}
           {% set attrs = this.attributes if this is not none else {} %}
           {% if trigger.id == 'switch_on' %}
@@ -201,9 +224,21 @@
             {% if not attribute %}
               {{ prev_total | round(3) }}
             {% elif current >= prev_summation %}
-              {{ (prev_total + (current - prev_summation)) | round(3) }}
-            {% else %}
+              {% set delta = current - prev_summation %}
+              {% if delta <= max_delta %}
+                {{ (prev_total + delta) | round(3) }}
+              {% else %}
+                {# Implausibly large positive delta -> glitch, rebaseline. #}
+                {{ prev_total | round(3) }}
+              {% endif %}
+            {% elif current <= reset_threshold %}
+              {# Plausible device reset: counter restarted, attribute the
+                 small post-reset reading as new pool flow. #}
               {{ (prev_total + current) | round(3) }}
+            {% else %}
+              {# Implausible negative delta -> glitch/stale message,
+                 rebaseline without adding. #}
+              {{ prev_total | round(3) }}
             {% endif %}
           {% endif %}
         attributes:
@@ -251,6 +286,8 @@
         icon: mdi:pool
         state: >
           {% set stale_minutes = 2 %}
+          {% set max_delta = 500 %}
+          {% set reset_threshold = 50 %}
           {% set prev_total = states('sensor.pool_water_current_fill') | float(0) %}
           {% set attrs = this.attributes if this is not none else {} %}
           {% set last_summation = attrs.get('last_summation', 0) | float(0) %}
@@ -266,9 +303,16 @@
             {% else %}
               {% set current = trigger.to_state.state | float(0) %}
               {% if current >= last_summation %}
-                {{ (prev_total + (current - last_summation)) | round(3) }}
-              {% else %}
+                {% set delta = current - last_summation %}
+                {% if delta <= max_delta %}
+                  {{ (prev_total + delta) | round(3) }}
+                {% else %}
+                  {{ prev_total | round(3) }}
+                {% endif %}
+              {% elif current <= reset_threshold %}
                 {{ (prev_total + current) | round(3) }}
+              {% else %}
+                {{ prev_total | round(3) }}
               {% endif %}
             {% endif %}
           {% elif trigger.id == 'stale_check' %}

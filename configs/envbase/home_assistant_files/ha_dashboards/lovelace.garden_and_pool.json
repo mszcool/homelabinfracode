@@ -186,10 +186,12 @@
                     {
                       "entity": "sensor.pool_water_monthly",
                       "type": "column",
-                      "group_by": {
-                        "duration": "1month",
-                        "func": "max"
+                      "statistics": {
+                        "type": "state",
+                        "period": "month"
                       },
+                      "transform": "return x * 1000",
+                      "unit": "L",
                       "color": "blue"
                     }
                   ]
