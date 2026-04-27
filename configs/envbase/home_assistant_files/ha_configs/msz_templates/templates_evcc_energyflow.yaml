@@ -25,6 +25,39 @@
 # nested in the evcc/site/battery JSON struct). Override the default in
 # an env overlay (e.g. configs.private/<env>/.../msz_templates/) if your
 # total battery capacity differs from the value below.
+#
+# Staleness guard (scoped): only `evcc_grid_to_battery` and
+# `evcc_battery_to_grid` additionally require their MQTT inputs to
+# have been updated within 90 s (= 1.5x the 60 s `evcc_interval`).
+# These two sensors are the ones that produce highly visible phantom
+# readings (hundreds to >1000 W) under Maximum Self-Consumption when
+# EVCC publishes the four meters at slightly different moments inside
+# one polling tick — a stale battery value paired with a fresh grid
+# value misattributes a real grid import to grid->battery. The other
+# five flow sensors do NOT produce harmful phantoms from the same
+# skew, so their availability stays untouched. This matters in
+# practice: when the SUN2000 inverters / SDongleA back off (e.g. low
+# DC voltage at dawn/dusk, idle hybrid in standby with empty battery
+# and zero PV), keeping the broader sensors available ensures that
+# `evcc_grid_to_house` continues to report the real-time house draw
+# from grid even if PV/battery topics have stopped refreshing.
+# Riemann / utility_meter integrations downstream simply pause during
+# `unavailable` and do not reset, so kWh history is preserved when
+# the staleness guard does trip.
+#
+# Dead-band: `evcc_grid_to_battery` and `evcc_battery_to_grid` are
+# the two flow sensors that are most prone to small phantom readings,
+# even when all inputs are fresh. Causes include (a) Modbus meter
+# noise around 0 W on three independently read meters, and (b) real
+# but very brief (sub-tick) inverter behavior, e.g. the Huawei hybrid
+# briefly importing a few hundred W into the battery during fast PV
+# transients to balance the DC bus. Both produce visible cosmetic
+# spikes in the Sankey card while contributing negligible energy.
+# A 100 W dead-band on these two sensors only zeroes them out below
+# threshold; everything else is published unchanged. Riemann/
+# utility_meter integrals lose at most ~100 W * sample-period of kWh
+# per affected sample (typically < 0.002 kWh), which is well below
+# the meter accuracy of the SUN2000.
 
 - sensor:
     - name: EVCC Solar to House
@@ -128,10 +161,15 @@
       state_class: measurement
       unit_of_measurement: W
       availability: >
+        {% set max_age = 90 %}
         {{ states('sensor.evcc_evcc_grid_power')     not in ['unknown', 'unavailable', 'none', '']
            and states('sensor.evcc_evcc_battery_power') not in ['unknown', 'unavailable', 'none', '']
            and states('sensor.evcc_evcc_home_power')    not in ['unknown', 'unavailable', 'none', '']
-           and states('sensor.evcc_evcc_pv_power_total') not in ['unknown', 'unavailable', 'none', ''] }}
+           and states('sensor.evcc_evcc_pv_power_total') not in ['unknown', 'unavailable', 'none', '']
+           and (now() - states.sensor.evcc_evcc_grid_power.last_updated).total_seconds()    < max_age
+           and (now() - states.sensor.evcc_evcc_battery_power.last_updated).total_seconds()  < max_age
+           and (now() - states.sensor.evcc_evcc_home_power.last_updated).total_seconds()     < max_age
+           and (now() - states.sensor.evcc_evcc_pv_power_total.last_updated).total_seconds() < max_age }}
       state: >
         {% set pv       = states('sensor.evcc_evcc_pv_power_total') | float(0) %}
         {% set grid     = states('sensor.evcc_evcc_grid_power')     | float(0) %}
@@ -150,7 +188,10 @@
         {% set h_left2  = [h_left1 - b2h, 0] | max %}
         {% set g2h      = [grid_imp, h_left2] | min %}
         {% set grid_left = [grid_imp - g2h, 0] | max %}
-        {{ ([grid_left, chg_left] | min) | round(0) }}
+        {# Dead-band: suppress sub-100 W readings caused by meter noise
+           and sub-tick inverter transients (see header comment). #}
+        {% set v = ([grid_left, chg_left] | min) | round(0) %}
+        {{ 0 if v < 100 else v }}
 
     - name: EVCC Battery to Grid
       unique_id: evcc_battery_to_grid
@@ -158,10 +199,15 @@
       state_class: measurement
       unit_of_measurement: W
       availability: >
+        {% set max_age = 90 %}
         {{ states('sensor.evcc_evcc_grid_power')     not in ['unknown', 'unavailable', 'none', '']
            and states('sensor.evcc_evcc_battery_power') not in ['unknown', 'unavailable', 'none', '']
            and states('sensor.evcc_evcc_home_power')    not in ['unknown', 'unavailable', 'none', '']
-           and states('sensor.evcc_evcc_pv_power_total') not in ['unknown', 'unavailable', 'none', ''] }}
+           and states('sensor.evcc_evcc_pv_power_total') not in ['unknown', 'unavailable', 'none', '']
+           and (now() - states.sensor.evcc_evcc_grid_power.last_updated).total_seconds()    < max_age
+           and (now() - states.sensor.evcc_evcc_battery_power.last_updated).total_seconds()  < max_age
+           and (now() - states.sensor.evcc_evcc_home_power.last_updated).total_seconds()     < max_age
+           and (now() - states.sensor.evcc_evcc_pv_power_total.last_updated).total_seconds() < max_age }}
       state: >
         {% set pv       = states('sensor.evcc_evcc_pv_power_total') | float(0) %}
         {% set grid     = states('sensor.evcc_evcc_grid_power')     | float(0) %}
@@ -179,7 +225,10 @@
         {% set b2h      = [bat_dis, h_left1] | min %}
         {% set dis_left = [bat_dis - b2h, 0] | max %}
         {% set exp_left = [grid_exp - s2g, 0] | max %}
-        {{ ([dis_left, exp_left] | min) | round(0) }}
+        {# Dead-band: suppress sub-100 W readings caused by meter noise
+           and sub-tick inverter transients (see header comment). #}
+        {% set v = ([dis_left, exp_left] | min) | round(0) %}
+        {{ 0 if v < 100 else v }}
 
     # ---------- Battery capacity (informational, static) ----------
     # EVCC does not publish a flat MQTT topic for total battery capacity.
