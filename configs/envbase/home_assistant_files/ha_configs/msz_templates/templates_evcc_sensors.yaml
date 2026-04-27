@@ -18,7 +18,15 @@
 # These are POWER (W) splits suitable for live energy-flow cards. To feed
 # them into the Energy Dashboard (which needs kWh / total_increasing
 # counters), wrap each one with an `integration:` (Riemann sum) helper or
-# a `utility_meter:` -- the EVCC pvEnergy counter can be used directly.
+# a `utility_meter:`.
+#
+# For PV production energy the dashboard MUST consume one of the guarded
+# wrappers below (`sensor.evcc_pv_production_energy` or
+# `sensor.evcc_pv_production_energy_calculated`), NOT the raw MQTT
+# entity `sensor.evcc_evcc_pv_energy_total`. The raw entity is unguarded
+# and a single bad EVCC publish (e.g. one inverter momentarily reporting
+# zero) is locked into HA's long-term statistics as either a phantom
+# meter reset (-> huge spike) or a permanent stuck-high value.
 
 - sensor:
     - name: EVCC Grid Consumption Power
@@ -78,12 +86,121 @@
       state: >
         {{ (states('sensor.evcc_evcc_pv_power_total') | float(0)) | round(0) }}
 
+    # ------------------------------------------------------------------
+    # Guarded PV production energy (kWh, lifetime cumulative).
+    #
+    # Wraps the EVCC site-level pvEnergy MQTT counter
+    # (`sensor.evcc_evcc_pv_energy_total`) with two guards:
+    #
+    #   1) Monotonic clamp: reject samples lower than the previously
+    #      held state. EVCC computes pvEnergy = inverter1.energy +
+    #      inverter2.energy on every poll cycle (default 60 s) and does
+    #      not persist its own sum -- a single poll where one inverter
+    #      momentarily reports 0 (Modbus timeout, dawn wake-up, ...)
+    #      causes pvEnergy to dip. Without this guard, the dip is
+    #      treated by HA's `total_increasing` statistics engine as a
+    #      meter reset, and the climb back to the real value is added
+    #      as new energy -- producing huge phantom spikes in the
+    #      Energy dashboard (incident: 11 kWh -> 5 kWh -> 11 kWh dip
+    #      between 05:50 and 05:55 inflated the daily total to
+    #      ~11 MWh).
+    #
+    #   2) Max-step clamp: reject samples that jump UP by more than
+    #      `pv_energy_max_step_kwh` (default 10 kWh) in one update.
+    #      Without this, a single bogus high value (e.g. unit-mismatch
+    #      Wh-vs-kWh) would lock the wrapper at that value forever
+    #      because every subsequent real reading would fail the
+    #      monotonic clamp. Sized for an 8 kW peak PV system: 10 kWh
+    #      represents ~75 min of unbroken peak production between two
+    #      samples, comfortably above the normal sub-kWh per-cycle
+    #      delta but well below any plausibly-bogus jump. Trade-off:
+    #      after a long HA outage (> ~1 h of peak production missed),
+    #      the first recovery sample is rejected and the wrapper stays
+    #      flat for that day -- accepted by design; outages are rare,
+    #      inverter hiccups are not.
+    #
+    # Cold start: when no previous state exists (`this.state` not
+    # numeric) the first numeric raw sample is accepted unconditionally.
+    # Input dropout: when the underlying MQTT entity is non-numeric the
+    # wrapper holds its previous value (so the Energy dashboard keeps a
+    # stable baseline; statistics simply don't tick during the dropout).
+    #
+    # Recovery procedure (legitimate counter reset, e.g. EVCC
+    # reinstall, inverter swap): clear the retained MQTT message via
+    #   mosquitto_pub -h <broker> -t evcc/site/pvEnergy -r -n
+    # then restart Home Assistant so the wrapper goes `unknown` and
+    # re-initialises from the next sample.
+    # ------------------------------------------------------------------
     - name: EVCC PV Production Energy
       unique_id: evcc_pv_production_energy
       device_class: energy
       state_class: total_increasing
       unit_of_measurement: kWh
       availability: >
-        {{ states('sensor.evcc_evcc_pv_energy_total') not in ['unknown', 'unavailable', 'none', ''] }}
+        {% set raw  = states('sensor.evcc_evcc_pv_energy_total') | float(none) %}
+        {% set prev = this.state | float(none) %}
+        {{ raw is not none or prev is not none }}
       state: >
-        {{ (states('sensor.evcc_evcc_pv_energy_total') | float(0)) | round(3) }}
+        {% set raw      = states('sensor.evcc_evcc_pv_energy_total') | float(none) %}
+        {% set prev     = this.state | float(none) %}
+        {% set max_step = 10.0 %}
+        {% if raw is none %}
+          {{ prev | round(3) }}
+        {% elif prev is none %}
+          {{ raw | round(3) }}
+        {% elif raw < prev %}
+          {{ prev | round(3) }}
+        {% elif (raw - prev) > max_step %}
+          {{ prev | round(3) }}
+        {% else %}
+          {{ raw | round(3) }}
+        {% endif %}
+
+    # ------------------------------------------------------------------
+    # Guarded PV production energy -- calculated from per-inverter
+    # lifetime counters (kWh, lifetime cumulative).
+    #
+    # Same guard logic as `EVCC PV Production Energy` above, but the
+    # raw value is computed locally as
+    #   inverter_1.energy + inverter_2.energy
+    # instead of trusting EVCC's `pvEnergy` per-cycle sum. This is more
+    # robust against EVCC sum dropouts because each inverter's lifetime
+    # counter is read directly from the inverter's Modbus register and
+    # only one inverter going stale doesn't pull the sum down -- the
+    # other inverter's contribution still increases monotonically.
+    #
+    # Held in parallel with `evcc_pv_production_energy` so the two
+    # approaches can be compared side by side. Update the Energy
+    # dashboard's solar source to whichever proves more reliable. Add a
+    # third inverter input here (and in availability) if the PV array
+    # is extended.
+    # ------------------------------------------------------------------
+    - name: EVCC PV Production Energy Calculated
+      unique_id: evcc_pv_production_energy_calculated
+      device_class: energy
+      state_class: total_increasing
+      unit_of_measurement: kWh
+      availability: >
+        {% set inv1 = states('sensor.evcc_evcc_pv_inverter_1_energy') | float(none) %}
+        {% set inv2 = states('sensor.evcc_evcc_pv_inverter_2_energy') | float(none) %}
+        {% set prev = this.state | float(none) %}
+        {{ (inv1 is not none and inv2 is not none) or prev is not none }}
+      state: >
+        {% set inv1     = states('sensor.evcc_evcc_pv_inverter_1_energy') | float(none) %}
+        {% set inv2     = states('sensor.evcc_evcc_pv_inverter_2_energy') | float(none) %}
+        {% set prev     = this.state | float(none) %}
+        {% set max_step = 10.0 %}
+        {% if inv1 is none or inv2 is none %}
+          {{ prev | round(3) }}
+        {% else %}
+          {% set raw = inv1 + inv2 %}
+          {% if prev is none %}
+            {{ raw | round(3) }}
+          {% elif raw < prev %}
+            {{ prev | round(3) }}
+          {% elif (raw - prev) > max_step %}
+            {{ prev | round(3) }}
+          {% else %}
+            {{ raw | round(3) }}
+          {% endif %}
+        {% endif %}
