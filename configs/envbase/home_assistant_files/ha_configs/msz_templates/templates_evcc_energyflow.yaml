@@ -26,24 +26,23 @@
 # an env overlay (e.g. configs.private/<env>/.../msz_templates/) if your
 # total battery capacity differs from the value below.
 #
-# Staleness guard (scoped): only `evcc_grid_to_battery` and
-# `evcc_battery_to_grid` additionally require their MQTT inputs to
-# have been updated within 90 s (= 1.5x the 60 s `evcc_interval`).
-# These two sensors are the ones that produce highly visible phantom
-# readings (hundreds to >1000 W) under Maximum Self-Consumption when
-# EVCC publishes the four meters at slightly different moments inside
-# one polling tick — a stale battery value paired with a fresh grid
-# value misattributes a real grid import to grid->battery. The other
-# five flow sensors do NOT produce harmful phantoms from the same
-# skew, so their availability stays untouched. This matters in
-# practice: when the SUN2000 inverters / SDongleA back off (e.g. low
-# DC voltage at dawn/dusk, idle hybrid in standby with empty battery
-# and zero PV), keeping the broader sensors available ensures that
-# `evcc_grid_to_house` continues to report the real-time house draw
-# from grid even if PV/battery topics have stopped refreshing.
-# Riemann / utility_meter integrations downstream simply pause during
-# `unavailable` and do not reset, so kWh history is preserved when
-# the staleness guard does trip.
+# Staleness guard (scoped): the original `evcc_grid_to_battery` and
+# `evcc_battery_to_grid` previously had a 90 s freshness check on all
+# four MQTT inputs. That guard was REMOVED on 2026-04-27 because it
+# made these two sensors go `unavailable` after sundown (when EVCC
+# stops polling PV and pv_power_total goes stale), which in turn
+# broke the tesla-style-solar-power-card's headline values: the card
+# derives its "battery" / "grid" headline numbers from the seven flow
+# sensors and any one going `unavailable` collapses the derived sum
+# to 0.
+#
+# The phantom-readings problem the guard was meant to address is now
+# handled by the new `evcc_grid_to_battery_corrected` /
+# `evcc_battery_to_grid_corrected` sensors at the bottom of this file.
+# Those use only the BALANCED (symmetric) component of grid power,
+# computed from the per-phase currents which keep updating on every
+# EVCC tick. Their own staleness guard (also 90 s) checks the three
+# current sensors instead of the scalar grid/pv/bat/home topics.
 #
 # Dead-band: `evcc_grid_to_battery` and `evcc_battery_to_grid` are
 # the two flow sensors that are most prone to small phantom readings,
@@ -161,15 +160,10 @@
       state_class: measurement
       unit_of_measurement: W
       availability: >
-        {% set max_age = 90 %}
         {{ states('sensor.evcc_evcc_grid_power')     not in ['unknown', 'unavailable', 'none', '']
            and states('sensor.evcc_evcc_battery_power') not in ['unknown', 'unavailable', 'none', '']
            and states('sensor.evcc_evcc_home_power')    not in ['unknown', 'unavailable', 'none', '']
-           and states('sensor.evcc_evcc_pv_power_total') not in ['unknown', 'unavailable', 'none', '']
-           and (now() - states.sensor.evcc_evcc_grid_power.last_updated).total_seconds()    < max_age
-           and (now() - states.sensor.evcc_evcc_battery_power.last_updated).total_seconds()  < max_age
-           and (now() - states.sensor.evcc_evcc_home_power.last_updated).total_seconds()     < max_age
-           and (now() - states.sensor.evcc_evcc_pv_power_total.last_updated).total_seconds() < max_age }}
+           and states('sensor.evcc_evcc_pv_power_total') not in ['unknown', 'unavailable', 'none', ''] }}
       state: >
         {% set pv       = states('sensor.evcc_evcc_pv_power_total') | float(0) %}
         {% set grid     = states('sensor.evcc_evcc_grid_power')     | float(0) %}
@@ -199,15 +193,10 @@
       state_class: measurement
       unit_of_measurement: W
       availability: >
-        {% set max_age = 90 %}
         {{ states('sensor.evcc_evcc_grid_power')     not in ['unknown', 'unavailable', 'none', '']
            and states('sensor.evcc_evcc_battery_power') not in ['unknown', 'unavailable', 'none', '']
            and states('sensor.evcc_evcc_home_power')    not in ['unknown', 'unavailable', 'none', '']
-           and states('sensor.evcc_evcc_pv_power_total') not in ['unknown', 'unavailable', 'none', '']
-           and (now() - states.sensor.evcc_evcc_grid_power.last_updated).total_seconds()    < max_age
-           and (now() - states.sensor.evcc_evcc_battery_power.last_updated).total_seconds()  < max_age
-           and (now() - states.sensor.evcc_evcc_home_power.last_updated).total_seconds()     < max_age
-           and (now() - states.sensor.evcc_evcc_pv_power_total.last_updated).total_seconds() < max_age }}
+           and states('sensor.evcc_evcc_pv_power_total') not in ['unknown', 'unavailable', 'none', ''] }}
       state: >
         {% set pv       = states('sensor.evcc_evcc_pv_power_total') | float(0) %}
         {% set grid     = states('sensor.evcc_evcc_grid_power')     | float(0) %}
@@ -240,3 +229,148 @@
       state_class: measurement
       unit_of_measurement: kWh
       state: "5"
+
+    # ---------- Per-phase corrected grid->battery / battery->grid ----------
+    #
+    # Background: the raw `evcc_grid_to_battery` / `evcc_battery_to_grid`
+    # sensors above are computed from the SCALAR sum of grid power across
+    # all three phases. In this installation that scalar is regularly
+    # misleading because:
+    #   1. Two SUN2000 inverters operate independently (no RS485 master/
+    #      slave link). The smart meter is on inverter 1 only; inverter 2
+    #      pushes its PV output into the grid without coordination.
+    #   2. Single-phase loads (kettle, oven element, immersion heater,
+    #      single-phase wallbox) cause large per-phase imbalances that the
+    #      SUN2000 hybrid cannot null out individually -- it only
+    #      regulates on the scalar sum across the three phases.
+    # When these effects coincide with battery charging from PV, the
+    # scalar formula is forced to attribute the resulting net grid import
+    # to "grid -> battery", even though the battery is physically charging
+    # from PV on the DC side. FusionSolar correctly reports 0 W of
+    # grid-to-battery in those moments.
+    #
+    # Fix: use only the BALANCED (symmetric) 3-phase component of grid
+    # power as the input to the corrected flow sensors. The balanced
+    # component is the part that flows in the same direction on all three
+    # phases at once -- the only flow shape the inverter can physically
+    # exchange with the DC battery. Per-phase imbalance is pure inter-
+    # phase load, not battery exchange.
+    #
+    # Definition (with assumed phase voltage 230 V):
+    #   Pi = 230 * Ii (signed; + import / - export)
+    #   if sign(P1) == sign(P2) == sign(P3):
+    #     P_balanced = sign * 3 * min(|P1|, |P2|, |P3|)
+    #   else:
+    #     P_balanced = 0
+    #
+    # The two `*_corrected` sensors below reuse the existing decomposition
+    # logic verbatim, only substituting `evcc_grid_power_balanced` for
+    # the raw `evcc_evcc_grid_power`. The originals stay untouched so the
+    # corrected versions can be A/B compared in HA history before any
+    # downstream rewire (Lovelace, Riemann integrators).
+    #
+    # Voltage: hard-coded 230 V. Mains drift of +/- 5 % maps to <= +/- 5 %
+    # magnitude error, well below the 100 W dead-band that already absorbs
+    # cosmetic noise.
+    #
+    # See docs/08-energy-flow-phantom-grid-to-battery.md for full analysis.
+
+    - name: EVCC Grid Power Balanced
+      unique_id: evcc_grid_power_balanced
+      device_class: power
+      state_class: measurement
+      unit_of_measurement: W
+      availability: >
+        {% set max_age = 90 %}
+        {{ states('sensor.evcc_evcc_grid_current_l1') not in ['unknown', 'unavailable', 'none', '']
+           and states('sensor.evcc_evcc_grid_current_l2') not in ['unknown', 'unavailable', 'none', '']
+           and states('sensor.evcc_evcc_grid_current_l3') not in ['unknown', 'unavailable', 'none', '']
+           and (now() - states.sensor.evcc_evcc_grid_current_l1.last_updated).total_seconds() < max_age
+           and (now() - states.sensor.evcc_evcc_grid_current_l2.last_updated).total_seconds() < max_age
+           and (now() - states.sensor.evcc_evcc_grid_current_l3.last_updated).total_seconds() < max_age }}
+      state: >
+        {% set v = 230 %}
+        {% set i1 = states('sensor.evcc_evcc_grid_current_l1') | float(0) %}
+        {% set i2 = states('sensor.evcc_evcc_grid_current_l2') | float(0) %}
+        {% set i3 = states('sensor.evcc_evcc_grid_current_l3') | float(0) %}
+        {% set p1 = i1 * v %}
+        {% set p2 = i2 * v %}
+        {% set p3 = i3 * v %}
+        {% set s1 = 1 if p1 > 0 else (-1 if p1 < 0 else 0) %}
+        {% set s2 = 1 if p2 > 0 else (-1 if p2 < 0 else 0) %}
+        {% set s3 = 1 if p3 > 0 else (-1 if p3 < 0 else 0) %}
+        {% if s1 != 0 and s1 == s2 and s2 == s3 %}
+          {{ (s1 * 3 * [p1 | abs, p2 | abs, p3 | abs] | min) | round(0) }}
+        {% else %}
+          0
+        {% endif %}
+
+    - name: EVCC Grid to Battery Corrected
+      unique_id: evcc_grid_to_battery_corrected
+      device_class: power
+      state_class: measurement
+      unit_of_measurement: W
+      availability: >
+        {% set max_age = 90 %}
+        {{ states('sensor.evcc_grid_power_balanced')        not in ['unknown', 'unavailable', 'none', '']
+           and states('sensor.evcc_evcc_battery_power')     not in ['unknown', 'unavailable', 'none', '']
+           and states('sensor.evcc_evcc_home_power')        not in ['unknown', 'unavailable', 'none', '']
+           and states('sensor.evcc_evcc_pv_power_total')    not in ['unknown', 'unavailable', 'none', '']
+           and (now() - states.sensor.evcc_grid_power_balanced.last_updated).total_seconds()    < max_age
+           and (now() - states.sensor.evcc_evcc_battery_power.last_updated).total_seconds()      < max_age
+           and (now() - states.sensor.evcc_evcc_home_power.last_updated).total_seconds()         < max_age
+           and (now() - states.sensor.evcc_evcc_pv_power_total.last_updated).total_seconds()     < max_age }}
+      state: >
+        {% set pv       = states('sensor.evcc_evcc_pv_power_total') | float(0) %}
+        {% set grid     = states('sensor.evcc_grid_power_balanced') | float(0) %}
+        {% set bat      = states('sensor.evcc_evcc_battery_power')  | float(0) %}
+        {% set house    = states('sensor.evcc_evcc_home_power')     | float(0) %}
+        {% set bat_chg  = [-bat, 0] | max %}
+        {% set grid_imp = [grid, 0]  | max %}
+        {% set s2h      = [[pv, house] | min, 0] | max %}
+        {% set pv_left  = [pv - s2h, 0] | max %}
+        {% set s2b      = [pv_left, bat_chg] | min %}
+        {% set chg_left = [bat_chg - s2b, 0] | max %}
+        {% set h_left1  = [house - s2h, 0] | max %}
+        {% set bat_dis  = [bat, 0] | max %}
+        {% set b2h      = [bat_dis, h_left1] | min %}
+        {% set h_left2  = [h_left1 - b2h, 0] | max %}
+        {% set g2h      = [grid_imp, h_left2] | min %}
+        {% set grid_left = [grid_imp - g2h, 0] | max %}
+        {% set v = ([grid_left, chg_left] | min) | round(0) %}
+        {{ 0 if v < 100 else v }}
+
+    - name: EVCC Battery to Grid Corrected
+      unique_id: evcc_battery_to_grid_corrected
+      device_class: power
+      state_class: measurement
+      unit_of_measurement: W
+      availability: >
+        {% set max_age = 90 %}
+        {{ states('sensor.evcc_grid_power_balanced')        not in ['unknown', 'unavailable', 'none', '']
+           and states('sensor.evcc_evcc_battery_power')     not in ['unknown', 'unavailable', 'none', '']
+           and states('sensor.evcc_evcc_home_power')        not in ['unknown', 'unavailable', 'none', '']
+           and states('sensor.evcc_evcc_pv_power_total')    not in ['unknown', 'unavailable', 'none', '']
+           and (now() - states.sensor.evcc_grid_power_balanced.last_updated).total_seconds()    < max_age
+           and (now() - states.sensor.evcc_evcc_battery_power.last_updated).total_seconds()      < max_age
+           and (now() - states.sensor.evcc_evcc_home_power.last_updated).total_seconds()         < max_age
+           and (now() - states.sensor.evcc_evcc_pv_power_total.last_updated).total_seconds()     < max_age }}
+      state: >
+        {% set pv       = states('sensor.evcc_evcc_pv_power_total') | float(0) %}
+        {% set grid     = states('sensor.evcc_grid_power_balanced') | float(0) %}
+        {% set bat      = states('sensor.evcc_evcc_battery_power')  | float(0) %}
+        {% set house    = states('sensor.evcc_evcc_home_power')     | float(0) %}
+        {% set bat_dis  = [bat, 0] | max %}
+        {% set grid_exp = [-grid, 0] | max %}
+        {% set s2h      = [[pv, house] | min, 0] | max %}
+        {% set pv_left  = [pv - s2h, 0] | max %}
+        {% set bat_chg  = [-bat, 0] | max %}
+        {% set s2b      = [pv_left, bat_chg] | min %}
+        {% set pv_left2 = [pv_left - s2b, 0] | max %}
+        {% set s2g      = [pv_left2, grid_exp] | min %}
+        {% set h_left1  = [house - s2h, 0] | max %}
+        {% set b2h      = [bat_dis, h_left1] | min %}
+        {% set dis_left = [bat_dis - b2h, 0] | max %}
+        {% set exp_left = [grid_exp - s2g, 0] | max %}
+        {% set v = ([dis_left, exp_left] | min) | round(0) %}
+        {{ 0 if v < 100 else v }}

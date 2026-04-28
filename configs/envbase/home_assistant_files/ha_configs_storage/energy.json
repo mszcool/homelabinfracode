@@ -19,7 +19,7 @@
         "config_entry_solar_forecast": [
           "01KP1581DT5M3N6V8B6VAMFYNN"
         ],
-        "stat_rate": "sensor.evcc_evcc_pv_power_total"
+        "stat_rate": "sensor.evcc_pv_production_power"
       },
       {
         "type": "grid",

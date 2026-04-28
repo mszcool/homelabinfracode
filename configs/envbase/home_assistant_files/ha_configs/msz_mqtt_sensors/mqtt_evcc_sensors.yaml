@@ -119,6 +119,55 @@
       manufacturer: evcc.io
       model: EVCC
 
+# Per-phase grid currents from the smart meter (signed: + import / - export).
+# Used by `evcc_grid_power_balanced` in templates_evcc_energyflow.yaml to
+# compute the symmetric (3-phase balanced) component of grid power, which
+# in turn feeds the `*_corrected` flow sensors that suppress phantom
+# grid->battery readings caused by per-phase load imbalance and the
+# independent (non-master/slave) operation of the two SUN2000 inverters.
+# See docs/08-energy-flow-phantom-grid-to-battery.md for the full rationale.
+- sensor:
+    unique_id: "mqtt:evcc-site-grid-current-l1"
+    name: EVCC Grid Current L1
+    state_topic: evcc/site/grid/currents/1
+    unit_of_measurement: "A"
+    device_class: current
+    state_class: measurement
+    device:
+      name: EVCC
+      identifiers:
+        - "mszcool:mqtt:evcc-site"
+      manufacturer: evcc.io
+      model: EVCC
+
+- sensor:
+    unique_id: "mqtt:evcc-site-grid-current-l2"
+    name: EVCC Grid Current L2
+    state_topic: evcc/site/grid/currents/2
+    unit_of_measurement: "A"
+    device_class: current
+    state_class: measurement
+    device:
+      name: EVCC
+      identifiers:
+        - "mszcool:mqtt:evcc-site"
+      manufacturer: evcc.io
+      model: EVCC
+
+- sensor:
+    unique_id: "mqtt:evcc-site-grid-current-l3"
+    name: EVCC Grid Current L3
+    state_topic: evcc/site/grid/currents/3
+    unit_of_measurement: "A"
+    device_class: current
+    state_class: measurement
+    device:
+      name: EVCC
+      identifiers:
+        - "mszcool:mqtt:evcc-site"
+      manufacturer: evcc.io
+      model: EVCC
+
 - sensor:
     unique_id: "mqtt:evcc-site-grid-energy"
     name: EVCC Grid Energy

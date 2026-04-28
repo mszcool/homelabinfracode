@@ -21,3 +21,19 @@ attribute_water_to_pool:
 garden_water_counter_1_target:
   name: Garden Water Valve (desired)
   icon: mdi:water-outline
+
+# Mode switch for the garden valve reconciliation automation.
+#   off (default): Home Assistant control loop owns the valve; the
+#                  device is continuously dragged toward
+#                  garden_water_counter_1_target. Manual toggles at
+#                  the device get reverted within ~30 s.
+#   on:            Human-control priority. The control loop is
+#                  disabled and the desired-state helper becomes a
+#                  read-only mirror of whatever the device reports.
+#                  Use when someone is physically operating the valve
+#                  in the garden and you do not want HA to override.
+# Restored across HA restarts so e.g. a "vacation = HA controls"
+# setting survives a host reboot.
+garden_water_counter_1_human_priority:
+  name: Garden Water Valve - Human Priority
+  icon: mdi:account-hard-hat

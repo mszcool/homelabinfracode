@@ -34,7 +34,11 @@
                   "generation_to_house_entity": "sensor.evcc_solar_to_house",
                   "battery_to_house_entity": "sensor.evcc_battery_to_house",
                   "battery_to_grid_entity": "sensor.evcc_battery_to_grid",
-                  "battery_extra_entity": "sensor.evcc_battery_soc",
+                  "grid_entity": "sensor.evcc_evcc_grid_power",
+                  "generation_entity": "sensor.evcc_evcc_pv_power_total",
+                  "house_entity": "sensor.evcc_evcc_home_power",
+                  "battery_entity": "sensor.evcc_evcc_battery_power",
+                  "battery_extra_entity": "sensor.evcc_evcc_battery_state_of_charge",
                   "show_gap": true,
                   "threshold_in_k": 1
                 },
@@ -82,6 +86,7 @@
                       "height": "350px"
                     }
                   },
+                  "graph_span": "24h",
                   "all_series_config": {
                     "type": "area",
                     "opacity": 0.1,
@@ -130,7 +135,7 @@
                       "opposite": true,
                       "decimals": 0,
                       "max": 100,
-                      "min": 15
+                      "min": 0
                     },
                     {
                       "id": "kwh",
