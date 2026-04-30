@@ -15,7 +15,7 @@
       },
       {
         "type": "solar",
-        "stat_energy_from": "sensor.evcc_pv_production_energy",
+        "stat_energy_from": "sensor.evcc_pv_production_energy_calculated",
         "config_entry_solar_forecast": [
           "01KP1581DT5M3N6V8B6VAMFYNN"
         ],

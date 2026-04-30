@@ -1,8 +1,8 @@
-# Riemann integration of solar input power (with efficiency loss) to get cumulative energy in kWh
-- platform: integration
-  source: sensor.pv_input_power_with_efficiency_loss
-  name: pv_solar_energy_riemann
-  unique_id: pv_solar_energy_riemann
-  unit_prefix: k
-  round: 3
-  method: trapezoidal
+# # Riemann integration of solar input power (with efficiency loss) to get cumulative energy in kWh
+# - platform: integration
+#   source: sensor.pv_input_power_with_efficiency_loss
+#   name: pv_solar_energy_riemann
+#   unique_id: pv_solar_energy_riemann
+#   unit_prefix: k
+#   round: 3
+#   method: trapezoidal

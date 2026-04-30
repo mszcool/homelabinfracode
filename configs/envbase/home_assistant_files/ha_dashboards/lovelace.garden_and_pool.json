@@ -26,6 +26,14 @@
                 },
                 {
                   "type": "tile",
+                  "entity": "input_boolean.garden_water_counter_1_human_priority",
+                  "name": "Manuelle Bedienung (Garten)",
+                  "icon": "mdi:account-hard-hat",
+                  "vertical": false,
+                  "features_position": "bottom"
+                },
+                {
+                  "type": "tile",
                   "entity": "input_boolean.attribute_water_to_pool",
                   "name": "Wasser Pool zuordnen",
                   "vertical": false,

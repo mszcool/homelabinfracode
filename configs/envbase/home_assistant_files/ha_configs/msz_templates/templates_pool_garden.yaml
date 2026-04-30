@@ -182,6 +182,106 @@
             {% endif %}
 
 # ---------------------------------------------------------------------------
+# Garden Water Consumption (lifetime cumulative liters).
+#
+# IMPORTANT: the underlying Z2M sensor
+# `sensor.garden_water_counter_1_water_consumed` is a PER-CYCLE counter,
+# not a lifetime counter. It starts at 0 each time the valve switches
+# OFF -> ON, climbs while water is flowing, then holds until the next
+# OFF -> ON. Feeding it directly into a `utility_meter` (as we used to)
+# loses an entire cycle's worth of water on every reset, because
+# utility_meter's `total_increasing` source semantics treat any
+# downward step as a meter reset and discard the previously
+# accumulated state.
+#
+# This trigger-based template wraps the per-cycle counter into a true
+# monotonically-increasing lifetime counter that is safe to feed into
+# `utility_meter`. Feed THIS sensor (not the raw Z2M one) into:
+#   - `garden_water_daily`   utility_meter
+#   - `garden_water_monthly` utility_meter
+#
+# Algorithm (matches the user's stream-of-values reasoning):
+#   * On every `summation` (per-cycle counter update):
+#       current >= last_summation  -> add (current - last_summation)
+#                                     (normal in-cycle flow)
+#       current <  last_summation  -> add `current`
+#                                     (we missed the OFF -> ON reset and
+#                                     the device is now back at a low
+#                                     value; the visible drop in the
+#                                     source is itself the new cycle's
+#                                     accumulation so far)
+#   * On `switch_on`: force last_summation = 0 so the next observed
+#     value is treated as a fresh delta from 0 (catches the case where
+#     the device is about to reset and the next reading is HIGHER than
+#     the previous cycle's high).
+#
+# Known imperfection: if HA misses the OFF -> ON event AND the next
+# observed value happens to be greater than the previous cycle's high,
+# we under-count by the missed cycle's first portion. This case is
+# observationally indistinguishable from "the device kept running and
+# the counter ticked further". Acceptable: relying on the switch_on
+# trigger covers it for any user-driven cycle, and the control loop
+# makes the switch entity reliable enough that this is a rare edge.
+#
+# First-run / cold-start: `last_summation` defaults to 0 on the very
+# first invocation (no prior attribute), so the first observed value
+# is fully added. This is a one-time over-count equal to whatever the
+# device was holding when the template first deployed -- the same
+# behavior as the existing Pool Water Consumption template.
+# ---------------------------------------------------------------------------
+  - trigger:
+      - trigger: state
+        entity_id: sensor.garden_water_counter_1_water_consumed
+        id: summation
+      - trigger: state
+        entity_id: switch.garden_water_counter_1_state
+        to: "on"
+        id: switch_on
+    sensor:
+      - name: "Garden Water Consumption"
+        unique_id: garden_water_consumption
+        device_class: water
+        state_class: total_increasing
+        unit_of_measurement: "L"
+        icon: mdi:water
+        state: >
+          {% set prev_total = states('sensor.garden_water_consumption') | float(0) %}
+          {% set attrs = this.attributes if this is not none else {} %}
+          {% if trigger.id == 'switch_on' %}
+            {# Device is about to reset its per-cycle counter to 0; the
+               counter itself is unchanged at this exact instant, so
+               just hold prev_total. The next `summation` event will
+               see last_summation=0 and add the full reading as a
+               positive delta. #}
+            {{ prev_total | round(3) }}
+          {% else %}
+            {% set prev_summation = attrs.get('last_summation', 0) | float(0) %}
+            {% set current = trigger.to_state.state | float(0) %}
+            {% if current >= prev_summation %}
+              {{ (prev_total + (current - prev_summation)) | round(3) }}
+            {% else %}
+              {# Per-cycle counter went DOWN -> we missed the reset
+                 between cycles. The current low value is itself the
+                 new cycle's accumulation so far, so add `current`. #}
+              {{ (prev_total + current) | round(3) }}
+            {% endif %}
+          {% endif %}
+        attributes:
+          # Last raw per-cycle counter value we processed. Forced to 0
+          # on switch_on so the next summation read is treated as a
+          # full delta from 0 (handles the "missed-reset and next
+          # reading is higher than previous cycle high" case).
+          last_summation: >
+            {% set attrs = this.attributes if this is not none else {} %}
+            {% if trigger.id == 'switch_on' %}
+              0
+            {% elif trigger.id == 'summation' %}
+              {{ trigger.to_state.state | float(0) }}
+            {% else %}
+              {{ attrs.get('last_summation', 0) | float(0) }}
+            {% endif %}
+
+# ---------------------------------------------------------------------------
 # Pool water attribution.
 #
 # Lifetime cumulative liters drawn from the garden tap that should be

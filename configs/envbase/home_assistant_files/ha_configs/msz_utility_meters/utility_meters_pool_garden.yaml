@@ -1,11 +1,21 @@
-# Daily aggregate of garden water meter (Z2M `water_consumed` cumulative).
+# Daily aggregate of garden water consumption.
+# Source is the `sensor.garden_water_consumption` template wrapper, NOT
+# the raw Z2M `sensor.garden_water_counter_1_water_consumed`. The raw
+# Z2M sensor is a per-cycle counter that resets to 0 on every valve
+# OFF -> ON; feeding it directly into utility_meter loses an entire
+# cycle's worth of water on each reset (utility_meter treats any
+# downward step in a `total_increasing` source as a meter reset and
+# discards the prior accumulation). The template wrapper turns the
+# per-cycle counter into a true monotonically-increasing lifetime
+# counter that is safe to feed here.
 garden_water_daily:
-  source: sensor.garden_water_counter_1_water_consumed
+  source: sensor.garden_water_consumption
   cycle: daily
 
-# Monthly aggregate of garden water meter.
+# Monthly aggregate of garden water consumption. See note above on
+# `garden_water_daily` for why we wrap the Z2M per-cycle counter.
 garden_water_monthly:
-  source: sensor.garden_water_counter_1_water_consumed
+  source: sensor.garden_water_consumption
   cycle: monthly
 
 # Monthly aggregate of combined pool energy consumption.
