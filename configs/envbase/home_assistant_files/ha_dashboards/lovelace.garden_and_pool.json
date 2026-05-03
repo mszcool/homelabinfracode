@@ -181,8 +181,7 @@
                       "type": "column",
                       "group_by": {
                         "duration": "1month",
-                        "func": "last",
-                        "fill": "last"
+                        "func": "max"
                       },
                       "unit": "L",
                       "color": "blue"
