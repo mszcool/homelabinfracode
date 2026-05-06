@@ -1,11 +1,17 @@
-# Daily-cycle utility meters layered over the EVCC Riemann integrations.
-# The Riemann sensors themselves are lifetime cumulative (required for the
-# Energy Dashboard); these meters reset every day at 00:00 so dashboards
-# and ApexCharts can plot "today's energy" as a value that returns to 0
-# at midnight.
+# Daily-cycle utility meters layered over the EVCC lifetime cumulative
+# energy sensors. The source sensors themselves are lifetime cumulative
+# (required for the Energy Dashboard); these meters reset every day at
+# 00:00 so dashboards and ApexCharts can plot "today's energy" as a
+# value that returns to 0 at midnight.
+#
+# Grid IMPORT and battery CHARGE are sourced from the guarded native
+# EVCC counters in templates_evcc_sensors.yaml. Grid EXPORT and battery
+# DISCHARGE are sourced from Riemann integrations in
+# sensors_evcc_riemann.yaml because EVCC does not publish native
+# cumulative counters for those two flows.
 
 evcc_utility_grid_consumption_daily:
-  source: sensor.evcc_grid_consumption_energy_riemann
+  source: sensor.evcc_grid_consumption_energy
   cycle: daily
 
 evcc_utility_grid_export_daily:
@@ -13,7 +19,7 @@ evcc_utility_grid_export_daily:
   cycle: daily
 
 evcc_utility_battery_charge_daily:
-  source: sensor.evcc_battery_charge_energy_riemann
+  source: sensor.evcc_battery_charge_energy
   cycle: daily
 
 evcc_utility_battery_discharge_daily:

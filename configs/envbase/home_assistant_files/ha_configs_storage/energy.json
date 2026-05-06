@@ -7,7 +7,7 @@
       {
         "type": "battery",
         "stat_energy_from": "sensor.evcc_battery_discharge_energy_riemann",
-        "stat_energy_to": "sensor.evcc_battery_charge_energy_riemann",
+        "stat_energy_to": "sensor.evcc_battery_charge_energy",
         "power_config": {
           "stat_rate": "sensor.evcc_evcc_battery_power"
         },
@@ -23,7 +23,7 @@
       },
       {
         "type": "grid",
-        "stat_energy_from": "sensor.evcc_grid_consumption_energy_riemann",
+        "stat_energy_from": "sensor.evcc_grid_consumption_energy",
         "stat_energy_to": "sensor.evcc_grid_export_energy_riemann",
         "stat_cost": null,
         "stat_compensation": null,

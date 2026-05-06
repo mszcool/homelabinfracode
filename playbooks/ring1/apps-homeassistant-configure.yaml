@@ -94,6 +94,7 @@
           SUPERVISOR_TOKEN was not present in the SSH session environment and
           could not be read from any login profile. Review the diagnostics
           task above to see what the host actually exposes.
+
     - name: Validate Home Assistant configuration variables are defined
       ansible.builtin.assert:
         that:
