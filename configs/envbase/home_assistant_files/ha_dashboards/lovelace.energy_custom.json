@@ -22,7 +22,7 @@
                 },
                 {
                   "type": "custom:tesla-style-solar-power-card",
-                  "name": "Current Energy Flows",
+                  "name": "Energy Flows Now (by 1-2 min. precise)",
                   "grid_options": {
                     "columns": 12,
                     "rows": "auto"
@@ -44,7 +44,7 @@
                 },
                 {
                   "type": "energy-distribution",
-                  "title": "Daily Energy Distribution",
+                  "title": "Daily Production, Daily Consumption",
                   "grid_options": {
                     "rows": "auto",
                     "columns": 12
@@ -63,7 +63,7 @@
               "cards": [
                 {
                   "type": "power-sources-graph",
-                  "title": "Energy Usage",
+                  "title": "Energy Daily Usage Flow",
                   "grid_options": {
                     "columns": "full",
                     "rows": 8
