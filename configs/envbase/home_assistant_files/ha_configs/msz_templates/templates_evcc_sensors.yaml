@@ -5,41 +5,36 @@
 # prefix: HA derives the entity_id from device name ("EVCC") + entity
 # name ("EVCC ...").
 #
-#   sensor.evcc_evcc_grid_power           evcc/site/grid/power      (W, +import / -export)
-#   sensor.evcc_evcc_battery_power        evcc/site/battery/power   (W, +discharge / -charge)
-#   sensor.evcc_evcc_pv_power_total       evcc/site/pvPower         (W, >= 0)
-#   sensor.evcc_evcc_pv_energy_total      evcc/site/pvEnergy        (kWh, total_increasing)
+#   sensor.evcc_evcc_grid_power              evcc/site/grid/power     (W, +import / -export)
+#   sensor.evcc_evcc_battery_power           evcc/site/battery/power  (W, +discharge / -charge)
+#   sensor.evcc_evcc_pv_power_total          evcc/site/pvPower        (W, >= 0)
+#   sensor.evcc_evcc_pv_inverter_1_energy    evcc/site/pv/1/energy    (kWh, total_increasing)
+#   sensor.evcc_evcc_pv_inverter_2_energy    evcc/site/pv/2/energy    (kWh, total_increasing)
+#   sensor.evcc_evcc_grid_energy             evcc/site/grid/energy    (kWh, total_increasing, import only)
+#   sensor.evcc_evcc_battery_energy          evcc/site/battery/energy (kWh, total_increasing, charge only)
 #
 # Sign conventions (https://docs.evcc.io/en/docs/integrations/mqtt-api):
 #   grid/power      positive = import from grid
 #   battery/power   positive = discharge from battery
 #   pvPower         always >= 0
 #
-# These are POWER (W) splits suitable for live energy-flow cards. To feed
-# them into the Energy Dashboard (which needs kWh / total_increasing
-# counters), wrap each one with an `integration:` (Riemann sum) helper or
-# a `utility_meter:`.
+# Power-split wrappers below (Grid Export Power, Battery Charge/Discharge
+# Power) feed the Energy Dashboard via Riemann integrations in
+# msz_sensors/sensors_evcc_riemann.yaml -- needed only for grid EXPORT
+# and battery DISCHARGE, because EVCC publishes cumulative kWh counters
+# only for grid IMPORT and battery CHARGE.
 #
-# For PV production energy the dashboard MUST consume one of the guarded
-# wrappers below (`sensor.evcc_pv_production_energy` or
-# `sensor.evcc_pv_production_energy_calculated`), NOT the raw MQTT
-# entity `sensor.evcc_evcc_pv_energy_total`. The raw entity is unguarded
-# and a single bad EVCC publish (e.g. one inverter momentarily reporting
-# zero) is locked into HA's long-term statistics as either a phantom
-# meter reset (-> huge spike) or a permanent stuck-high value.
+# For energy slots backed by EVCC's native cumulative counters the
+# dashboard MUST consume the guarded wrappers below
+# (`sensor.evcc_pv_production_energy_calculated`,
+# `sensor.evcc_grid_consumption_energy`,
+# `sensor.evcc_battery_charge_energy`), NOT the raw MQTT entities. The
+# raw entities are unguarded and a single bad EVCC publish (e.g. one
+# inverter or the meter momentarily reporting zero on a Modbus timeout)
+# is locked into HA's long-term statistics as either a phantom meter
+# reset (-> huge spike) or a permanent stuck-high value.
 
 - sensor:
-    - name: EVCC Grid Consumption Power
-      unique_id: evcc_grid_consumption_power
-      device_class: power
-      state_class: measurement
-      unit_of_measurement: W
-      availability: >
-        {{ states('sensor.evcc_evcc_grid_power') not in ['unknown', 'unavailable', 'none', ''] }}
-      state: >
-        {% set p = states('sensor.evcc_evcc_grid_power') | float(0) %}
-        {{ [p, 0] | max | round(0) }}
-
     - name: EVCC Grid Export Power
       unique_id: evcc_grid_export_power
       device_class: power
@@ -73,107 +68,58 @@
         {% set p = states('sensor.evcc_evcc_battery_power') | float(0) %}
         {{ [p, 0] | max | round(0) }}
 
-    # Pass-through PV production sensors -- thin wrappers that give the
-    # derived bundle a stable, documented entity_id alongside the split
-    # grid/battery sensors above. They mirror the EVCC site totals.
-    - name: EVCC PV Production Power
-      unique_id: evcc_pv_production_power
-      device_class: power
-      state_class: measurement
-      unit_of_measurement: W
-      availability: >
-        {{ states('sensor.evcc_evcc_pv_power_total') not in ['unknown', 'unavailable', 'none', ''] }}
-      state: >
-        {{ (states('sensor.evcc_evcc_pv_power_total') | float(0)) | round(0) }}
-
-    # ------------------------------------------------------------------
-    # Guarded PV production energy (kWh, lifetime cumulative).
-    #
-    # Wraps the EVCC site-level pvEnergy MQTT counter
-    # (`sensor.evcc_evcc_pv_energy_total`) with two guards:
-    #
-    #   1) Monotonic clamp: reject samples lower than the previously
-    #      held state. EVCC computes pvEnergy = inverter1.energy +
-    #      inverter2.energy on every poll cycle (default 60 s) and does
-    #      not persist its own sum -- a single poll where one inverter
-    #      momentarily reports 0 (Modbus timeout, dawn wake-up, ...)
-    #      causes pvEnergy to dip. Without this guard, the dip is
-    #      treated by HA's `total_increasing` statistics engine as a
-    #      meter reset, and the climb back to the real value is added
-    #      as new energy -- producing huge phantom spikes in the
-    #      Energy dashboard (incident: 11 kWh -> 5 kWh -> 11 kWh dip
-    #      between 05:50 and 05:55 inflated the daily total to
-    #      ~11 MWh).
-    #
-    #   2) Max-step clamp: reject samples that jump UP by more than
-    #      `pv_energy_max_step_kwh` (default 10 kWh) in one update.
-    #      Without this, a single bogus high value (e.g. unit-mismatch
-    #      Wh-vs-kWh) would lock the wrapper at that value forever
-    #      because every subsequent real reading would fail the
-    #      monotonic clamp. Sized for an 8 kW peak PV system: 10 kWh
-    #      represents ~75 min of unbroken peak production between two
-    #      samples, comfortably above the normal sub-kWh per-cycle
-    #      delta but well below any plausibly-bogus jump. Trade-off:
-    #      after a long HA outage (> ~1 h of peak production missed),
-    #      the first recovery sample is rejected and the wrapper stays
-    #      flat for that day -- accepted by design; outages are rare,
-    #      inverter hiccups are not.
-    #
-    # Cold start: when no previous state exists (`this.state` not
-    # numeric) the first numeric raw sample is accepted unconditionally.
-    # Input dropout: when the underlying MQTT entity is non-numeric the
-    # wrapper holds its previous value (so the Energy dashboard keeps a
-    # stable baseline; statistics simply don't tick during the dropout).
-    #
-    # Recovery procedure (legitimate counter reset, e.g. EVCC
-    # reinstall, inverter swap): clear the retained MQTT message via
-    #   mosquitto_pub -h <broker> -t evcc/site/pvEnergy -r -n
-    # then restart Home Assistant so the wrapper goes `unknown` and
-    # re-initialises from the next sample.
-    # ------------------------------------------------------------------
-    - name: EVCC PV Production Energy
-      unique_id: evcc_pv_production_energy
-      device_class: energy
-      state_class: total_increasing
-      unit_of_measurement: kWh
-      availability: >
-        {% set raw  = states('sensor.evcc_evcc_pv_energy_total') | float(none) %}
-        {% set prev = this.state | float(none) %}
-        {{ raw is not none or prev is not none }}
-      state: >
-        {% set raw      = states('sensor.evcc_evcc_pv_energy_total') | float(none) %}
-        {% set prev     = this.state | float(none) %}
-        {% set max_step = 10.0 %}
-        {% if raw is none %}
-          {{ prev | round(3) }}
-        {% elif prev is none %}
-          {{ raw | round(3) }}
-        {% elif raw < prev %}
-          {{ prev | round(3) }}
-        {% elif (raw - prev) > max_step %}
-          {{ prev | round(3) }}
-        {% else %}
-          {{ raw | round(3) }}
-        {% endif %}
-
     # ------------------------------------------------------------------
     # Guarded PV production energy -- calculated from per-inverter
     # lifetime counters (kWh, lifetime cumulative).
     #
-    # Same guard logic as `EVCC PV Production Energy` above, but the
-    # raw value is computed locally as
+    # Computes the raw value locally as
     #   inverter_1.energy + inverter_2.energy
-    # instead of trusting EVCC's `pvEnergy` per-cycle sum. This is more
+    # instead of trusting EVCC's `pvEnergy` per-cycle sum. This is
     # robust against EVCC sum dropouts because each inverter's lifetime
     # counter is read directly from the inverter's Modbus register and
     # only one inverter going stale doesn't pull the sum down -- the
     # other inverter's contribution still increases monotonically.
     #
-    # Held in parallel with `evcc_pv_production_energy` so the two
-    # approaches can be compared side by side. Update the Energy
-    # dashboard's solar source to whichever proves more reliable. Add a
-    # third inverter input here (and in availability) if the PV array
-    # is extended.
+    # Two guards are applied to the raw sum:
+    #
+    #   1) Monotonic clamp: reject samples lower than the previously
+    #      held state. Without this, a momentary dip (one inverter
+    #      reporting 0 for a single poll cycle on a Modbus timeout, the
+    #      dawn wake-up window, ...) is treated by HA's
+    #      `total_increasing` statistics engine as a meter reset, and
+    #      the climb back to the real value is added as new energy --
+    #      producing huge phantom spikes in the Energy dashboard
+    #      (incident: 11 kWh -> 5 kWh -> 11 kWh dip between 05:50 and
+    #      05:55 inflated the daily total to ~11 MWh).
+    #
+    #   2) Max-step clamp: reject samples that jump UP by more than
+    #      `max_step` (10 kWh) in one update. Without this, a single
+    #      bogus high value (e.g. unit-mismatch Wh-vs-kWh) would lock
+    #      the wrapper at that value forever because every subsequent
+    #      real reading would fail the monotonic clamp. Sized for an
+    #      8 kW peak PV system: 10 kWh represents ~75 min of unbroken
+    #      peak production between two samples, comfortably above the
+    #      normal sub-kWh per-cycle delta but well below any plausibly
+    #      bogus jump. Trade-off: after a long HA outage (> ~1 h of
+    #      peak production missed), the first recovery sample is
+    #      rejected and the wrapper stays flat for that day -- accepted
+    #      by design; outages are rare, inverter hiccups are not.
+    #
+    # Cold start: when no previous state exists (`this.state` not
+    # numeric) the first numeric raw sample is accepted unconditionally.
+    # Input dropout: when an inverter entity is non-numeric the wrapper
+    # holds its previous value (so the Energy dashboard keeps a stable
+    # baseline; statistics simply don't tick during the dropout).
+    #
+    # Recovery procedure (legitimate counter reset, e.g. EVCC
+    # reinstall, inverter swap): clear the retained MQTT messages via
+    #   mosquitto_pub -h <broker> -t evcc/site/pv/1/energy -r -n
+    #   mosquitto_pub -h <broker> -t evcc/site/pv/2/energy -r -n
+    # then restart Home Assistant so the wrapper goes `unknown` and
+    # re-initialises from the next sample.
+    #
+    # Add a third inverter input here (and in availability) if the PV
+    # array is extended.
     # ------------------------------------------------------------------
     - name: EVCC PV Production Energy Calculated
       unique_id: evcc_pv_production_energy_calculated
@@ -203,4 +149,103 @@
           {% else %}
             {{ raw | round(3) }}
           {% endif %}
+        {% endif %}
+
+    # ------------------------------------------------------------------
+    # Guarded grid consumption (import) energy (kWh, lifetime cumulative).
+    #
+    # Wraps the EVCC site-level grid energy MQTT counter
+    # (`sensor.evcc_evcc_grid_energy`, topic `evcc/site/grid/energy`)
+    # with the same monotonic + max-step guards as the PV wrapper. EVCC
+    # publishes one cumulative grid counter that tracks IMPORT only;
+    # grid export still has to be Riemann-integrated from
+    # `evcc_grid_export_power` (see sensors_evcc_riemann.yaml).
+    #
+    # The smart meter behind this counter is read on the same Modbus
+    # poll cycle as the inverters, so the same dropout failure mode
+    # applies: a single poll where the meter reports 0 would otherwise
+    # be locked into HA's long-term statistics as a phantom meter
+    # reset.
+    #
+    # max_step = 10 kWh: at a 20 kW peak draw (well above this house's
+    # main-fuse rating) that's ~30 min of unbroken peak import between
+    # two samples -- comfortably above any normal per-cycle delta but
+    # well below any plausibly-bogus jump.
+    #
+    # Recovery procedure (legitimate counter reset): clear the retained
+    # MQTT message via
+    #   mosquitto_pub -h <broker> -t evcc/site/grid/energy -r -n
+    # then restart Home Assistant.
+    # ------------------------------------------------------------------
+    - name: EVCC Grid Consumption Energy
+      unique_id: evcc_grid_consumption_energy
+      device_class: energy
+      state_class: total_increasing
+      unit_of_measurement: kWh
+      availability: >
+        {% set raw  = states('sensor.evcc_evcc_grid_energy') | float(none) %}
+        {% set prev = this.state | float(none) %}
+        {{ raw is not none or prev is not none }}
+      state: >
+        {% set raw      = states('sensor.evcc_evcc_grid_energy') | float(none) %}
+        {% set prev     = this.state | float(none) %}
+        {% set max_step = 10.0 %}
+        {% if raw is none %}
+          {{ prev | round(3) }}
+        {% elif prev is none %}
+          {{ raw | round(3) }}
+        {% elif raw < prev %}
+          {{ prev | round(3) }}
+        {% elif (raw - prev) > max_step %}
+          {{ prev | round(3) }}
+        {% else %}
+          {{ raw | round(3) }}
+        {% endif %}
+
+    # ------------------------------------------------------------------
+    # Guarded battery charge energy (kWh, lifetime cumulative).
+    #
+    # Wraps the EVCC site-level battery energy MQTT counter
+    # (`sensor.evcc_evcc_battery_energy`, topic `evcc/site/battery/energy`)
+    # with the same monotonic + max-step guards. EVCC publishes one
+    # cumulative battery counter that tracks CHARGED energy only;
+    # battery discharge still has to be Riemann-integrated from
+    # `evcc_battery_discharge_power` (see sensors_evcc_riemann.yaml).
+    #
+    # Same dropout failure mode as the grid and PV wrappers: a single
+    # bad Modbus poll could otherwise pollute long-term statistics.
+    #
+    # max_step = 5 kWh: this house's hybrid inverters cannot push more
+    # than ~5 kW into the battery, so 5 kWh represents ~1 h of
+    # unbroken peak charging between two samples -- comfortably above
+    # any normal per-cycle delta but well below any plausibly-bogus
+    # jump.
+    #
+    # Recovery procedure (legitimate counter reset, e.g. battery swap):
+    #   mosquitto_pub -h <broker> -t evcc/site/battery/energy -r -n
+    # then restart Home Assistant.
+    # ------------------------------------------------------------------
+    - name: EVCC Battery Charge Energy
+      unique_id: evcc_battery_charge_energy
+      device_class: energy
+      state_class: total_increasing
+      unit_of_measurement: kWh
+      availability: >
+        {% set raw  = states('sensor.evcc_evcc_battery_energy') | float(none) %}
+        {% set prev = this.state | float(none) %}
+        {{ raw is not none or prev is not none }}
+      state: >
+        {% set raw      = states('sensor.evcc_evcc_battery_energy') | float(none) %}
+        {% set prev     = this.state | float(none) %}
+        {% set max_step = 5.0 %}
+        {% if raw is none %}
+          {{ prev | round(3) }}
+        {% elif prev is none %}
+          {{ raw | round(3) }}
+        {% elif raw < prev %}
+          {{ prev | round(3) }}
+        {% elif (raw - prev) > max_step %}
+          {{ prev | round(3) }}
+        {% else %}
+          {{ raw | round(3) }}
         {% endif %}

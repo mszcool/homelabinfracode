@@ -17,10 +17,19 @@
         "id": "garden_and_pool",
         "show_in_sidebar": true,
         "icon": "mdi:shovel",
-        "title": "Garden and Pool",
+        "title": "Garden and Pool Water Use",
         "require_admin": false,
         "mode": "storage",
         "url_path": "garden-and-pool"
+      },
+      {
+        "id": "pool_status_and_tech",
+        "show_in_sidebar": true,
+        "icon": "mdi:pool-thermometer",
+        "title": "Pool Status and Tech",
+        "require_admin": false,
+        "mode": "storage",
+        "url_path": "pool-status-and-tech"
       }
     ]
   }

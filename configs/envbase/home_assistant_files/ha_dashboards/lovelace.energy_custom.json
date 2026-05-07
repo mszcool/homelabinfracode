@@ -22,7 +22,7 @@
                 },
                 {
                   "type": "custom:tesla-style-solar-power-card",
-                  "name": "Current Energy Flows",
+                  "name": "Energy Flows Now (by 1-2 min. precise)",
                   "grid_options": {
                     "columns": 12,
                     "rows": "auto"
@@ -44,7 +44,7 @@
                 },
                 {
                   "type": "energy-distribution",
-                  "title": "Daily Energy Distribution",
+                  "title": "Daily Production, Daily Consumption",
                   "grid_options": {
                     "rows": "auto",
                     "columns": 12
@@ -63,7 +63,7 @@
               "cards": [
                 {
                   "type": "power-sources-graph",
-                  "title": "Energy Usage",
+                  "title": "Energy Daily Usage Flow",
                   "grid_options": {
                     "columns": "full",
                     "rows": 8
@@ -88,12 +88,10 @@
                   },
                   "graph_span": "24h",
                   "all_series_config": {
-                    "type": "area",
-                    "opacity": 0.1,
-                    "stroke_width": 1,
+                    "stroke_width": 2,
                     "group_by": {
                       "func": "avg",
-                      "duration": "15m"
+                      "duration": "5m"
                     },
                     "show": {
                       "in_header": false
@@ -103,29 +101,38 @@
                     {
                       "entity": "sensor.evcc_evcc_battery_state_of_charge",
                       "name": "Charged Capacity",
-                      "type": "line",
+                      "type": "area",
+                      "color": "green",
                       "yaxis_id": "pct",
-                      "opacity": 1,
-                      "stroke_width": 3,
+                      "opacity": 0.35,
+                      "stroke_width": 2,
                       "group_by": {
                         "func": "last",
-                        "duration": "15m"
+                        "duration": "5m"
                       },
                       "show": {
                         "in_header": true
                       }
                     },
                     {
-                      "entity": "sensor.evcc_utility_battery_charge_daily",
-                      "name": "Battery Charge (today)",
-                      "color": "darkgreen",
-                      "yaxis_id": "kwh"
+                      "entity": "sensor.evcc_battery_charge_power",
+                      "name": "Battery Charge",
+                      "type": "line",
+                      "color": "blue",
+                      "yaxis_id": "w",
+                      "show": {
+                        "in_header": true
+                      }
                     },
                     {
-                      "entity": "sensor.evcc_utility_battery_discharge_daily",
-                      "name": "Battery Discharge (today)",
-                      "color": "#800080",
-                      "yaxis_id": "kwh"
+                      "entity": "sensor.evcc_battery_discharge_power",
+                      "name": "Battery Discharge",
+                      "type": "line",
+                      "color": "red",
+                      "yaxis_id": "w",
+                      "show": {
+                        "in_header": true
+                      }
                     }
                   ],
                   "yaxis": [
@@ -138,11 +145,11 @@
                       "min": 0
                     },
                     {
-                      "id": "kwh",
+                      "id": "w",
                       "show": true,
-                      "decimals": 2,
+                      "decimals": 0,
                       "min": 0,
-                      "align_to": 12
+                      "align_to": 100
                     }
                   ]
                 },

@@ -9,24 +9,21 @@
 #
 # Trapezoidal method is used (same as sensors_huawei_solar_riemann.yaml)
 # for better accuracy on smoothly varying loads.
+#
+# Only EXPORT (grid) and DISCHARGE (battery) are integrated here -- for
+# IMPORT and CHARGE the EVCC inverter publishes native cumulative kWh
+# counters which are wrapped (with monotonic + max-step guards) in
+# templates_evcc_sensors.yaml. Native counters are preferred because
+# Riemann polling-based integration always undercounts vs the meter's
+# own high-frequency internal counter.
 
-# --- Grid ---
+# --- Grid export ---
 # `max_sub_interval` forces a Riemann tick at least once a minute even
 # when the source value is constant or briefly unavailable. The source
-# templates (`evcc_grid_consumption_power` / `evcc_grid_export_power`)
-# only emit a `state_changed` when the rounded W value actually
-# changes; a steady ~600 W house load that EVCC re-publishes
-# unchanged for minutes would otherwise contribute zero kWh until the
-# next change. Same rationale as the battery sensors below.
-- platform: integration
-  source: sensor.evcc_grid_consumption_power
-  name: evcc_grid_consumption_energy_riemann
-  unique_id: evcc_grid_consumption_energy_riemann
-  unit_prefix: k
-  round: 3
-  method: trapezoidal
-  max_sub_interval: "00:01:00"
-
+# template (`evcc_grid_export_power`) only emits a `state_changed` when
+# the rounded W value actually changes; a steady export that EVCC
+# re-publishes unchanged for minutes would otherwise contribute zero
+# kWh until the next change.
 - platform: integration
   source: sensor.evcc_grid_export_power
   name: evcc_grid_export_energy_riemann
@@ -36,21 +33,7 @@
   method: trapezoidal
   max_sub_interval: "00:01:00"
 
-# --- Battery ---
-- platform: integration
-  source: sensor.evcc_battery_charge_power
-  name: evcc_battery_charge_energy_riemann
-  unique_id: evcc_battery_charge_energy_riemann
-  unit_prefix: k
-  round: 3
-  method: trapezoidal
-  # Force the integration to tick at least once a minute even when the
-  # source value is constant (or the source briefly flapped to
-  # unavailable). Without this, a steady charge of e.g. 270 W that the
-  # template re-emits unchanged is only counted at the next state change,
-  # and a short EVCC MQTT blip can lose minutes of accumulation.
-  max_sub_interval: "00:01:00"
-
+# --- Battery discharge ---
 - platform: integration
   source: sensor.evcc_battery_discharge_power
   name: evcc_battery_discharge_energy_riemann
@@ -59,3 +42,4 @@
   round: 3
   method: trapezoidal
   max_sub_interval: "00:01:00"
+

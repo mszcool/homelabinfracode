@@ -94,6 +94,7 @@
           SUPERVISOR_TOKEN was not present in the SSH session environment and
           could not be read from any login profile. Review the diagnostics
           task above to see what the host actually exposes.
+
     - name: Validate Home Assistant configuration variables are defined
       ansible.builtin.assert:
         that:
@@ -211,27 +212,42 @@
       until: _ha_post_info.rc == 0
 
     - name: Display manual steps reminder
+      # Each artefact in the inventory (HACS itself, ha_addons,
+      # ha_hacs_components, ha_integrations) may declare a `manual_steps`
+      # list of post-install actions a human must perform. We collect
+      # them here into a single ordered list of sections and render them.
+      # To add a new reminder, add `manual_steps:` to the relevant
+      # artefact -- nothing in this playbook needs to change.
       ansible.builtin.debug:
-        msg:
-          - "╔═════════════════════════════════════════════════════════════════╗"
-          - "║                    MANUAL STEPS REQUIRED                        ║"
-          - "╠═════════════════════════════════════════════════════════════════╣"
-          - "║                                                                 ║"
-          - "║  1. HACS Activation (one-time):                                 ║"
-          - "║     Settings > Devices & Services > Add Integration > HACS      ║"
-          - "║     Complete GitHub OAuth authentication.                       ║"
-          - "║                                                                 ║"
-          - "║  2. Huawei Solar or EVCC Configuration (one-time):              ║"
-          - "║     Settings > Devices & Services > Add Integration >           ║"
-          - "║     Huawei Solar or EVCC > Enter data required:                 ║"
-          - "║     - for huawei: inverter IP, port, credentials.               ║"
-          - "║     - for evcc: EVCC configuration details.                     ║"
-          - "║     - IMPORTANT: YOU CANNOT USE BOTH AT THE SAME TIME!!!        ║"
-          - "║                                                                 ║"
-          - "║  3. Zigbee2MQTT onboarding (one-time):                          ║"
-          - "║     Open the Zigbee2MQTT add-on > OPEN WEB UI and complete the  ║"
-          - "║     onboarding wizard: select your USB adapter, pick the        ║"
-          - "║     Closest WiFi Channel, and enable HA MQTT discovery by       ║"
-          - "║     setting `homeassistant: enabled: true` in the Z2M config.   ║"
-          - "║                                                                 ║"
-          - "╚═════════════════════════════════════════════════════════════════╝"
+        # `msg` is a LIST so each entry becomes its own line in the
+        # output. Using a multiline string instead would cause Ansible to
+        # render the embedded newlines as literal "\n".
+        msg: "{{ _ha_manual_banner_lines }}"
+      vars:
+        # Sections from each artefact source. Each artefact dict already
+        # contains its identifying field (name / manifest_name / slug),
+        # so we just render whichever is available.
+        _hacs_section: >-
+          {{ [{'title': 'HACS', 'steps': ha_hacs_manual_steps}]
+             if (ha_hacs_manual_steps | default([]) | length > 0) else [] }}
+        _addon_sections: >-
+          {{ ha_addons | default([])
+             | selectattr('manual_steps', 'defined')
+             | rejectattr('manual_steps', 'equalto', [])
+             | list }}
+        _hacs_component_sections: >-
+          {{ ha_hacs_components | default([])
+             | selectattr('manual_steps', 'defined')
+             | rejectattr('manual_steps', 'equalto', [])
+             | list }}
+        _integration_sections: >-
+          {{ ha_integrations | default([])
+             | selectattr('manual_steps', 'defined')
+             | rejectattr('manual_steps', 'equalto', [])
+             | list }}
+        _sections: >-
+          {{ _hacs_section
+             + (_addon_sections          | map('combine', {'_kind': 'add-on'})         | list)
+             + (_hacs_component_sections | map('combine', {'_kind': 'HACS component'}) | list)
+             + (_integration_sections    | map('combine', {'_kind': 'integration'})    | list) }}
+        _ha_manual_banner_lines: "{{ lookup('template', 'templates/ha-manual-steps-banner.j2').splitlines() }}"

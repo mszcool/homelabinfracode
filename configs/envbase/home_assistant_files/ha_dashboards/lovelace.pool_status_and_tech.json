@@ -1,0 +1,480 @@
+{
+  "version": 1,
+  "minor_version": 1,
+  "key": "lovelace.pool_status_and_tech",
+  "data": {
+    "config": {
+      "views": [
+        {
+          "type": "sections",
+          "sections": [
+            {
+              "type": "grid",
+              "cards": [
+                {
+                  "type": "heading",
+                  "heading_style": "title",
+                  "heading": "Kontrolle im Garten"
+                },
+                {
+                  "type": "tile",
+                  "entity": "switch.switch_pumplight_pool_pump",
+                  "name": "Pool Pumpe",
+                  "icon": "mdi:pump",
+                  "show_entity_picture": true,
+                  "vertical": false,
+                  "features_position": "bottom"
+                },
+                {
+                  "type": "tile",
+                  "entity": "switch.switch_redoxph_pool_redox",
+                  "name": "Pool Redox Chlor",
+                  "icon": "mdi:bottle-tonic-plus-outline",
+                  "vertical": false,
+                  "features_position": "bottom"
+                },
+                {
+                  "type": "tile",
+                  "entity": "switch.switch_redoxph_pool_ph",
+                  "name": "PH Dosierer",
+                  "icon": "mdi:ph",
+                  "vertical": false,
+                  "features_position": "bottom"
+                },
+                {
+                  "type": "tile",
+                  "entity": "switch.switch_pumplight_pool_light",
+                  "name": "Pool Licht",
+                  "icon": "mdi:lightbulb-auto-outline",
+                  "vertical": false,
+                  "features_position": "bottom"
+                },
+                {
+                  "type": "tile",
+                  "entity": "sensor.pool_water_manager_battery",
+                  "vertical": false,
+                  "features_position": "bottom"
+                },
+                {
+                  "type": "tile",
+                  "entity": "sensor.pool_water_manager_rssi",
+                  "name": "Pool Water Manager WiFi",
+                  "vertical": false,
+                  "features_position": "bottom"
+                }
+              ],
+              "column_span": 4
+            },
+            {
+              "type": "grid",
+              "cards": [
+                {
+                  "type": "heading",
+                  "heading": "Pool Statistiken",
+                  "heading_style": "title"
+                },
+                {
+                  "type": "tile",
+                  "entity": "sensor.pool_water_manager_temperature",
+                  "name": "Pool Temperature",
+                  "vertical": false,
+                  "features_position": "bottom"
+                },
+                {
+                  "type": "tile",
+                  "entity": "sensor.pool_water_manager_ph",
+                  "name": "PH (target: 6.9-7.4)",
+                  "vertical": false,
+                  "features_position": "bottom"
+                },
+                {
+                  "type": "tile",
+                  "entity": "sensor.pool_water_manager_oxydo_reduction_potential",
+                  "name": "Redox (target: 600 and 750)",
+                  "vertical": false,
+                  "features_position": "bottom"
+                },
+                {
+                  "type": "tile",
+                  "entity": "sensor.pool_water_manager_salt",
+                  "name": "Salt (target: 3500-4500)",
+                  "vertical": false,
+                  "features_position": "bottom"
+                },
+                {
+                  "type": "custom:apexcharts-card",
+                  "header": {
+                    "show": true,
+                    "title": "Pool PH and Redox",
+                    "show_states": true,
+                    "colorize_states": true
+                  },
+                  "grid_options": {
+                    "square": false,
+                    "columns": 12
+                  },
+                  "graph_span": "12h",
+                  "yaxis": [
+                    {
+                      "id": "ph",
+                      "min": 6.5,
+                      "max": 8,
+                      "decimals": 1
+                    }
+                  ],
+                  "apex_config": {
+                    "chart": {
+                      "height": "315px"
+                    },
+                    "annotations": {
+                      "position": "back",
+                      "yaxis": [
+                        {
+                          "y": 6.9,
+                          "borderColor": "#FF4560",
+                          "label": {
+                            "text": "MIN PH (7.2)",
+                            "style": {
+                              "background": "#FF4560",
+                              "color": "#fff"
+                            }
+                          }
+                        },
+                        {
+                          "y": 7.6,
+                          "borderColor": "#00E396",
+                          "label": {
+                            "text": "MAX PH (7.6)",
+                            "style": {
+                              "background": "#00E396",
+                              "color": "#fff"
+                            }
+                          }
+                        }
+                      ]
+                    }
+                  },
+                  "series": [
+                    {
+                      "entity": "sensor.pool_water_manager_ph",
+                      "name": "PH",
+                      "color": "green",
+                      "yaxis_id": "ph"
+                    }
+                  ]
+                },
+                {
+                  "type": "custom:apexcharts-card",
+                  "header": {
+                    "show": true,
+                    "title": "Salt",
+                    "show_states": true,
+                    "colorize_states": true
+                  },
+                  "grid_options": {
+                    "square": false,
+                    "columns": 12
+                  },
+                  "graph_span": "12h",
+                  "yaxis": [
+                    {
+                      "id": "salt",
+                      "min": 2500,
+                      "max": 5500,
+                      "decimals": 1
+                    }
+                  ],
+                  "apex_config": {
+                    "chart": {
+                      "height": "315px"
+                    },
+                    "annotations": {
+                      "position": "back",
+                      "yaxis": [
+                        {
+                          "y": 3000,
+                          "borderColor": "#FF4560",
+                          "label": {
+                            "text": "MIN Salt (3000)",
+                            "style": {
+                              "background": "#FF4560",
+                              "color": "#fff"
+                            }
+                          }
+                        },
+                        {
+                          "y": 5000,
+                          "borderColor": "#00E396",
+                          "label": {
+                            "text": "MAX Salt (5000)",
+                            "style": {
+                              "background": "#00E396",
+                              "color": "#fff"
+                            }
+                          }
+                        }
+                      ]
+                    }
+                  },
+                  "series": [
+                    {
+                      "entity": "sensor.pool_water_manager_salt",
+                      "name": "Salt",
+                      "color": "cyan",
+                      "yaxis_id": "ph"
+                    }
+                  ]
+                },
+                {
+                  "type": "custom:apexcharts-card",
+                  "header": {
+                    "show": true,
+                    "title": "Pool PH and Redox",
+                    "show_states": true,
+                    "colorize_states": true
+                  },
+                  "grid_options": {
+                    "square": false,
+                    "columns": 12
+                  },
+                  "graph_span": "12h",
+                  "yaxis": [
+                    {
+                      "id": "redox",
+                      "min": 800,
+                      "max": 500,
+                      "decimals": 1
+                    }
+                  ],
+                  "apex_config": {
+                    "chart": {
+                      "height": "315px"
+                    },
+                    "annotations": {
+                      "position": "back",
+                      "yaxis": [
+                        {
+                          "y": 600,
+                          "borderColor": "#FF4560",
+                          "label": {
+                            "text": "MIN Redox (600)",
+                            "style": {
+                              "background": "#FF4560",
+                              "color": "#fff"
+                            }
+                          }
+                        },
+                        {
+                          "y": 750,
+                          "borderColor": "#00E396",
+                          "label": {
+                            "text": "Max Redox (750)",
+                            "style": {
+                              "background": "#00E396",
+                              "color": "#fff"
+                            }
+                          }
+                        }
+                      ]
+                    }
+                  },
+                  "series": [
+                    {
+                      "entity": "sensor.pool_water_manager_oxydo_reduction_potential",
+                      "name": "Redox (Chlor/Salt)",
+                      "color": "darkred",
+                      "yaxis_id": "redox"
+                    }
+                  ]
+                },
+                {
+                  "type": "custom:apexcharts-card",
+                  "header": {
+                    "show": true,
+                    "title": "Pool Temperature",
+                    "show_states": true,
+                    "colorize_states": true
+                  },
+                  "graph_span": "12h",
+                  "yaxis": [
+                    {
+                      "id": "temp",
+                      "min": 15,
+                      "max": 35,
+                      "apex_config": {
+                        "tickAmount": 20,
+                        "labels": {
+                          "show": true
+                        },
+                        "stepSize": 1
+                      }
+                    }
+                  ],
+                  "apex_config": {
+                    "chart": {
+                      "height": "315px"
+                    },
+                    "annotations": {
+                      "position": "back",
+                      "yaxis": [
+                        {
+                          "y": 20,
+                          "borderColor": "#00BFFF",
+                          "strokeDashArray": 4,
+                          "label": {
+                            "text": "MIN 20°C"
+                          }
+                        },
+                        {
+                          "y": 30,
+                          "borderColor": "#FF4500",
+                          "strokeDashArray": 4,
+                          "label": {
+                            "text": "MAX 30°C"
+                          }
+                        }
+                      ]
+                    }
+                  },
+                  "series": [
+                    {
+                      "entity": "sensor.pool_water_manager_temperature",
+                      "name": "Temperature",
+                      "color": "pink",
+                      "yaxis_id": "temp"
+                    }
+                  ]
+                }
+              ],
+              "column_span": 2
+            },
+            {
+              "type": "grid",
+              "cards": [
+                {
+                  "type": "heading",
+                  "icon": "mdi:car-coolant-level",
+                  "heading": "Pool Tank (requires re-fill at 70cm, max. 30cm full)",
+                  "heading_style": "title"
+                },
+                {
+                  "type": "custom:apexcharts-card",
+                  "header": {
+                    "show": true,
+                    "title": "Pool Tank Level (cm to ground - target 65 cm to 40 cm)",
+                    "show_states": true,
+                    "colorize_states": true
+                  },
+                  "grid_options": {
+                    "square": false,
+                    "columns": 24
+                  },
+                  "graph_span": "24h",
+                  "apex_config": {
+                    "chart": {
+                      "height": "315px"
+                    },
+                    "yaxis": {
+                      "reversed": true,
+                      "min": 0,
+                      "max": 90
+                    }
+                  },
+                  "series": [
+                    {
+                      "entity": "sensor.pool_tank_depth_sensor_pool_tank_water_level",
+                      "color": "cyan"
+                    }
+                  ]
+                },
+                {
+                  "type": "heading",
+                  "icon": "mdi:power-plug",
+                  "heading": "Pool Power Stats",
+                  "heading_style": "title"
+                },
+                {
+                  "type": "custom:apexcharts-card",
+                  "header": {
+                    "show": true,
+                    "title": "Pool Energy Monthly",
+                    "show_states": true,
+                    "colorize_states": true
+                  },
+                  "apex_config": {
+                    "chart": {
+                      "height": "315x"
+                    }
+                  },
+                  "graph_span": "1y",
+                  "update_interval": "1h",
+                  "span": {
+                    "end": "month"
+                  },
+                  "series": [
+                    {
+                      "entity": "sensor.pool_energy_monthly",
+                      "type": "column",
+                      "group_by": {
+                        "duration": "1month",
+                        "func": "max"
+                      },
+                      "color": "red"
+                    }
+                  ],
+                  "yaxis": [
+                    {
+                      "id": "watts",
+                      "show": true,
+                      "decimals": 0,
+                      "align_to": 50
+                    }
+                  ]
+                },
+                {
+                  "type": "custom:apexcharts-card",
+                  "header": {
+                    "show": true,
+                    "title": "Pool Current Power",
+                    "show_states": true,
+                    "colorize_states": true
+                  },
+                  "grid_options": {
+                    "square": false,
+                    "columns": 12
+                  },
+                  "graph_span": "3h",
+                  "apex_config": {
+                    "chart": {
+                      "height": "315px"
+                    }
+                  },
+                  "series": [
+                    {
+                      "entity": "sensor.switch_pumplight_pumplight_power",
+                      "name": "Pump, Light",
+                      "color": "darkred"
+                    },
+                    {
+                      "entity": "sensor.switch_redoxph_redoxph_power",
+                      "name": "Redox, PH",
+                      "color": "red"
+                    }
+                  ]
+                }
+              ],
+              "column_span": 2
+            }
+          ],
+          "header": {
+            "card": {
+              "type": "markdown",
+              "text_only": true,
+              "content": "# Garden and Pool Water Statistics"
+            }
+          }
+        }
+      ]
+    }
+  }
+}

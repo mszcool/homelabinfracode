@@ -49,6 +49,19 @@
          else {'data': {}, 'key': 'hacs.repositories', 'version': '6'} }}
 
 - name: Build merged hacs.repositories data (deep-merge, preserve existing fields)
+  # Field shape rationale (verified against HACS source):
+  #   utils/data.py async_restore_repository() reads `version_installed`
+  #   (NOT `installed_version`) for the "is this thing actually installed
+  #   and which version?" answer. If we omit it, HACS treats the entry as
+  #   broken and the UI hides the card. We therefore set BOTH keys -- HACS
+  #   ignores `installed_version` on read but other tooling and the UI's
+  #   internal exporter populate it, so keeping it matches the on-disk
+  #   shape Tesla/Apex have when installed via the UI.
+  #
+  #   `repository_manifest.filename` (plugins only) tells HACS which file
+  #   under <local_path> to serve at /hacsfiles/<dir>/<file>. Without it
+  #   the card is invisible to the frontend even when the .js is on disk.
+  #   `repository_manifest.name` is the display name in the HACS UI.
   ansible.builtin.set_fact:
     _hacs_repos_merged_data: >-
       {{ _hacs_repos_merged_data | default(_hacs_repos_existing.data | default({}))
@@ -62,7 +75,15 @@
                    'category': item.category,
                    'installed': true,
                    'installed_version': item.version,
-                   'show_beta': false
+                   'version_installed': item.version,
+                   'show_beta': false,
+                   'repository_manifest': (
+                     {'name': item.manifest_name}
+                     | combine(
+                         {'filename': (item.check_file | basename)}
+                         if item.category == 'plugin' else {}
+                       )
+                   )
                  })
            },
            recursive=True) }}

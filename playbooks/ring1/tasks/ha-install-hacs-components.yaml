@@ -332,6 +332,43 @@
       loop_control:
         label: "{{ item.manifest_name }}"
 
+    # Some frontend cards need additional sibling files alongside the
+    # main JS (e.g. a `locales/` folder for translations). Plugins with
+    # source=archive may declare `archive_extra_paths`, a list of
+    # {src, dest} pairs:
+    #   src:  path inside the extracted archive (relative to its root,
+    #         including GitHub's top-level dir prefix).
+    #   dest: path inside `local_path` on the target (relative).
+    # Each src may be a file OR a directory; directories are copied
+    # recursively. Existing dest paths are removed first to ensure an
+    # atomic-looking replacement (we are still inside the install block,
+    # so a later failure is handled by `always` cleaning the staging
+    # root).
+    - name: Copy plugin archive_extra_paths into place
+      ansible.builtin.shell: |
+        set -e
+        extract="/tmp/hacs_plugins/{{ item.0.check_file | basename }}_extract"
+        src="$extract/{{ item.1.src }}"
+        dest="{{ ha_config_path }}/{{ item.0.local_path }}/{{ item.1.dest }}"
+        if [ ! -e "$src" ]; then
+          echo "ERROR: archive_extra_paths src '{{ item.1.src }}' not found in $extract" >&2
+          ls -la "$extract" >&2
+          exit 1
+        fi
+        rm -rf "$dest"
+        mkdir -p "$(dirname "$dest")"
+        cp -r "$src" "$dest"
+      changed_when: true
+      loop: >-
+        {{ _components_to_install
+           | selectattr('category', 'equalto', 'plugin')
+           | selectattr('source', 'defined')
+           | selectattr('source', 'equalto', 'archive')
+           | selectattr('archive_extra_paths', 'defined')
+           | subelements('archive_extra_paths') }}
+      loop_control:
+        label: "{{ item.0.manifest_name }} :: {{ item.1.src }} -> {{ item.1.dest }}"
+
     - name: Write plugin version marker
       ansible.builtin.copy:
         content: "{{ item.version }}\n"
@@ -351,13 +388,3 @@
   ansible.builtin.set_fact:
     _ha_config_changed: true
   when: (_components_to_install | default([]) | length) > 0
-
-- name: Huawei Solar reminder
-  ansible.builtin.debug:
-    msg: >-
-      MANUAL STEP: After HA restart, configure Huawei Solar integration
-      in Settings > Devices & Services > Add Integration > Huawei Solar
-      and enter your inverter IP, port, and credentials.
-  when: >
-    (_components_to_install | default([])
-     | selectattr('domain', 'equalto', 'huawei_solar') | list | length) > 0
