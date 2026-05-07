@@ -56,10 +56,13 @@ ha_addon_repositories:
 
 # ---------- Add-ons to install via ha CLI ----------
 # Each entry:
-#   slug:    Supervisor add-on slug (e.g. core_mariadb)
-#   name:    Display name (used in task labels only)
-#   options: Optional dict of add-on configuration applied before start.
-#            If omitted, add-on starts with its current/default options.
+#   slug:         Supervisor add-on slug (e.g. core_mariadb)
+#   name:         Display name (used in task labels only)
+#   options:      Optional dict of add-on configuration applied before start.
+#                 If omitted, add-on starts with its current/default options.
+#   manual_steps: Optional list of post-install actions a human must perform
+#                 (e.g. onboarding wizards, OAuth logins). Aggregated and
+#                 rendered at the end of the playbook by post_tasks.
 #
 # Add-ons that come from a third-party repository require the repository
 # to be listed in `ha_addon_repositories` above. The slug for repository
@@ -122,6 +125,11 @@ ha_addons:
       # 2-minute first interval matches the user's preference and the
       # escalating tail prevents log spam if the adapter stays gone.
       watchdog: "2,4,8,16,32,60"
+    manual_steps:
+      - "Open the Zigbee2MQTT add-on > OPEN WEB UI and complete the"
+      - "onboarding wizard: select your USB adapter, pick the Closest"
+      - "WiFi Channel, and enable HA MQTT discovery by setting"
+      - "`homeassistant: enabled: true` in the Z2M config."
 
 # ---------- Zigbee2MQTT serial adapter ----------
 # Z2M serial port for the zstack adapter. Override per environment
@@ -153,6 +161,12 @@ hacs_install_mode: "seed_only"
 ha_hacs_version: "2.0.5"
 ha_hacs_download_url: "https://github.com/hacs/integration/releases/download/{{ ha_hacs_version }}/hacs.zip"
 
+# Post-install actions a human must perform for HACS itself.
+# Aggregated and rendered at the end of the playbook by post_tasks.
+ha_hacs_manual_steps:
+  - "Settings > Devices & Services > Add Integration > HACS."
+  - "Complete GitHub OAuth authentication (one-time)."
+
 # ---------- HACS components (custom_components + frontend cards) ----------
 # Each entry requires:
 #   full_name:       GitHub owner/repo
@@ -179,12 +193,26 @@ ha_hacs_download_url: "https://github.com/hacs/integration/releases/download/{{ 
 #                    For plugins: the JS file path
 #                    (e.g. "tesla-...-1.4/tesla-...-card.js").
 #   download_url:    (source=direct only) Direct release-asset URL to fetch.
+#   archive_extra_paths:
+#                    (source=archive plugins only, optional) List of
+#                    additional files/directories to copy from the
+#                    extracted source archive into `local_path`. Use for
+#                    cards that need sibling assets next to the main JS
+#                    (e.g. a `locales/` folder for translations).
+#                    Each entry: { src: <path inside extracted archive,
+#                    including GitHub's top-level dir prefix>,
+#                                  dest: <path inside local_path on target> }
+#                    Directories are copied recursively.
 #   local_path:      Where to place the artifact on the HA file system
 #                    (relative to ha_config_path). For integrations: the
 #                    custom_components/<domain> directory. For plugins: the
 #                    www/community/<name> directory.
 #   check_file:      File whose presence indicates the component is installed
 #                    (relative to ha_config_path).
+#   manual_steps:    Optional list of post-install actions a human must perform
+#                    (e.g. add the integration via Settings > Devices & Services,
+#                    enter API credentials, complete OAuth). Aggregated and
+#                    rendered at the end of the playbook by post_tasks.
 #
 # Source-archive URL pattern (matches HACS's own github_archive helper):
 #   https://github.com/{full_name}/archive/refs/tags/{tag}.zip
@@ -200,6 +228,10 @@ ha_hacs_components:
     archive_subpath: "huawei_solar-1.6.0"
     local_path: "custom_components/huawei_solar"
     check_file: "custom_components/huawei_solar/manifest.json"
+    manual_steps:
+      - "Settings > Devices & Services > Add Integration > Huawei Solar."
+      - "Enter inverter IP, port, and credentials."
+      - "IMPORTANT: Huawei Solar and EVCC cannot be used at the same time!"
 
   - full_name: "marq24/ha-evcc"
     repo_id: "800610523"
@@ -211,6 +243,10 @@ ha_hacs_components:
     archive_subpath: "ha-evcc-2026.3.7/custom_components/evcc_intg"
     local_path: "custom_components/evcc_intg"
     check_file: "custom_components/evcc_intg/manifest.json"
+    manual_steps:
+      - "Settings > Devices & Services > Add Integration > evcc."
+      - "Enter EVCC configuration details."
+      - "IMPORTANT: Huawei Solar and EVCC cannot be used at the same time!"
 
   - full_name: "RomRider/apexcharts-card"
     repo_id: "331701152"
@@ -234,6 +270,33 @@ ha_hacs_components:
     archive_subpath: "tesla-style-solar-power-card-1.4/tesla-style-solar-power-card.js"
     local_path: "www/community/tesla-style-solar-power-card"
     check_file: "www/community/tesla-style-solar-power-card/tesla-style-solar-power-card.js"
+
+  - full_name: "mkshb/hass-evcc-card"
+    repo_id: "1174148822"
+    category: plugin
+    version: "0.5.18"
+    tag: "v0.5.18"
+    domain: null
+    manifest_name: "EVCC Card"
+    # The project does not publish built release assets -- only source
+    # zips. The actual files live under dist/ inside the archive.
+    source: archive
+    archive_subpath: "hass-evcc-card-0.5.18/dist/evcc-card.js"
+    archive_extra_paths:
+      # Required for non-English UIs; the card auto-detects the HA
+      # language and loads the matching JSON from this folder.
+      - src: "hass-evcc-card-0.5.18/dist/locales"
+        dest: "locales"
+    local_path: "www/community/hass-evcc-card"
+    check_file: "www/community/hass-evcc-card/evcc-card.js"
+    manual_steps:
+      - "Add the card to a Lovelace dashboard via Edit Dashboard > Add Card"
+      - "> search for 'EVCC Card'. The visual editor configures everything"
+      - "interactively (mode, loadpoints, etc.). All charge points and site"
+      - "entities are auto-discovered from the ha-evcc integration -- no"
+      - "manual entity mapping required."
+      - "Lovelace YAML mode users only: register the resource manually at"
+      - "/hacsfiles/hass-evcc-card/evcc-card.js (type: module)."
 
 # ---------- MQTT broker defaults ----------
 ha_mqtt_broker: mosquitto-broker
@@ -289,3 +352,25 @@ ha_dashboard_files:
   - lovelace_dashboards.json
   - lovelace.energy_custom.json
   - lovelace.garden_and_pool.json
+
+# ---------- Built-in HA integrations requiring manual configuration ----------
+# Use this list for integrations that ship inside HA Core (no install step
+# needed) but cannot be fully configured from Ansible -- typically because
+# they rely on OAuth2 / Application Credentials / device pairing flows that
+# require a browser session.
+#
+# Each entry:
+#   name:         Display name (used in the post_tasks reminder banner only).
+#   docs_url:     Optional link to the upstream HA integration docs.
+#   manual_steps: List of post-deploy actions a human must perform.
+#                 Aggregated and rendered at the end of the playbook.
+ha_integrations:
+  - name: "Ondilo ICO"
+    docs_url: "https://www.home-assistant.io/integrations/ondilo_ico/"
+    manual_steps:
+      - "Built into HA core (no install needed). Uses OAuth2 + Application Credentials."
+      - "Register a developer app at https://interop.ondilo.com to obtain"
+      - "a client_id and client_secret."
+      - "Settings > Devices & Services > Add Integration > Ondilo ICO."
+      - "When prompted, add Application Credentials (client_id / client_secret)"
+      - "and complete the OAuth login in the browser. OAuth cannot be automated."

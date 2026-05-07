@@ -5,7 +5,8 @@
 # topic (configured in playbooks/ring1/templates/evcc.yaml.j2 -> mqtt.topic).
 #
 # All entities are grouped onto a single virtual HA device named "EVCC"
-# so they show up together in the UI and energy dashboard.
+# so they show up together in the UI and energy dashboard.Their name will be evcc_evcc_*
+# in HA, and their unique_id will be mqtt:evcc-site-*, which is what the MQTT integration uses to track them.
 
 - sensor:
     unique_id: "mqtt:evcc-site-pv-1-power"

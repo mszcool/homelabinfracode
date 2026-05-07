@@ -1,0 +1,21 @@
+═════════════════════════════════════════════════════════════════
+                    MANUAL STEPS REQUIRED
+═════════════════════════════════════════════════════════════════
+{% if _sections | length == 0 %}
+
+  (none -- every artefact in the inventory is fully automated)
+
+{% else %}
+{% for s in _sections %}
+
+  {{ loop.index }}. {{ (s.title | default(s.name) | default(s.manifest_name) | default(s.slug)) ~ (' (' ~ s._kind ~ ')' if s._kind is defined else '') }}
+{% if s.docs_url is defined %}
+     docs: {{ s.docs_url }}
+{% endif %}
+{% for line in (s.steps | default(s.manual_steps)) %}
+       - {{ line }}
+{% endfor %}
+{% endfor %}
+
+{% endif %}
+═════════════════════════════════════════════════════════════════
