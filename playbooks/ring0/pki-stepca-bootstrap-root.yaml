@@ -1,0 +1,306 @@
+---
+# Ring 0 — Bootstrap the homelab Root Certificate Authority for step-ca.
+#
+# This playbook generates the env's Root CA key + self-signed cert on
+# the controller, encrypts the private key with a passphrase fetched
+# from 1Password, and uploads the encrypted PEM as a document
+# attachment on the corresponding 1Password item. The PUBLIC cert is
+# written to:
+#   configs.private/<env>/pki/homelab-<env_id>-root-ca.crt   (source of truth)
+#   configs/envbase/pki/homelab-<env_id>-root-ca.crt          (published copy)
+#
+# IDEMPOTENCY MODEL
+# -----------------
+# A successful first run leaves three artefacts:
+#   1. Public cert in configs.private/<env>/pki/<filename>.crt
+#   2. Public cert in configs/envbase/pki/<filename>.crt
+#   3. Encrypted PEM as document attachment "root_ca.key.enc" on the
+#      1Password item named by step_ca_op_item_root.
+#
+# On subsequent runs:
+#   - If (1), (2), (3) are all present  → skip generation entirely.
+#   - If any are missing                → fail with a clear message
+#     telling the operator to either restore from backup or delete the
+#     remaining artefacts to re-bootstrap (we never silently regenerate
+#     a Root CA — that would invalidate every cert ever signed).
+#
+# PREREQUISITES
+# -------------
+# - step_ca_enabled must be true for the target environment.
+# - The three 1Password items must already exist (created manually):
+#       Step CA Root <env_id>            (password field set)
+#       Step CA Intermediate <env_id>    (password field set)
+#       Step CA JWK Controller <env_id>  (password field set)
+#   The document attachment on the Root item is created by THIS playbook.
+# - `op` CLI installed on the controller, OP_SERVICE_ACCOUNT_TOKEN set.
+#
+# SCOPE
+# -----
+# Runs on localhost. Does NOT touch the step-ca container — that is
+# pki-stepca-bootstrap.yaml's job. The only side effects are
+# (a) writing public cert files to the repo, and (b) attaching the
+# encrypted private key to one 1Password item.
+
+- name: Bootstrap step-ca Root CA (controller-side)
+  hosts: localhost
+  connection: local
+  gather_facts: false
+
+  pre_tasks:
+    - name: Validate 1Password connectivity
+      ansible.builtin.include_tasks:
+        file: ../tasks/validate_onepassword.yaml
+
+    - name: Validate that step-ca is enabled for this environment
+      ansible.builtin.assert:
+        that:
+          - step_ca_enabled | default(false) | bool
+        fail_msg: |
+          step_ca_enabled is false for this environment overlay.
+          Refusing to bootstrap a Root CA that nothing will use. Set
+          step_ca_enabled: true in
+            configs.private/<env>/inventory/group_vars/all/pki-stepca.yaml
+          before running this playbook.
+
+    - name: Validate required step-ca variables
+      ansible.builtin.assert:
+        that:
+          - step_ca_env_id is defined and step_ca_env_id | length > 0
+          - step_ca_root_private_dir is defined
+          - step_ca_root_published_dir is defined
+          - step_ca_root_cert_filename is defined
+          - step_ca_op_item_root is defined
+          - step_ca_op_root_key_attachment is defined
+          - vault_step_ca is defined
+          - vault_step_ca.root_ca_password is defined
+        fail_msg: |
+          One or more required step-ca variables are missing. Confirm
+          configs/envbase/group_vars/all/pki-stepca.yaml is loaded and
+          the env overlay sets step_ca_env_id + step_ca_root_private_dir.
+
+    - name: Verify `op` CLI is available
+      ansible.builtin.command: op --version
+      register: _op_version
+      changed_when: false
+      check_mode: false
+
+  tasks:
+
+    # ------------------------------------------------------------------
+    # 1. Probe current state of all three artefacts.
+    # ------------------------------------------------------------------
+
+    - name: Ensure private PKI directory exists
+      ansible.builtin.file:
+        path: "{{ step_ca_root_private_dir }}"
+        state: directory
+        mode: "0700"
+
+    - name: Ensure published PKI directory exists
+      ansible.builtin.file:
+        path: "{{ step_ca_root_published_dir }}"
+        state: directory
+        mode: "0755"
+
+    - name: Probe — does private public-cert exist?
+      ansible.builtin.stat:
+        path: "{{ step_ca_root_private_dir }}/{{ step_ca_root_cert_filename }}"
+      register: _stepca_priv_cert_stat
+
+    - name: Probe — does published public-cert exist?
+      ansible.builtin.stat:
+        path: "{{ step_ca_root_published_dir }}/{{ step_ca_root_cert_filename }}"
+      register: _stepca_pub_cert_stat
+
+    - name: Probe — fetch 1Password root item metadata (JSON)
+      ansible.builtin.command:
+        argv:
+          - op
+          - item
+          - get
+          - "{{ step_ca_op_item_root }}"
+          - "--vault={{ op_vault_name }}"
+          - "--format=json"
+      register: _stepca_op_item_raw
+      changed_when: false
+      check_mode: false
+      no_log: true
+
+    - name: Determine whether root_ca.key.enc is attached to the 1P item
+      ansible.builtin.set_fact:
+        _stepca_attachment_present: >-
+          {{ (_stepca_op_item_raw.stdout | from_json).files | default([])
+             | selectattr('name', 'equalto', step_ca_op_root_key_attachment)
+             | list | length > 0 }}
+
+    - name: Summarise current bootstrap state
+      ansible.builtin.set_fact:
+        _stepca_state:
+          priv_cert: "{{ _stepca_priv_cert_stat.stat.exists }}"
+          pub_cert: "{{ _stepca_pub_cert_stat.stat.exists }}"
+          attachment: "{{ _stepca_attachment_present }}"
+
+    - name: Show current state
+      ansible.builtin.debug:
+        var: _stepca_state
+
+    # ------------------------------------------------------------------
+    # 2. Decision: full skip, fail (partial state), or full bootstrap.
+    # ------------------------------------------------------------------
+
+    - name: Skip — Root CA already bootstrapped (all artefacts present)
+      ansible.builtin.meta: end_play
+      when:
+        - _stepca_state.priv_cert
+        - _stepca_state.pub_cert
+        - _stepca_state.attachment
+
+    - name: Refuse partial state — manual reconciliation required
+      ansible.builtin.fail:
+        msg: |
+          Root CA artefacts are partially present:
+            private cert  ({{ step_ca_root_private_dir }}/{{ step_ca_root_cert_filename }}): {{ _stepca_state.priv_cert }}
+            published cert ({{ step_ca_root_published_dir }}/{{ step_ca_root_cert_filename }}): {{ _stepca_state.pub_cert }}
+            1P attachment ({{ step_ca_op_root_key_attachment }} on '{{ step_ca_op_item_root }}'): {{ _stepca_state.attachment }}
+
+          To re-bootstrap from scratch, REMOVE all three (this invalidates
+          every certificate the existing root has signed). To recover from
+          backup, restore the missing artefacts manually. This playbook
+          will not silently regenerate a Root CA.
+      when:
+        - (_stepca_state.priv_cert or _stepca_state.pub_cert or _stepca_state.attachment)
+
+    # ------------------------------------------------------------------
+    # 3. Fresh bootstrap — generate key + cert, encrypt, upload.
+    # ------------------------------------------------------------------
+
+    - name: Create secure temp dir for root key generation
+      ansible.builtin.tempfile:
+        state: directory
+        prefix: "stepca-root-"
+      register: _stepca_tmp
+
+    - name: Set working artefact paths
+      ansible.builtin.set_fact:
+        _stepca_key_plain: "{{ _stepca_tmp.path }}/root_ca.key"
+        _stepca_key_enc:   "{{ _stepca_tmp.path }}/{{ step_ca_op_root_key_attachment }}"
+        _stepca_csr:       "{{ _stepca_tmp.path }}/root_ca.csr"
+        _stepca_cert:      "{{ _stepca_tmp.path }}/root_ca.crt"
+
+    - name: Generate Root CA private key (ECDSA P-384, plain)
+      community.crypto.openssl_privatekey:
+        path: "{{ _stepca_key_plain }}"
+        type: "{{ step_ca_root_key_type }}"
+        curve: "{{ step_ca_root_key_curve }}"
+        mode: "0600"
+
+    - name: Generate Root CA CSR
+      community.crypto.openssl_csr:
+        path: "{{ _stepca_csr }}"
+        privatekey_path: "{{ _stepca_key_plain }}"
+        common_name: "{{ step_ca_root_cn }}"
+        basic_constraints:
+          - "CA:TRUE"
+        basic_constraints_critical: true
+        key_usage:
+          - keyCertSign
+          - cRLSign
+        key_usage_critical: true
+        use_common_name_for_san: false
+        mode: "0644"
+
+    - name: Generate self-signed Root CA certificate
+      community.crypto.x509_certificate:
+        path: "{{ _stepca_cert }}"
+        privatekey_path: "{{ _stepca_key_plain }}"
+        csr_path: "{{ _stepca_csr }}"
+        provider: selfsigned
+        selfsigned_not_after: "+{{ step_ca_root_validity_days | int }}d"
+        mode: "0644"
+
+    - name: Encrypt Root CA private key with passphrase from 1Password
+      ansible.builtin.command:
+        argv:
+          - openssl
+          - enc
+          - -aes-256-cbc
+          - -pbkdf2
+          - -iter
+          - "100000"
+          - -salt
+          - -in
+          - "{{ _stepca_key_plain }}"
+          - -out
+          - "{{ _stepca_key_enc }}"
+          - -pass
+          - "stdin"
+        stdin: "{{ vault_step_ca.root_ca_password }}"
+      no_log: true
+      changed_when: true
+
+    - name: Set restrictive permissions on encrypted key
+      ansible.builtin.file:
+        path: "{{ _stepca_key_enc }}"
+        mode: "0600"
+
+    - name: Upload encrypted Root CA key as attachment to 1P item
+      # `op item edit` with `field[file]=path` adds (or replaces) a
+      # file attachment named <field> on the existing item. We use the
+      # attachment filename itself as the field label so subsequent
+      # runs can locate it via the `files[]` array in `op item get`.
+      #
+      # NOTE on TTY: `op item edit` (>=2.x) inspects stdin and, when it
+      # is NOT a TTY, attempts to parse it as a JSON edit payload —
+      # failing with "[ERROR] invalid JSON provided" under Ansible
+      # regardless of whether stdin is closed, /dev/null, or fed "{}".
+      # We wrap the call in `script(1)` to allocate a pseudo-TTY so op
+      # takes the argv-only path, matching the behaviour observed when
+      # the same command is run by hand in a terminal.
+      ansible.builtin.command:
+        argv:
+          - script
+          - -qfc
+          - >-
+            op item edit
+            --vault={{ op_vault_name | quote }}
+            --format=json
+            {{ step_ca_op_item_root | quote }}
+            {{ (step_ca_op_root_key_attachment ~ '[file]=' ~ _stepca_key_enc) | quote }}
+          - /dev/null
+      changed_when: true
+      no_log: false
+
+    - name: Publish Root CA public cert to private (source-of-truth) dir
+      ansible.builtin.copy:
+        src: "{{ _stepca_cert }}"
+        dest: "{{ step_ca_root_private_dir }}/{{ step_ca_root_cert_filename }}"
+        mode: "0644"
+
+    - name: Publish Root CA public cert to envbase published dir
+      ansible.builtin.copy:
+        src: "{{ _stepca_cert }}"
+        dest: "{{ step_ca_root_published_dir }}/{{ step_ca_root_cert_filename }}"
+        mode: "0644"
+
+    - name: Wipe plaintext private key (best effort)
+      ansible.builtin.command:
+        argv:
+          - shred
+          - -uz
+          - "{{ _stepca_key_plain }}"
+      changed_when: true
+      failed_when: false
+
+    - name: Remove temp working directory
+      ansible.builtin.file:
+        path: "{{ _stepca_tmp.path }}"
+        state: absent
+
+  post_tasks:
+    - name: Bootstrap complete — next steps
+      ansible.builtin.debug:
+        msg:
+          - "Root CA bootstrap complete for env_id='{{ step_ca_env_id }}'."
+          - "Public cert: {{ step_ca_root_private_dir }}/{{ step_ca_root_cert_filename }}"
+          - "Encrypted private key uploaded to 1P item '{{ step_ca_op_item_root }}' as attachment '{{ step_ca_op_root_key_attachment }}'."
+          - "Next: deploy step-ca container via Terraform, then run pki-stepca-bootstrap.yaml to sign the Intermediate CA."

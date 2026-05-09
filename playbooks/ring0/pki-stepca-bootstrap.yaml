@@ -1,0 +1,539 @@
+---
+# Ring 0 — Bootstrap the step-ca container ($STEPPATH initialisation +
+# Intermediate CA signing).
+#
+# Runs AFTER:
+#   - playbooks/ring0/pki-stepca-bootstrap-root.yaml  (Root CA exists in 1P + repo)
+#   - terraform apply on ring0 (the `step-ca` container is created STOPPED on peladin)
+#   - the MikroTik continuous-config has provisioned the static DNS entry
+#     `dev.step-ca.<localdomain>` → ip_plan_hosts.step_ca (envlocaldev only)
+#
+# What this playbook does (all idempotent):
+#   1. Verify the step-ca container exists on the target Incus remote.
+#      On the FIRST run the container is expected to be stopped
+#      (Terraform sets `running = false` for the initial bootstrap so
+#      the smallstep entrypoint does not crash-loop on an empty
+#      $STEPPATH). After the first successful run the operator flips
+#      `running = true` in ring0.tfvars.
+#   2. If $STEPPATH/config/ca.json already exists inside the container
+#      → skip initialisation; just ensure the container is running and
+#      smoke-test /health.
+#   3. Otherwise:
+#       a. Fetch the encrypted Root CA private key (1P document attachment)
+#          to a temporary file on the controller, decrypt it locally.
+#       b. Generate a fresh Intermediate CA key on the controller, build
+#          a CSR, and sign it with the decrypted Root CA key
+#          (community.crypto.x509_certificate provider: ownca).
+#       c. Render `ca.json` + `defaults.json` from templates.
+#       d. Push:
+#            certs/root_ca.crt
+#            certs/intermediate_ca.crt
+#            secrets/intermediate_ca_key   (encrypted with intermediate password)
+#            secrets/password              (intermediate-key passphrase, file mode 0600)
+#            config/ca.json
+#            config/defaults.json
+#          into $STEPPATH inside the container via `incus file push`.
+#       e. Wipe all decrypted material from the controller temp dir.
+#   4. Start the container (or restart it if it was already running and
+#      we just reinitialised $STEPPATH); wait for /health to respond.
+#
+# IDEMPOTENCY: the only state that matters is `$STEPPATH/config/ca.json`
+# inside the container. If present → re-run is a no-op (start container
+# if stopped, then exit). To force a re-init, `incus file delete` the
+# config file from the container before re-running (or destroy/recreate
+# the container's `steppath` volume).
+#
+# SECURITY: the Root CA private key only exists in plaintext on the
+# controller for the duration of one task run, in a tmpfile created with
+# mode 0700 and shred'd at the end. It is NEVER copied into the
+# container — the container only holds the Intermediate CA key.
+
+- name: Bootstrap step-ca container ($STEPPATH + Intermediate)
+  hosts: localhost
+  connection: local
+  gather_facts: false
+
+  vars:
+    # Convenience aliases — kept short and play-local.
+    _stepca_remote: "{{ step_ca_target_remote }}"
+    _stepca_remote_prefix: "{{ (_stepca_remote + ':') if _stepca_remote != 'local' else '' }}"
+    _stepca_instance: "step-ca"
+    _stepca_project: "default"
+    _stepca_steppath: "{{ step_ca_steppath }}"
+
+  pre_tasks:
+    - name: Validate 1Password connectivity
+      ansible.builtin.include_tasks:
+        file: ../tasks/validate_onepassword.yaml
+
+    - name: Validate step-ca is enabled
+      ansible.builtin.assert:
+        that:
+          - step_ca_enabled | default(false) | bool
+        fail_msg: "step_ca_enabled is false; refusing to bootstrap container."
+
+    - name: Validate required step-ca variables
+      ansible.builtin.assert:
+        that:
+          - step_ca_env_id is defined and step_ca_env_id | length > 0
+          - step_ca_hostname is defined and step_ca_hostname | length > 0
+          - ip_plan_hosts.step_ca is defined
+          - step_ca_root_private_dir is defined
+          - step_ca_root_cert_filename is defined
+          - step_ca_op_item_root is defined
+          - step_ca_op_root_key_attachment is defined
+          - vault_step_ca.root_ca_password is defined
+          - vault_step_ca.intermediate_password is defined
+          - vault_step_ca.jwk_controller_password is defined
+
+    - name: Verify Root CA public cert exists on controller
+      ansible.builtin.stat:
+        path: "{{ step_ca_root_private_dir }}/{{ step_ca_root_cert_filename }}"
+      register: _root_pub_stat
+      failed_when: not _root_pub_stat.stat.exists
+
+    - name: Verify step-ca container exists on target remote
+      ansible.builtin.command:
+        argv:
+          - incus
+          - info
+          - "{{ _stepca_remote_prefix }}{{ _stepca_instance }}"
+          - "--project={{ _stepca_project }}"
+      register: _stepca_info
+      changed_when: false
+      check_mode: false
+      failed_when: _stepca_info.rc != 0
+
+  tasks:
+
+    # ------------------------------------------------------------------
+    # 1. Idempotency probe.
+    # ------------------------------------------------------------------
+
+    - name: Probe — does $STEPPATH/config/ca.json exist inside the container?
+      ansible.builtin.command:
+        argv:
+          - incus
+          - exec
+          - "{{ _stepca_remote_prefix }}{{ _stepca_instance }}"
+          - "--project={{ _stepca_project }}"
+          - "--"
+          - test
+          - -f
+          - "{{ _stepca_steppath }}/config/ca.json"
+      register: _stepca_cajson
+      changed_when: false
+      failed_when: false
+      check_mode: false
+
+    - name: Set bootstrap-needed flag
+      ansible.builtin.set_fact:
+        _stepca_needs_init: "{{ _stepca_cajson.rc != 0 }}"
+
+    # ------------------------------------------------------------------
+    # 2. Initialisation block (skipped on re-runs).
+    # ------------------------------------------------------------------
+
+    - name: Initialise $STEPPATH and sign Intermediate CA
+      when: _stepca_needs_init
+      block:
+
+        - name: Create secure temp dir for bootstrap material
+          ansible.builtin.tempfile:
+            state: directory
+            prefix: "stepca-init-"
+          register: _stepca_tmp
+
+        - name: Set working artefact paths
+          ansible.builtin.set_fact:
+            _root_key_enc:    "{{ _stepca_tmp.path }}/root_ca.key.enc"
+            _root_key_plain:  "{{ _stepca_tmp.path }}/root_ca.key"
+            _root_cert:       "{{ _stepca_tmp.path }}/root_ca.crt"
+            _int_key:         "{{ _stepca_tmp.path }}/intermediate_ca.key"
+            _int_key_enc:     "{{ _stepca_tmp.path }}/intermediate_ca.key.enc"
+            _int_csr:         "{{ _stepca_tmp.path }}/intermediate_ca.csr"
+            _int_cert:        "{{ _stepca_tmp.path }}/intermediate_ca.crt"
+            _int_pwd_file:    "{{ _stepca_tmp.path }}/password"
+            _ca_json:         "{{ _stepca_tmp.path }}/ca.json"
+            _defaults_json:   "{{ _stepca_tmp.path }}/defaults.json"
+
+        - name: Stage Root CA public cert for signing
+          ansible.builtin.copy:
+            src: "{{ step_ca_root_private_dir }}/{{ step_ca_root_cert_filename }}"
+            dest: "{{ _root_cert }}"
+            mode: "0644"
+
+        # ----- Fetch + decrypt Root CA private key from 1Password -----
+
+        - name: Fetch encrypted Root CA private key from 1Password (script wrapper for TTY)
+          ansible.builtin.command:
+            argv:
+              - script
+              - -qfc
+              - >-
+                op read
+                "op://{{ op_vault_name }}/{{ step_ca_op_item_root }}/{{ step_ca_op_root_key_attachment }}"
+                --out-file {{ _root_key_enc | quote }}
+              - /dev/null
+          changed_when: true
+          no_log: true
+
+        - name: Decrypt Root CA private key (controller-local only)
+          ansible.builtin.command:
+            argv:
+              - openssl
+              - enc
+              - -d
+              - -aes-256-cbc
+              - -pbkdf2
+              - -iter
+              - "100000"
+              - -in
+              - "{{ _root_key_enc }}"
+              - -out
+              - "{{ _root_key_plain }}"
+              - -pass
+              - "stdin"
+            stdin: "{{ vault_step_ca.root_ca_password }}"
+          no_log: true
+          changed_when: true
+
+        - name: Lock down decrypted Root CA key
+          ansible.builtin.file:
+            path: "{{ _root_key_plain }}"
+            mode: "0600"
+
+        # ----- Generate + sign Intermediate CA -----
+
+        - name: Generate Intermediate CA private key (plain, in temp dir)
+          community.crypto.openssl_privatekey:
+            path: "{{ _int_key }}"
+            type: "{{ step_ca_intermediate_key_type }}"
+            curve: "{{ step_ca_intermediate_key_curve }}"
+            mode: "0600"
+
+        - name: Generate Intermediate CA CSR
+          community.crypto.openssl_csr:
+            path: "{{ _int_csr }}"
+            privatekey_path: "{{ _int_key }}"
+            common_name: "{{ step_ca_intermediate_cn }}"
+            basic_constraints:
+              - "CA:TRUE"
+              - "pathlen:0"
+            basic_constraints_critical: true
+            key_usage:
+              - keyCertSign
+              - cRLSign
+            key_usage_critical: true
+            use_common_name_for_san: false
+            mode: "0644"
+
+        - name: Sign Intermediate CA cert with Root CA (ownca)
+          community.crypto.x509_certificate:
+            path: "{{ _int_cert }}"
+            csr_path: "{{ _int_csr }}"
+            ownca_path: "{{ _root_cert }}"
+            ownca_privatekey_path: "{{ _root_key_plain }}"
+            provider: ownca
+            ownca_not_after: "+{{ step_ca_intermediate_validity_days | int }}d"
+            mode: "0644"
+
+        - name: Encrypt Intermediate CA private key with passphrase
+          ansible.builtin.command:
+            argv:
+              - openssl
+              - pkcs8
+              - -topk8
+              - -v2
+              - aes-256-cbc
+              - -in
+              - "{{ _int_key }}"
+              - -out
+              - "{{ _int_key_enc }}"
+              - -passout
+              - "stdin"
+            stdin: "{{ vault_step_ca.intermediate_password }}"
+          no_log: true
+          changed_when: true
+
+        - name: Lock down encrypted Intermediate key
+          ansible.builtin.file:
+            path: "{{ _int_key_enc }}"
+            mode: "0600"
+
+        - name: Stage password file (intermediate key passphrase) for container
+          ansible.builtin.copy:
+            content: "{{ vault_step_ca.intermediate_password }}"
+            dest: "{{ _int_pwd_file }}"
+            mode: "0600"
+          no_log: true
+
+        # ----- Render ca.json + defaults.json from templates -----
+        # (templates live in playbooks/ring0/templates/; provisioners are
+        # populated by the Ring 0a configure playbook.)
+
+        - name: Render minimal ca.json (provisioners empty; populated by Ring 0a)
+          ansible.builtin.template:
+            src: pki-stepca-ca.json.j2
+            dest: "{{ _ca_json }}"
+            mode: "0644"
+
+        - name: Render defaults.json (used by `step` CLI inside the container)
+          ansible.builtin.template:
+            src: pki-stepca-defaults.json.j2
+            dest: "{{ _defaults_json }}"
+            mode: "0644"
+
+        # ----- Push everything into the container -----
+        # The container has a custom Incus volume mounted at $STEPPATH.
+        # `incus file push` to a STOPPED container writes to the rootfs,
+        # which is then SHADOWED by the volume mount when the container
+        # starts — so the smallstep entrypoint sees an empty $STEPPATH
+        # and exits with "no ca.json".
+        #
+        # Workaround: temporarily override the OCI entrypoint to a
+        # sleep-forever command, start the container so the volume is
+        # actually mounted, push files into the live mount, then stop
+        # the container, restore the original entrypoint, and let the
+        # final start/restart task at the end of the play boot it
+        # cleanly with a populated $STEPPATH.
+
+        - name: Override OCI entrypoint to keep container alive during file push
+          ansible.builtin.command:
+            argv:
+              - incus
+              - config
+              - set
+              - "{{ _stepca_remote_prefix }}{{ _stepca_instance }}"
+              - "--project={{ _stepca_project }}"
+              - "oci.entrypoint=/bin/sh -c 'sleep infinity'"
+          changed_when: true
+
+        - name: Start step-ca container with bootstrap entrypoint
+          ansible.builtin.command:
+            argv:
+              - incus
+              - start
+              - "{{ _stepca_remote_prefix }}{{ _stepca_instance }}"
+              - "--project={{ _stepca_project }}"
+          changed_when: true
+
+        - name: Wait briefly for container to be ready for exec
+          ansible.builtin.pause:
+            seconds: 3
+
+        - name: Ensure $STEPPATH subdirs exist inside the running container
+          ansible.builtin.command:
+            argv:
+              - incus
+              - exec
+              - "{{ _stepca_remote_prefix }}{{ _stepca_instance }}"
+              - "--project={{ _stepca_project }}"
+              - "--"
+              - sh
+              - -c
+              - >-
+                mkdir -p
+                {{ _stepca_steppath }}/certs
+                {{ _stepca_steppath }}/secrets
+                {{ _stepca_steppath }}/config
+                {{ _stepca_steppath }}/db
+                && chmod 0700 {{ _stepca_steppath }}/secrets
+          changed_when: true
+
+        - name: Push Root CA public cert into container
+          ansible.builtin.command:
+            argv:
+              - incus
+              - file
+              - push
+              - "--mode=0644"
+              - "{{ _root_cert }}"
+              - "{{ _stepca_remote_prefix }}{{ _stepca_instance }}/{{ _stepca_steppath[1:] }}/certs/root_ca.crt"
+              - "--project={{ _stepca_project }}"
+          changed_when: true
+
+        - name: Push Intermediate CA cert into container
+          ansible.builtin.command:
+            argv:
+              - incus
+              - file
+              - push
+              - "--mode=0644"
+              - "{{ _int_cert }}"
+              - "{{ _stepca_remote_prefix }}{{ _stepca_instance }}/{{ _stepca_steppath[1:] }}/certs/intermediate_ca.crt"
+              - "--project={{ _stepca_project }}"
+          changed_when: true
+
+        - name: Push encrypted Intermediate CA key into container
+          ansible.builtin.command:
+            argv:
+              - incus
+              - file
+              - push
+              - "--mode=0600"
+              - "{{ _int_key_enc }}"
+              - "{{ _stepca_remote_prefix }}{{ _stepca_instance }}/{{ _stepca_steppath[1:] }}/secrets/intermediate_ca_key"
+              - "--project={{ _stepca_project }}"
+          changed_when: true
+          no_log: true
+
+        - name: Push intermediate-key passphrase file into container
+          ansible.builtin.command:
+            argv:
+              - incus
+              - file
+              - push
+              - "--mode=0600"
+              - "{{ _int_pwd_file }}"
+              - "{{ _stepca_remote_prefix }}{{ _stepca_instance }}/{{ _stepca_steppath[1:] }}/secrets/password"
+              - "--project={{ _stepca_project }}"
+          changed_when: true
+          no_log: true
+
+        - name: Push ca.json into container
+          ansible.builtin.command:
+            argv:
+              - incus
+              - file
+              - push
+              - "--mode=0644"
+              - "{{ _ca_json }}"
+              - "{{ _stepca_remote_prefix }}{{ _stepca_instance }}/{{ _stepca_steppath[1:] }}/config/ca.json"
+              - "--project={{ _stepca_project }}"
+          changed_when: true
+
+        - name: Push defaults.json into container
+          ansible.builtin.command:
+            argv:
+              - incus
+              - file
+              - push
+              - "--mode=0644"
+              - "{{ _defaults_json }}"
+              - "{{ _stepca_remote_prefix }}{{ _stepca_instance }}/{{ _stepca_steppath[1:] }}/config/defaults.json"
+          changed_when: true
+
+        - name: Chown $STEPPATH to step:step (smallstep image runs as uid 1000)
+          ansible.builtin.command:
+            argv:
+              - incus
+              - exec
+              - "{{ _stepca_remote_prefix }}{{ _stepca_instance }}"
+              - "--project={{ _stepca_project }}"
+              - "--"
+              - chown
+              - "-R"
+              - "step:step"
+              - "{{ _stepca_steppath }}"
+          changed_when: true
+
+        - name: Stop container before restoring real entrypoint
+          ansible.builtin.command:
+            argv:
+              - incus
+              - stop
+              - "--force"
+              - "{{ _stepca_remote_prefix }}{{ _stepca_instance }}"
+              - "--project={{ _stepca_project }}"
+          changed_when: true
+
+        - name: Restore image-default entrypoint (remove bootstrap override)
+          ansible.builtin.command:
+            argv:
+              - incus
+              - config
+              - unset
+              - "{{ _stepca_remote_prefix }}{{ _stepca_instance }}"
+              - "--project={{ _stepca_project }}"
+              - "oci.entrypoint"
+          changed_when: true
+
+      always:
+        - name: Wipe plaintext Root CA key from controller (best effort)
+          ansible.builtin.command:
+            argv:
+              - shred
+              - -uz
+              - "{{ _root_key_plain | default('') }}"
+          changed_when: true
+          failed_when: false
+          when: _stepca_tmp is defined and _stepca_tmp.path is defined
+
+        - name: Remove temp working dir
+          ansible.builtin.file:
+            path: "{{ _stepca_tmp.path }}"
+            state: absent
+          when: _stepca_tmp is defined and _stepca_tmp.path is defined
+
+    # ------------------------------------------------------------------
+    # 3. Start (or restart) container + smoke test.
+    # ------------------------------------------------------------------
+    # Terraform creates the container with `running = false` for the
+    # initial bootstrap (the smallstep entrypoint would crash-loop with
+    # an empty $STEPPATH). After the first successful run the operator
+    # is expected to flip `running = true` in ring0.tfvars so subsequent
+    # `terraform apply` runs do not re-stop a working CA.
+    #
+    # On every run of THIS playbook:
+    #   - if the container is stopped → start it.
+    #   - if it is already running and we just reinitialised $STEPPATH
+    #     → restart it so the entrypoint re-execs against the new config.
+
+    - name: Probe container running state
+      ansible.builtin.command:
+        argv:
+          - incus
+          - list
+          - "{{ _stepca_remote_prefix }}{{ _stepca_instance }}"
+          - "--project={{ _stepca_project }}"
+          - "--format=csv"
+          - "--columns=s"
+      register: _stepca_state
+      changed_when: false
+      check_mode: false
+
+    - name: Start step-ca container if stopped
+      ansible.builtin.command:
+        argv:
+          - incus
+          - start
+          - "{{ _stepca_remote_prefix }}{{ _stepca_instance }}"
+          - "--project={{ _stepca_project }}"
+      when: "'RUNNING' not in (_stepca_state.stdout | upper)"
+      changed_when: true
+
+    - name: Restart already-running step-ca to pick up new $STEPPATH
+      ansible.builtin.command:
+        argv:
+          - incus
+          - restart
+          - "--force"
+          - "{{ _stepca_remote_prefix }}{{ _stepca_instance }}"
+          - "--project={{ _stepca_project }}"
+      when:
+        - _stepca_needs_init
+        - "'RUNNING' in (_stepca_state.stdout | upper)"
+      changed_when: true
+
+    - name: Wait for step-ca health endpoint (TLS, self-signed by intermediate)
+      # The /health endpoint returns 200 once step-ca is fully initialised.
+      # We point at the container's LAN IP rather than the DNS name to keep
+      # this step independent of the MikroTik DNS having converged.
+      ansible.builtin.uri:
+        url: "https://{{ ip_plan_hosts.step_ca }}/health"
+        validate_certs: false
+        return_content: false
+        status_code: 200
+      register: _stepca_health
+      retries: 30
+      delay: 2
+      until: _stepca_health.status == 200
+
+  post_tasks:
+    - name: Bootstrap complete — next steps
+      ansible.builtin.debug:
+        msg:
+          - "step-ca container is initialised and serving on https://{{ step_ca_hostname }}/"
+          - "Container address: https://{{ ip_plan_hosts.step_ca }}/"
+          - "Next: run playbooks/ring0a/pki-stepca-configure.yaml to add the JWK + ACME provisioners."
