@@ -107,7 +107,8 @@
          (_storage_files_changed | default(false) | bool) or
          (_hacs_repos_write_needed | default(false) | bool) or
          (_hacs_data_write_needed | default(false) | bool) or
-         (_mqtt_entry_write_needed | default(false) | bool) }}
+         (_mqtt_entry_write_needed | default(false) | bool) or
+         (_ha_tls_changed | default(false) | bool) }}
 
 - name: Display restart decision
   ansible.builtin.debug:

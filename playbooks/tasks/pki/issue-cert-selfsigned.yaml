@@ -1,0 +1,95 @@
+---
+# Reusable primitive: issue a self-signed X.509 certificate on the
+# controller. Output artefacts (cert + key + CSR) land in `pki_cert_dir`
+# on the controller host.
+#
+# This task is ring-agnostic — any ring's playbook may include it. The
+# caller is responsible for shipping the resulting files to the target
+# host and for triggering whatever service reload is needed.
+#
+# --- Input contract -----------------------------------------------------
+#   pki_cert_dir            (string, required)  Directory on controller
+#                                               where the artefacts live.
+#                                               Created with mode 0700 if
+#                                               missing.
+#   pki_cert_filename       (string, required)  e.g. "homeassistant.crt"
+#   pki_key_filename        (string, required)  e.g. "homeassistant.key"
+#   pki_cert_cn             (string, required)  Common Name.
+#   pki_cert_sans           (list,   required)  Subject Alt Names (DNS).
+#                                               First entry should
+#                                               typically equal pki_cert_cn.
+#   pki_cert_validity_days  (int,    default 3650)
+#   pki_cert_key_size       (int,    default 4096)  RSA key size.
+#
+# --- Output -------------------------------------------------------------
+#   pki_cert_changed        (bool)  True if the cert/key/csr were
+#                                   (re)generated on this run. Callers
+#                                   use this to decide whether to ship
+#                                   the new artefacts to the target.
+#
+# --- Idempotency --------------------------------------------------------
+#   - openssl_privatekey only generates if the key file is missing.
+#   - openssl_csr regenerates only when CN or SAN list changes.
+#   - x509_certificate (selfsigned) regenerates only when the CSR/key
+#     change. Validity period is NOT re-evaluated for an existing cert;
+#     delete the .crt to force a fresh validity window.
+
+- name: Validate self-signed primitive inputs
+  ansible.builtin.assert:
+    that:
+      - pki_cert_dir is defined and pki_cert_dir | length > 0
+      - pki_cert_filename is defined and pki_cert_filename | length > 0
+      - pki_key_filename is defined and pki_key_filename | length > 0
+      - pki_cert_cn is defined and pki_cert_cn | length > 0
+      - pki_cert_sans is defined
+      - pki_cert_sans | length > 0
+    fail_msg: >
+      issue-cert-selfsigned.yaml: required input variables missing.
+      Caller must supply pki_cert_dir, pki_cert_filename, pki_key_filename,
+      pki_cert_cn, and pki_cert_sans (non-empty list).
+  delegate_to: localhost
+  run_once: true
+
+- name: Ensure local PKI directory exists on controller
+  ansible.builtin.file:
+    path: "{{ pki_cert_dir }}"
+    state: directory
+    mode: "0700"
+  delegate_to: localhost
+
+- name: Generate private key (controller, self-signed primitive)
+  community.crypto.openssl_privatekey:
+    path: "{{ pki_cert_dir }}/{{ pki_key_filename }}"
+    size: "{{ pki_cert_key_size | default(4096) | int }}"
+    type: RSA
+    mode: "0600"
+  delegate_to: localhost
+  register: _pki_selfsigned_key
+
+- name: Generate CSR (controller, self-signed primitive)
+  community.crypto.openssl_csr:
+    path: "{{ pki_cert_dir }}/{{ pki_cert_filename | regex_replace('\\.crt$', '') }}.csr"
+    privatekey_path: "{{ pki_cert_dir }}/{{ pki_key_filename }}"
+    common_name: "{{ pki_cert_cn }}"
+    subject_alt_name: "{{ pki_cert_sans | map('regex_replace', '^(.*)$', 'DNS:\\1') | list }}"
+    mode: "0644"
+  delegate_to: localhost
+  register: _pki_selfsigned_csr
+
+- name: Generate self-signed certificate (controller, self-signed primitive)
+  community.crypto.x509_certificate:
+    path: "{{ pki_cert_dir }}/{{ pki_cert_filename }}"
+    privatekey_path: "{{ pki_cert_dir }}/{{ pki_key_filename }}"
+    csr_path: "{{ pki_cert_dir }}/{{ pki_cert_filename | regex_replace('\\.crt$', '') }}.csr"
+    provider: selfsigned
+    selfsigned_not_after: "+{{ pki_cert_validity_days | default(3650) | int }}d"
+    mode: "0644"
+  delegate_to: localhost
+  register: _pki_selfsigned_cert
+
+- name: Set pki_cert_changed output fact
+  ansible.builtin.set_fact:
+    pki_cert_changed: >-
+      {{ (_pki_selfsigned_key is changed)
+         or (_pki_selfsigned_csr is changed)
+         or (_pki_selfsigned_cert is changed) }}

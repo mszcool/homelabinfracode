@@ -1,6 +1,15 @@
 # Loads default set of integrations. Do not remove.
 default_config:
 
+{% if ha_tls_enabled | default(false) | bool %}
+# HTTPS for the HA frontend. Cert + key are deployed by
+# playbooks/ring1/tasks/ha-deploy-tls.yaml. When `ha_tls_enabled` is
+# false (envbase default) this block disappears and HA serves plain HTTP.
+http:
+  ssl_certificate: {{ ha_tls_remote_dir }}/{{ ha_tls_cert_filename }}
+  ssl_key: {{ ha_tls_remote_dir }}/{{ ha_tls_key_filename }}
+
+{% endif %}
 # Load frontend themes from the themes folder
 frontend:
   themes: !include_dir_merge_named themes

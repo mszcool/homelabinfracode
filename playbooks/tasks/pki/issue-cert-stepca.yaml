@@ -1,0 +1,31 @@
+---
+# Reusable primitive: issue an X.509 certificate from the homelab
+# step-ca instance.
+#
+# STATUS: STUB. Real implementation lands together with the Ring 0
+# step-ca bootstrap (playbooks/ring0/pki-stepca-bootstrap.yaml) and
+# the Ring 0a continuous-config playbook. Until then, any caller that
+# selects the stepca issuer will fail fast here with a clear message.
+#
+# --- Input contract (must match issue-cert-selfsigned.yaml) -----------
+#   pki_cert_dir            (string, required)
+#   pki_cert_filename       (string, required)
+#   pki_key_filename        (string, required)
+#   pki_cert_cn             (string, required)
+#   pki_cert_sans           (list,   required)
+#   pki_cert_validity_days  (int,    default 90)
+#   pki_cert_key_size       (int,    default 4096)  RSA fallback only
+#
+# --- Output -----------------------------------------------------------
+#   pki_cert_changed        (bool)  True if the cert/key were
+#                                   (re)issued on this run.
+
+- name: step-ca issuance not implemented yet
+  ansible.builtin.fail:
+    msg: |
+      issue-cert-stepca.yaml is a placeholder. The step-ca infrastructure
+      has not been bootstrapped yet. To proceed, either:
+        - set `ha_tls_issuer: selfsigned` for this environment, or
+        - finish Phase B of the step-ca rollout (Ring 0 bootstrap +
+          Ring 0a continuous configure) and replace this stub with the
+          real ACME / `step ca certificate` based implementation.
