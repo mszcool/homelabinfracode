@@ -14,42 +14,80 @@
                 {
                   "type": "heading",
                   "heading_style": "title",
-                  "heading": "Kontrolle im Garten"
+                  "heading": "Garten Hauptwasser (LinkTap oberer Bereich)"
                 },
                 {
                   "type": "tile",
-                  "entity": "input_boolean.garden_water_counter_1_target",
-                  "name": "Gartenwasser Schalter",
+                  "grid_options": {
+                    "columns": 9,
+                    "rows": 1
+                  },
+                  "entity": "input_boolean.garden_water_mainwater_desired_state",
+                  "name": "Schalter auf An/Aus stellen",
                   "icon": "mdi:water-outline",
                   "vertical": false,
                   "features_position": "bottom"
                 },
                 {
                   "type": "tile",
-                  "entity": "input_boolean.garden_water_counter_1_human_priority",
-                  "name": "Manuelle Bedienung (Garten)",
-                  "icon": "mdi:account-hard-hat",
+                  "entity": "binary_sensor.garten_hauptwasser_3da6c335004b1200_is_watering",
+                  "name": "Wasser läuft?",
+                  "state_content": [
+                    "last_changed",
+                    "state"
+                  ],
                   "vertical": false,
                   "features_position": "bottom"
+                },
+                {
+                  "type": "tile",
+                  "entity": "binary_sensor.garten_hauptwasser_3da6c335004b1200_is_manual_mode",
+                  "name": "manuell geschalten?",
+                  "icon": "mdi:account-hard-hat",
+                  "hide_state": false,
+                  "state_content": [
+                    "last_changed",
+                    "state"
+                  ],
+                  "vertical": false,
+                  "tap_action": {
+                    "action": "more-info"
+                  },
+                  "icon_tap_action": {
+                    "action": "more-info"
+                  },
+                  "features_position": "bottom",
+                  "grid_options": {
+                    "columns": 9,
+                    "rows": 1
+                  }
                 },
                 {
                   "type": "tile",
                   "entity": "input_boolean.attribute_water_to_pool",
                   "name": "Wasser Pool zuordnen",
                   "vertical": false,
-                  "features_position": "bottom"
+                  "features_position": "bottom",
+                  "grid_options": {
+                    "columns": 9,
+                    "rows": 1
+                  }
                 },
                 {
                   "type": "tile",
-                  "entity": "sensor.garden_water_counter_1_battery",
-                  "name": "Batterie Wasser Garten",
+                  "entity": "sensor.garten_hauptwasser_3da6c335004b1200_battery",
+                  "name": "Batteriestand",
                   "vertical": false,
                   "features_position": "bottom"
                 },
                 {
                   "type": "tile",
-                  "entity": "sensor.garden_water_counter_1_last_irrigation_duration",
-                  "name": "Letzte Laufzeit",
+                  "grid_options": {
+                    "columns": 6,
+                    "rows": 1
+                  },
+                  "entity": "sensor.garten_hauptwasser_3da6c335004b1200_total_duration",
+                  "name": "letzte Laufzeit",
                   "vertical": false,
                   "features_position": "bottom"
                 }
@@ -204,20 +242,48 @@
                     "columns": 24
                   },
                   "graph_span": "24h",
+                  "yaxis": [
+                    {
+                      "id": "depthCm",
+                      "min": 20,
+                      "max": 80,
+                      "apex_config": {
+                        "stepSize": 5,
+                        "reversed": true
+                      }
+                    }
+                  ],
                   "apex_config": {
                     "chart": {
                       "height": "315px"
                     },
-                    "yaxis": {
-                      "reversed": true,
-                      "min": 0,
-                      "max": 90
+                    "annotations": {
+                      "position": "back",
+                      "yaxis": [
+                        {
+                          "y": 30,
+                          "borderColor": "blue",
+                          "strokeDashArray": 5,
+                          "label": {
+                            "text": "Maximum fill ~30cm from top"
+                          }
+                        },
+                        {
+                          "y": 70,
+                          "borderColor": "red",
+                          "strokeDashArray": 5,
+                          "label": {
+                            "text": "Minimum fill ~70cm from ground (needs re-fill)"
+                          }
+                        }
+                      ]
                     }
                   },
                   "series": [
                     {
                       "entity": "sensor.pool_tank_depth_sensor_pool_tank_water_level",
-                      "color": "cyan"
+                      "color": "cyan",
+                      "yaxis_id": "depthCm"
                     }
                   ]
                 }

@@ -83,53 +83,53 @@ ha_addons:
           database: homeassistant
   - slug: a0d7b954_vscode
     name: Studio Code Server
-  - slug: "45df7312_zigbee2mqtt"
-    name: Zigbee2MQTT
-    # The Z2M Hass.io add-on accepts the following root keys in its
-    # options schema: data_path (required), mqtt, serial, socat,
-    # watchdog. Everything else (advanced, frontend, homeassistant,
-    # devices, ...) lives in the add-on's `configuration.yaml` and is
-    # owned by Z2M / the user.
-    #
-    # NOTE: settings pushed here OVERRIDE the same key in
-    # `configuration.yaml`. So once we manage `mqtt` and `serial` from
-    # Ansible, do not also edit them via the Z2M frontend.
-    options:
-      # Required by the add-on schema. /config/zigbee2mqtt is the
-      # add-on's documented default and the path Z2M uses for its
-      # database, coordinator backup, and configuration.yaml. Changing
-      # it on an existing install would orphan the device database, so
-      # leave at the default.
-      data_path: /config/zigbee2mqtt
-      mqtt:
-        base_topic: zigbee
-        server: "mqtt://{{ ha_mqtt_broker }}:{{ ha_mqtt_port }}"
-        user: "{{ ha_mqtt_username }}"
-        password: "{{ ha_mqtt_password }}"
-      serial:
-        adapter: zstack
-        port: "{{ zigbee_zstack_adapter_address_and_port }}"
-      # The add-on schema requires the `socat` block to be present
-      # even when unused. Disabled here -- the serial adapter is
-      # already exposed over TCP by an external bridge, so Z2M does
-      # not need its own socat forwarder. The other fields carry the
-      # add-on's documented defaults to satisfy the schema.
-      socat:
-        enabled: false
-        master: "pty,raw,echo=0,link=/tmp/ttyZ2M,mode=777"
-        slave: "tcp-listen:8485,keepalive,nodelay,reuseaddr,keepidle=1,keepintvl=1,keepcnt=5"
-        options: "-d -d"
-        log: false
-      # Watchdog retry delays in MINUTES (comma-separated). Restart
-      # Z2M after 2, 4, 8, 16, 32 then 60 min if the adapter drops -- a
-      # 2-minute first interval matches the user's preference and the
-      # escalating tail prevents log spam if the adapter stays gone.
-      watchdog: "2,4,8,16,32,60"
-    manual_steps:
-      - "Open the Zigbee2MQTT add-on > OPEN WEB UI and complete the"
-      - "onboarding wizard: select your USB adapter, pick the Closest"
-      - "WiFi Channel, and enable HA MQTT discovery by setting"
-      - "`homeassistant: enabled: true` in the Z2M config."
+  # - slug: "45df7312_zigbee2mqtt"
+  #   name: Zigbee2MQTT
+  #   # The Z2M Hass.io add-on accepts the following root keys in its
+  #   # options schema: data_path (required), mqtt, serial, socat,
+  #   # watchdog. Everything else (advanced, frontend, homeassistant,
+  #   # devices, ...) lives in the add-on's `configuration.yaml` and is
+  #   # owned by Z2M / the user.
+  #   #
+  #   # NOTE: settings pushed here OVERRIDE the same key in
+  #   # `configuration.yaml`. So once we manage `mqtt` and `serial` from
+  #   # Ansible, do not also edit them via the Z2M frontend.
+  #   options:
+  #     # Required by the add-on schema. /config/zigbee2mqtt is the
+  #     # add-on's documented default and the path Z2M uses for its
+  #     # database, coordinator backup, and configuration.yaml. Changing
+  #     # it on an existing install would orphan the device database, so
+  #     # leave at the default.
+  #     data_path: /config/zigbee2mqtt
+  #     mqtt:
+  #       base_topic: zigbee
+  #       server: "mqtt://{{ ha_mqtt_broker }}:{{ ha_mqtt_port }}"
+  #       user: "{{ ha_mqtt_username }}"
+  #       password: "{{ ha_mqtt_password }}"
+  #     serial:
+  #       adapter: zstack
+  #       port: "{{ zigbee_zstack_adapter_address_and_port }}"
+  #     # The add-on schema requires the `socat` block to be present
+  #     # even when unused. Disabled here -- the serial adapter is
+  #     # already exposed over TCP by an external bridge, so Z2M does
+  #     # not need its own socat forwarder. The other fields carry the
+  #     # add-on's documented defaults to satisfy the schema.
+  #     socat:
+  #       enabled: false
+  #       master: "pty,raw,echo=0,link=/tmp/ttyZ2M,mode=777"
+  #       slave: "tcp-listen:8485,keepalive,nodelay,reuseaddr,keepidle=1,keepintvl=1,keepcnt=5"
+  #       options: "-d -d"
+  #       log: false
+  #     # Watchdog retry delays in MINUTES (comma-separated). Restart
+  #     # Z2M after 2, 4, 8, 16, 32 then 60 min if the adapter drops -- a
+  #     # 2-minute first interval matches the user's preference and the
+  #     # escalating tail prevents log spam if the adapter stays gone.
+  #     watchdog: "2,4,8,16,32,60"
+  #   manual_steps:
+  #     - "Open the Zigbee2MQTT add-on > OPEN WEB UI and complete the"
+  #     - "onboarding wizard: select your USB adapter, pick the Closest"
+  #     - "WiFi Channel, and enable HA MQTT discovery by setting"
+  #     - "`homeassistant: enabled: true` in the Z2M config."
 
 # ---------- Zigbee2MQTT serial adapter ----------
 # Z2M serial port for the zstack adapter. Override per environment
