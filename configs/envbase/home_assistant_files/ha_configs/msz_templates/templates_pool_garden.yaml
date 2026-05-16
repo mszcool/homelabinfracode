@@ -1,3 +1,7 @@
+  # ---------------------------------------------------------------------------
+  # Pool Energy sensors doing aggregates of the power and energy readings from
+  # the MQTT switches in the pool maintenance shaft.
+  # ---------------------------------------------------------------------------
   - sensor:
       # Combined instantaneous power draw of both pool Tasmota switches
       # (PumpLight + RedoxPH).
@@ -55,42 +59,43 @@
       # state in attributes), so nothing more is added in this regular
       # state-based block.
       # ---------------------------------------------------------------------
-# ---------------------------------------------------------------------------
-# Garden Water Current Cycle (trigger-based).
-#
-# Liters delivered during the current burst of flow. Designed so a line
-# chart rises while water is actually flowing and drops to 0 when flow
-# stops -- regardless of whether the Zigbee valve switch is on (the user
-# often leaves it open and gates flow externally with Gardena timers,
-# manual taps, etc.).
-#
-# The meter does NOT publish a usable instantaneous_demand reading on
-# this device, so "is flowing?" must be inferred purely from changes of
-# `summation_delivered`:
-#   * Each summation update means water flowed -> add the positive delta
-#     to the running cycle total and remember `now` as the last activity
-#     timestamp.
-#   * A time_pattern trigger fires once per minute and clears the cycle
-#     to 0 if no summation update has been seen for `stale_minutes`.
-#
-# `stale_minutes` is the only knob: increase it if your flow rate is so
-# low that several minutes pass between summation updates (chart would
-# otherwise zigzag). 2 min is safe for typical garden-irrigation rates.
-#
-# Device reset handling: when the Zigbee valve switch flips OFF -> ON the
-# device resets `summation_delivered` to 0. We catch the switch_on event
-# and zero `last_summation` so the next post-reset reading is treated as
-# a positive delta from 0 rather than a giant negative jump.
-# ---------------------------------------------------------------------------
+
+  # ---------------------------------------------------------------------------
+  # Garden Water Current Cycle (trigger-based).
+  #
+  # Liters delivered during the current burst of flow. Designed so a line
+  # chart rises while water is actually flowing and drops to 0 when flow
+  # stops -- regardless of whether the Zigbee valve switch is on (the user
+  # often leaves it open and gates flow externally with Gardena timers,
+  # manual taps, etc.).
+  #
+  # The meter does NOT publish a usable instantaneous_demand reading on
+  # this device, so "is flowing?" must be inferred purely from changes of
+  # `summation_delivered`:
+  #   * Each summation update means water flowed -> add the positive delta
+  #     to the running cycle total and remember `now` as the last activity
+  #     timestamp.
+  #   * A time_pattern trigger fires once per minute and clears the cycle
+  #     to 0 if no summation update has been seen for `stale_minutes`.
+  #
+  # `stale_minutes` is the only knob: increase it if your flow rate is so
+  # low that several minutes pass between summation updates (chart would
+  # otherwise zigzag). 2 min is safe for typical garden-irrigation rates.
+  #
+  # Device reset handling: when the Zigbee valve switch flips OFF -> ON the
+  # device resets `summation_delivered` to 0. We catch the switch_on event
+  # and zero `last_summation` so the next post-reset reading is treated as
+  # a positive delta from 0 rather than a giant negative jump.
+  # ---------------------------------------------------------------------------
   - trigger:
       - trigger: state
-        entity_id: sensor.garden_water_counter_1_water_consumed
+        entity_id: sensor.garten_hauptwasser_3da6c335004b1200_volume
         id: summation
       - trigger: time_pattern
         minutes: "/1"
         id: stale_check
       - trigger: state
-        entity_id: switch.garden_water_counter_1_state
+        entity_id: binary_sensor.garten_hauptwasser_3da6c335004b1200_is_watering
         to: "on"
         id: switch_on
     sensor:
@@ -181,60 +186,60 @@
               {{ attrs.get('last_change_at', none) }}
             {% endif %}
 
-# ---------------------------------------------------------------------------
-# Garden Water Consumption (lifetime cumulative liters).
-#
-# IMPORTANT: the underlying Z2M sensor
-# `sensor.garden_water_counter_1_water_consumed` is a PER-CYCLE counter,
-# not a lifetime counter. It starts at 0 each time the valve switches
-# OFF -> ON, climbs while water is flowing, then holds until the next
-# OFF -> ON. Feeding it directly into a `utility_meter` (as we used to)
-# loses an entire cycle's worth of water on every reset, because
-# utility_meter's `total_increasing` source semantics treat any
-# downward step as a meter reset and discard the previously
-# accumulated state.
-#
-# This trigger-based template wraps the per-cycle counter into a true
-# monotonically-increasing lifetime counter that is safe to feed into
-# `utility_meter`. Feed THIS sensor (not the raw Z2M one) into:
-#   - `garden_water_daily`   utility_meter
-#   - `garden_water_monthly` utility_meter
-#
-# Algorithm (matches the user's stream-of-values reasoning):
-#   * On every `summation` (per-cycle counter update):
-#       current >= last_summation  -> add (current - last_summation)
-#                                     (normal in-cycle flow)
-#       current <  last_summation  -> add `current`
-#                                     (we missed the OFF -> ON reset and
-#                                     the device is now back at a low
-#                                     value; the visible drop in the
-#                                     source is itself the new cycle's
-#                                     accumulation so far)
-#   * On `switch_on`: force last_summation = 0 so the next observed
-#     value is treated as a fresh delta from 0 (catches the case where
-#     the device is about to reset and the next reading is HIGHER than
-#     the previous cycle's high).
-#
-# Known imperfection: if HA misses the OFF -> ON event AND the next
-# observed value happens to be greater than the previous cycle's high,
-# we under-count by the missed cycle's first portion. This case is
-# observationally indistinguishable from "the device kept running and
-# the counter ticked further". Acceptable: relying on the switch_on
-# trigger covers it for any user-driven cycle, and the control loop
-# makes the switch entity reliable enough that this is a rare edge.
-#
-# First-run / cold-start: `last_summation` defaults to 0 on the very
-# first invocation (no prior attribute), so the first observed value
-# is fully added. This is a one-time over-count equal to whatever the
-# device was holding when the template first deployed -- the same
-# behavior as the existing Pool Water Consumption template.
-# ---------------------------------------------------------------------------
+  # ---------------------------------------------------------------------------
+  # Garden Water Consumption (lifetime cumulative liters).
+  #
+  # IMPORTANT: the underlying Z2M sensor
+  # `sensor.garden_water_counter_1_water_consumed` is a PER-CYCLE counter,
+  # not a lifetime counter. It starts at 0 each time the valve switches
+  # OFF -> ON, climbs while water is flowing, then holds until the next
+  # OFF -> ON. Feeding it directly into a `utility_meter` (as we used to)
+  # loses an entire cycle's worth of water on every reset, because
+  # utility_meter's `total_increasing` source semantics treat any
+  # downward step as a meter reset and discard the previously
+  # accumulated state.
+  #
+  # This trigger-based template wraps the per-cycle counter into a true
+  # monotonically-increasing lifetime counter that is safe to feed into
+  # `utility_meter`. Feed THIS sensor (not the raw Z2M one) into:
+  #   - `garden_water_daily`   utility_meter
+  #   - `garden_water_monthly` utility_meter
+  #
+  # Algorithm (matches the user's stream-of-values reasoning):
+  #   * On every `summation` (per-cycle counter update):
+  #       current >= last_summation  -> add (current - last_summation)
+  #                                     (normal in-cycle flow)
+  #       current <  last_summation  -> add `current`
+  #                                     (we missed the OFF -> ON reset and
+  #                                     the device is now back at a low
+  #                                     value; the visible drop in the
+  #                                     source is itself the new cycle's
+  #                                     accumulation so far)
+  #   * On `switch_on`: force last_summation = 0 so the next observed
+  #     value is treated as a fresh delta from 0 (catches the case where
+  #     the device is about to reset and the next reading is HIGHER than
+  #     the previous cycle's high).
+  #
+  # Known imperfection: if HA misses the OFF -> ON event AND the next
+  # observed value happens to be greater than the previous cycle's high,
+  # we under-count by the missed cycle's first portion. This case is
+  # observationally indistinguishable from "the device kept running and
+  # the counter ticked further". Acceptable: relying on the switch_on
+  # trigger covers it for any user-driven cycle, and the control loop
+  # makes the switch entity reliable enough that this is a rare edge.
+  #
+  # First-run / cold-start: `last_summation` defaults to 0 on the very
+  # first invocation (no prior attribute), so the first observed value
+  # is fully added. This is a one-time over-count equal to whatever the
+  # device was holding when the template first deployed -- the same
+  # behavior as the existing Pool Water Consumption template.
+  # ---------------------------------------------------------------------------
   - trigger:
       - trigger: state
-        entity_id: sensor.garden_water_counter_1_water_consumed
+        entity_id: sensor.garten_hauptwasser_3da6c335004b1200_volume
         id: summation
       - trigger: state
-        entity_id: switch.garden_water_counter_1_state
+        entity_id: binary_sensor.garten_hauptwasser_3da6c335004b1200_is_watering
         to: "on"
         id: switch_on
     sensor:
@@ -281,26 +286,26 @@
               {{ attrs.get('last_summation', 0) | float(0) }}
             {% endif %}
 
-# ---------------------------------------------------------------------------
-# Pool water attribution.
-#
-# Lifetime cumulative liters drawn from the garden tap that should be
-# attributed to the swimming pool. Only accumulates when
-# input_boolean.attribute_water_to_pool is ON. The switch state is no
-# longer checked: if the switch is off, summation_delivered does not
-# change and there is nothing to add anyway.
-#
-# Same race-condition handling as Garden Water Total Flow: a negative
-# delta (device reset between polls) is treated as "add current" rather
-# than discarded, so we don't drop the post-reset flow. We also listen
-# to switch->ON to resync the baseline before the device resets.
-# ---------------------------------------------------------------------------
+  # ---------------------------------------------------------------------------
+  # Pool water attribution.
+  #
+  # Lifetime cumulative liters drawn from the garden tap that should be
+  # attributed to the swimming pool. Only accumulates when
+  # input_boolean.attribute_water_to_pool is ON. The switch state is no
+  # longer checked: if the switch is off, summation_delivered does not
+  # change and there is nothing to add anyway.
+  #
+  # Same race-condition handling as Garden Water Total Flow: a negative
+  # delta (device reset between polls) is treated as "add current" rather
+  # than discarded, so we don't drop the post-reset flow. We also listen
+  # to switch->ON to resync the baseline before the device resets.
+  # ---------------------------------------------------------------------------
   - trigger:
       - trigger: state
-        entity_id: sensor.garden_water_counter_1_water_consumed
+        entity_id: sensor.garten_hauptwasser_3da6c335004b1200_volume
         id: summation
       - trigger: state
-        entity_id: switch.garden_water_counter_1_state
+        entity_id: binary_sensor.garten_hauptwasser_3da6c335004b1200_is_watering
         to: "on"
         id: switch_on
     sensor:
@@ -351,27 +356,27 @@
           attribution_active: >
             {{ is_state('input_boolean.attribute_water_to_pool', 'on') }}
 
-# ---------------------------------------------------------------------------
-# Pool Water Current Fill (trigger-based, gauge).
-#
-# Liters delivered to the pool during the current attributed fill burst.
-# Rises while water is actually flowing AND
-# input_boolean.attribute_water_to_pool is ON. Drops to 0 when:
-#   * flow has been stale for `stale_minutes` (no summation update), OR
-#   * the attribution boolean is turned OFF.
-#
-# Same stale-check pattern as Garden Water Current Cycle. Does NOT have a
-# device_class (would conflict with state_class: measurement).
-# ---------------------------------------------------------------------------
+  # ---------------------------------------------------------------------------
+  # Pool Water Current Fill (trigger-based, gauge).
+  #
+  # Liters delivered to the pool during the current attributed fill burst.
+  # Rises while water is actually flowing AND
+  # input_boolean.attribute_water_to_pool is ON. Drops to 0 when:
+  #   * flow has been stale for `stale_minutes` (no summation update), OR
+  #   * the attribution boolean is turned OFF.
+  #
+  # Same stale-check pattern as Garden Water Current Cycle. Does NOT have a
+  # device_class (would conflict with state_class: measurement).
+  # ---------------------------------------------------------------------------
   - trigger:
       - trigger: state
-        entity_id: sensor.garden_water_counter_1_water_consumed
+        entity_id: sensor.garten_hauptwasser_3da6c335004b1200_volume
         id: summation
       - trigger: time_pattern
         minutes: "/1"
         id: stale_check
       - trigger: state
-        entity_id: switch.garden_water_counter_1_state
+        entity_id: binary_sensor.garten_hauptwasser_3da6c335004b1200_is_watering
         to: "on"
         id: switch_on
       - trigger: state

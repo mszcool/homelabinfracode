@@ -1,12 +1,12 @@
 # Helpers managed via YAML so they live in the IaC repo and survive
 # rebuilds of the HA host. Toggleable from the UI like UI-created helpers.
 
+# When ON, water flowing through the garden valve is added to
+# sensor.pool_water_consumption. Toggle this manually before/after
+# filling the pool from the garden tap.
 attribute_water_to_pool:
   name: Attribute Water to Pool
   icon: mdi:pool
-  # When ON, water flowing through the garden valve is added to
-  # sensor.pool_water_consumption. Toggle this manually before/after
-  # filling the pool from the garden tap.
 
 # Desired-state helper for the Zigbee2MQTT garden water valve
 # (`switch.garden_water_counter_1_state`). The Z2M switch entity is
@@ -18,22 +18,6 @@ attribute_water_to_pool:
 # (msz_automations/autom-garden-water-counter-1.yaml) reconciles the
 # actual switch by publishing to the Z2M `set/state` topic and polling
 # the device-reported state until it matches.
-garden_water_counter_1_target:
+garden_water_mainwater_desired_state:
   name: Garden Water Valve (desired)
   icon: mdi:water-outline
-
-# Mode switch for the garden valve reconciliation automation.
-#   off (default): Home Assistant control loop owns the valve; the
-#                  device is continuously dragged toward
-#                  garden_water_counter_1_target. Manual toggles at
-#                  the device get reverted within ~30 s.
-#   on:            Human-control priority. The control loop is
-#                  disabled and the desired-state helper becomes a
-#                  read-only mirror of whatever the device reports.
-#                  Use when someone is physically operating the valve
-#                  in the garden and you do not want HA to override.
-# Restored across HA restarts so e.g. a "vacation = HA controls"
-# setting survives a host reboot.
-garden_water_counter_1_human_priority:
-  name: Garden Water Valve - Human Priority
-  icon: mdi:account-hard-hat

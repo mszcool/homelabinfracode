@@ -31,11 +31,11 @@
 # ---------------------------------------------------------------------
 # Mode A (human_priority OFF): control loop -- HA dictates the valve.
 # ---------------------------------------------------------------------
-- id: garden_water_counter_1_reconcile_loop
-  alias: "Garden Water Counter 1 - Reconcile control loop (HA mode)"
+- id: autom_garten_hauptwasser_3da6c335004b1200_water_switch_reconcile_loop
+  alias: "Garden Water Main - Reconcile control loop (HA mode)"
   description: >
     Continuously reconcile the device with the desired-state helper.
-    Publishes the desired state to the Z2M set topic only when the
+    Publishes the desired state to the Linktap Switch set topic only when the
     last reported device state differs from intent.
   mode: single
   max_exceeded: silent
@@ -43,7 +43,7 @@
     # Immediate reaction to user-driven toggles in HA mode -- no need
     # to wait up to 30 s for the next heartbeat.
     - platform: state
-      entity_id: input_boolean.garden_water_counter_1_target
+      entity_id: input_boolean.garden_water_mainwater_desired_state
       id: target_changed
     # Heartbeat: every 30 seconds, recheck and resend if needed.
     # Catches dropped commands, Z2M restarts, broker outages, and
@@ -52,34 +52,31 @@
       seconds: "/30"
       id: tick
   condition:
-    # Disabled entirely when human-priority mode is on.
+    # Do not run this if the human-override has been done on the Linktap device itself.
     - condition: state
-      entity_id: input_boolean.garden_water_counter_1_human_priority
+      entity_id: binary_sensor.garten_hauptwasser_3da6c335004b1200_is_manual_mode
       state: "off"
     # Skip when the device hasn't reported a usable state yet.
     - condition: template
       value_template: >-
-        {{ states('switch.garden_water_counter_1_state') in ['on', 'off'] }}
+        {{ states('binary_sensor.garten_hauptwasser_3da6c335004b1200_is_watering') in ['on', 'off'] }}
     # Only act when desired state and reported state disagree.
     - condition: template
       value_template: >-
-        {{ states('input_boolean.garden_water_counter_1_target')
-           != states('switch.garden_water_counter_1_state') }}
+        {{ states('input_boolean.garden_water_mainwater_desired_state')
+           != states('binary_sensor.garten_hauptwasser_3da6c335004b1200_is_watering') }}
   action:
-    - service: mqtt.publish
-      data:
-        topic: "zigbee/Garden Water Counter 1/set/state"
-        payload: >-
-          {{ 'ON' if is_state('input_boolean.garden_water_counter_1_target',
-                              'on') else 'OFF' }}
-        qos: 0
-        retain: false
+    - service: >-
+        switch.turn_{{ states('input_boolean.garden_water_mainwater_desired_state') }}
+      data: {}
+      target:
+        entity_id: switch.garten_hauptwasser_3da6c335004b1200_water_switch
 
-# ---------------------------------------------------------------------
-# Mode B (human_priority ON): mirror device state into the helper.
-# ---------------------------------------------------------------------
-- id: garden_water_counter_1_mirror_device_to_target
-  alias: "Garden Water Counter 1 - Mirror device into target (Human mode)"
+# ---------------------------------------------------------------------------
+# Mirror the state of human override as tracked by Linktap to Home Assistant.
+# ---------------------------------------------------------------------------
+- id: autom_garten_hauptwasser_3da6c335004b1200_water_switch_mirror_device_to_target
+  alias: "Garden Water Main - Mirror device into target (Human mode)"
   description: >
     While human-priority is ON, copy the device-reported state into the
     helper so the dashboard reflects reality. The control loop is
@@ -87,60 +84,23 @@
   mode: single
   trigger:
     - platform: state
-      entity_id: switch.garden_water_counter_1_state
+      entity_id: binary_sensor.garten_hauptwasser_3da6c335004b1200_is_manual_mode
       to: "on"
       id: switch_on
     - platform: state
-      entity_id: switch.garden_water_counter_1_state
+      entity_id: binary_sensor.garten_hauptwasser_3da6c335004b1200_is_manual_mode
       to: "off"
       id: switch_off
   condition:
-    - condition: state
-      entity_id: input_boolean.garden_water_counter_1_human_priority
-      state: "on"
     # Skip when helper already matches -- harmless but avoids log noise.
     - condition: template
       value_template: >-
-        {{ states('input_boolean.garden_water_counter_1_target')
-           != states('switch.garden_water_counter_1_state') }}
+        {{ states('input_boolean.garden_water_mainwater_desired_state')
+           != states('binary_sensor.garten_hauptwasser_3da6c335004b1200_is_manual_mode') }}
   action:
     - service: "input_boolean.turn_{{ 'on' if trigger.id == 'switch_on' else 'off' }}"
       target:
-        entity_id: input_boolean.garden_water_counter_1_target
-
-# ---------------------------------------------------------------------
-# Mode-transition sync: OFF -> ON.
-#
-# When the user flips human-priority on, the helper might still be at
-# whatever the loop was driving toward and disagree with the device.
-# Snap it to the device once so the dashboard immediately shows
-# reality (instead of waiting for the next device report, which on a
-# battery valve could be hours away).
-# ---------------------------------------------------------------------
-- id: garden_water_counter_1_sync_on_priority_enabled
-  alias: "Garden Water Counter 1 - Sync target when entering Human mode"
-  description: >
-    On OFF -> ON transition of human-priority, snap the desired-state
-    helper to the device's current reported state.
-  mode: single
-  trigger:
-    - platform: state
-      entity_id: input_boolean.garden_water_counter_1_human_priority
-      from: "off"
-      to: "on"
-  condition:
-    - condition: template
-      value_template: >-
-        {{ states('switch.garden_water_counter_1_state') in ['on', 'off'] }}
-    - condition: template
-      value_template: >-
-        {{ states('input_boolean.garden_water_counter_1_target')
-           != states('switch.garden_water_counter_1_state') }}
-  action:
-    - service: >-
-        input_boolean.turn_{{ states('switch.garden_water_counter_1_state') }}
-      target:
-        entity_id: input_boolean.garden_water_counter_1_target
+        entity_id: input_boolean.garden_water_mainwater_desired_state
 
 # ---------------------------------------------------------------------
 # Startup sync (mode-independent).
@@ -152,8 +112,8 @@
 # the helper to the device's current state on startup, then let the
 # active mode take over.
 # ---------------------------------------------------------------------
-- id: garden_water_counter_1_sync_target_on_startup
-  alias: "Garden Water Counter 1 - Sync target on HA startup"
+- id: autom_garten_hauptwasser_3da6c335004b1200_water_sync_target_on_startup
+  alias: "Garden Water Main - Sync target on HA startup"
   description: >
     On HA start, snap the desired-state helper to whatever the Z2M
     switch reports so a restart never changes the physical valve.
@@ -163,14 +123,14 @@
       event: start
   action:
     - wait_template: >-
-        {{ states('switch.garden_water_counter_1_state') not in
+        {{ states('binary_sensor.garten_hauptwasser_3da6c335004b1200_is_watering') not in
            ['unknown', 'unavailable', 'none', None] }}
       timeout: "00:02:00"
       continue_on_timeout: true
     - condition: template
       value_template: >-
-        {{ states('switch.garden_water_counter_1_state') in ['on', 'off'] }}
+        {{ states('binary_sensor.garten_hauptwasser_3da6c335004b1200_is_watering') in ['on', 'off'] }}
     - service: >-
-        input_boolean.turn_{{ states('switch.garden_water_counter_1_state') }}
+        input_boolean.turn_{{ states('binary_sensor.garten_hauptwasser_3da6c335004b1200_is_watering') }}
       target:
-        entity_id: input_boolean.garden_water_counter_1_target
+        entity_id: input_boolean.garden_water_mainwater_desired_state
