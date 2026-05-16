@@ -119,7 +119,10 @@
                       "id": "ph",
                       "min": 6.5,
                       "max": 8,
-                      "decimals": 1
+                      "decimals": 1,
+                      "apex_config": {
+                        "tickAmount": 15
+                      }
                     }
                   ],
                   "apex_config": {
@@ -181,7 +184,10 @@
                       "id": "salt",
                       "min": 2500,
                       "max": 5500,
-                      "decimals": 1
+                      "decimals": 1,
+                      "apex_config": {
+                        "tickAmount": 10
+                      }
                     }
                   ],
                   "apex_config": {
@@ -242,8 +248,11 @@
                     {
                       "id": "redox",
                       "min": 800,
-                      "max": 500,
-                      "decimals": 1
+                      "max": 400,
+                      "decimals": 1,
+                      "apex_config": {
+                        "tickAmount": 20
+                      }
                     }
                   ],
                   "apex_config": {
@@ -301,6 +310,7 @@
                       "id": "temp",
                       "min": 15,
                       "max": 35,
+                      "decimals": 0,
                       "apex_config": {
                         "tickAmount": 20,
                         "labels": {
@@ -361,7 +371,7 @@
                   "type": "custom:apexcharts-card",
                   "header": {
                     "show": true,
-                    "title": "Pool Tank Level (cm to ground - target 65 cm to 40 cm)",
+                    "title": "Pool Tank Level (cm to ground)",
                     "show_states": true,
                     "colorize_states": true
                   },
@@ -370,20 +380,48 @@
                     "columns": 24
                   },
                   "graph_span": "24h",
+                  "yaxis": [
+                    {
+                      "id": "depthCm",
+                      "min": 20,
+                      "max": 80,
+                      "apex_config": {
+                        "stepSize": 5,
+                        "reversed": true
+                      }
+                    }
+                  ],
                   "apex_config": {
                     "chart": {
                       "height": "315px"
                     },
-                    "yaxis": {
-                      "reversed": true,
-                      "min": 0,
-                      "max": 90
+                    "annotations": {
+                      "position": "back",
+                      "yaxis": [
+                        {
+                          "y": 30,
+                          "borderColor": "blue",
+                          "strokeDashArray": 5,
+                          "label": {
+                            "text": "Maximum fill ~30cm from top"
+                          }
+                        },
+                        {
+                          "y": 70,
+                          "borderColor": "red",
+                          "strokeDashArray": 5,
+                          "label": {
+                            "text": "Minimum fill ~70cm from ground (needs re-fill)"
+                          }
+                        }
+                      ]
                     }
                   },
                   "series": [
                     {
                       "entity": "sensor.pool_tank_depth_sensor_pool_tank_water_level",
-                      "color": "cyan"
+                      "color": "cyan",
+                      "yaxis_id": "depthCm"
                     }
                   ]
                 },
