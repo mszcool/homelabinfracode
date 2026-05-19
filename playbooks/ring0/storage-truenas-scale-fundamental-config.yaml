@@ -69,14 +69,14 @@
     - name: Configure SSH key for admin account
       ansible.builtin.command:
         cmd: >
-          midclt call user.update {{ admin_user_query.stdout | from_json | first | json_query('id') }}
+          midclt call user.update {{ (admin_user_query.stdout | from_json | first).id }}
           '{"sshpubkey": "{{ truenas_admin_ssh_pubkey }}\n"}'
       when: (admin_user_query.stdout | from_json | length) > 0
 
     - name: Update admin account password from 1Password vault
       ansible.builtin.command:
         cmd: >
-          midclt call user.update {{ admin_user_query.stdout | from_json | first | json_query('id') }}
+          midclt call user.update {{ (admin_user_query.stdout | from_json | first).id }}
           '{"password": "{{ truenas_admin_password }}"}'
       when:
         - (admin_user_query.stdout | from_json | length) > 0
