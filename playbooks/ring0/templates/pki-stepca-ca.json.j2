@@ -15,8 +15,8 @@
     "provisioners": [],
     "claims": {
       "minTLSCertDuration":     "5m",
-      "maxTLSCertDuration":     "{{ step_ca_leaf_validity_days }}h0m0s",
-      "defaultTLSCertDuration": "{{ step_ca_leaf_validity_days }}h0m0s"
+      "maxTLSCertDuration":     "{{ step_ca_leaf_validity_days * 24 }}h0m0s",
+      "defaultTLSCertDuration": "{{ step_ca_leaf_validity_days * 24 }}h0m0s"
     }
   },
   "tls": {

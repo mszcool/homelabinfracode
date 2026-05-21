@@ -52,7 +52,7 @@ step_ca_url: "https://{{ step_ca_hostname }}"
 # for the step-ca container. Centralised here so Ansible playbooks can
 # re-derive paths without duplicating literals.
 step_ca_image: "docker:smallstep/step-ca:0.28.5"
-step_ca_target_remote: "incus.peladin.mszlocal"
+step_ca_target_remote: ""  # Override per env (e.g., "incus.peladin.mszlocal")
 
 # Persistent $STEPPATH inside the container. Mounted from a dedicated
 # Incus volume so re-creating the container never destroys the
@@ -86,15 +86,44 @@ step_ca_intermediate_key_curve: "secp384r1"
 step_ca_intermediate_validity_days: 1825   # 5 years
 step_ca_intermediate_cn: "Homelab {{ step_ca_env_id }} Intermediate CA"
 
-# Leaf certificates: 90 days, renewed by the consumer playbooks well
-# before expiry. Matches Let's Encrypt's window so habits transfer.
-step_ca_leaf_validity_days: 90
+# Leaf certificates: 397 days (≈13 months — matches the CA/Browser
+# Forum maximum for publicly-trusted TLS leaves, comfortable headroom
+# for consumers that renew annually rather than continuously).
+# Consumer playbooks pass `pki_cert_validity_days` per request; this
+# value is the CA-side ceiling enforced via authority.claims.
+step_ca_leaf_validity_days: 397
 
 # ---------- Provisioners ----------
 # JWK provisioner used by Ansible automation. Password lives in
 # vault_step_ca.jwk_controller_password. Issued certs are restricted by
 # the SAN policy below.
+#
+# How a JWK provisioner works in step-ca:
+#   1. A JSON Web Key (JWK) keypair is generated. The PUBLIC half goes
+#      into `ca.json` under provisioners[].key so step-ca can verify
+#      tokens. The PRIVATE half is JWE-encrypted with the provisioner
+#      password and ALSO stored in ca.json under provisioners[].encryptedKey
+#      so any client with just the password can sign tokens — no need
+#      to distribute the private key file out-of-band.
+#   2. To request a cert, a client builds a short-lived JWT (subject =
+#      cert CN, SANs = requested SANs) and signs it with the decrypted
+#      JWK private key. `step ca certificate --provisioner ansible-controller`
+#      does this transparently given --provisioner-password-file=...
+#   3. The SAN policy below limits which DNS names the JWK can mint
+#      certs for, so a compromised password cannot issue certs outside
+#      the homelab namespace.
+#
+# We generate an EC P-256 JWK (the step CLI default for --use sig).
 step_ca_jwk_provisioner_name: "ansible-controller"
+step_ca_jwk_kty: "EC"
+step_ca_jwk_crv: "P-256"
+
+# 1Password document attachments on the "Step CA JWK Controller <env_id>"
+# item — backup of the JWK pair so the provisioner survives a ca.json
+# loss without rotation. Ring 0a writes these on first run and reads
+# them on subsequent runs if ca.json was wiped.
+step_ca_op_jwk_pub_attachment: "jwkpub"
+step_ca_op_jwk_priv_attachment: "jwkpriv"
 
 # ACME provisioner for services that natively speak ACME (e.g., Caddy,
 # Traefik, certbot). Future use; created by Ring 0a so adding it here
@@ -104,11 +133,44 @@ step_ca_acme_provisioner_name: "homelab-acme"
 # SAN policy — restrict what names step-ca will sign so a compromised
 # provisioner password cannot be used to mint certificates for arbitrary
 # domains.
+#
+# step-ca DNS allow-list rules (per https://smallstep.com/docs/step-ca/policies/
+# and confirmed empirically against v0.28.5):
+#   - The match is label-count-strict: a rule with N labels matches
+#     ONLY names with exactly N labels.
+#   - The wildcard `*` may appear only as the very first label, and
+#     only one wildcard per rule is permitted.
+#       - `*.example.com`             → matches `foo.example.com`
+#                                       (NOT `example.com`,
+#                                        NOT `foo.bar.example.com`)
+#       - `*.foo.example.com`         → matches `bar.foo.example.com`
+#       - `*.*.example.com`           → REJECTED at startup
+#                                       ("can only have wildcard as
+#                                        starting character")
+#       - `.example.com`              → REJECTED at startup
+#       - `**.example.com`            → REJECTED at startup
+#
+# Consequence: to allow 3-label names like `dev.homeassistant.mszlocal`
+# we must enumerate one rule per second-level service we operate
+# (`*.homeassistant.mszlocal`, `*.step-ca.mszlocal`, ...). The list
+# `step_ca_san_policy_service_subdomains` below carries those service
+# labels; each environment overlay can extend it without re-defining
+# the full policy.
+step_ca_san_policy_service_subdomains:
+  - homeassistant
+  - step-ca
+
 step_ca_san_policy:
   dns:
-    allow:
-      - "*.{{ localdomain }}"
-      - "*.local"
+    allow: "{{
+        [localdomain, '*.' ~ localdomain, 'local', '*.local']
+        + (step_ca_san_policy_service_subdomains
+            | map('regex_replace', '^(.+)$', '*.\\1.' ~ localdomain)
+            | list)
+        + (step_ca_san_policy_service_subdomains
+            | map('regex_replace', '^(.+)$', '*.\\1.local')
+            | list)
+      }}"
 
 # ---------- On-disk artefacts (controller) ----------
 # Source-of-truth location for the env's root CA public certificate.

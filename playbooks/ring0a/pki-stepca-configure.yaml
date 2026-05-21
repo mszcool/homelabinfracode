@@ -1,0 +1,648 @@
+---
+# Ring 0a — Continuous configuration of the step-ca instance.
+#
+# Adds and maintains:
+#   - the JWK provisioner used by the Ansible controller to mint
+#     certificates non-interactively (see `playbooks/tasks/pki/
+#     issue-cert-stepca.yaml`).
+#   - the SAN policy that limits which DNS names that provisioner is
+#     allowed to sign.
+#
+# Runs AFTER:
+#   - playbooks/ring0/pki-stepca-bootstrap-root.yaml
+#   - terraform apply on ring0 (step-ca container created)
+#   - playbooks/ring0/pki-stepca-bootstrap.yaml (container has a valid
+#     $STEPPATH/config/ca.json)
+#
+# What this playbook does (idempotent):
+#   1. Pull the current $STEPPATH/config/ca.json from the container,
+#      parse it.
+#   2. Probe whether a provisioner named
+#      `{{ step_ca_jwk_provisioner_name }}` already exists. If yes →
+#      skip generation, just verify the SAN policy block is current.
+#   3. Otherwise:
+#       a. Probe 1Password for `jwkpub` + `jwkpriv` attachments on the
+#          "Step CA JWK Controller <env_id>" item.
+#          - Both present → fetch them (recovery from a wiped ca.json
+#            without rotating the keypair).
+#          - Else → generate a fresh JWK INSIDE the container (the
+#            step CLI in the smallstep image is already installed),
+#            pull both halves to the controller, and upload them as
+#            1Password attachments for disaster recovery.
+#       b. Build the provisioner entry:
+#            { type: JWK,
+#              name: <step_ca_jwk_provisioner_name>,
+#              key: <public JWK JSON>,
+#              encryptedKey: <JWE blob from priv.json>,
+#              options.x509.allow.dns: <step_ca_san_policy.dns.allow> }
+#       c. Merge it into the provisioners array.
+#   4. Apply the SAN policy at the authority level as well (covers the
+#     case where additional provisioners are added later but should
+#     still be bound to the same allow-list).
+#   5. If the rendered ca.json differs from the on-container copy, push
+#      it back and restart step-ca, then wait for /health.
+#
+# IDEMPOTENCY: only writes ca.json if the rendered content differs.
+# Restarts the container only if ca.json was rewritten.
+#
+# SECURITY:
+#   - The plaintext JWK password is staged into a 0600 file on the
+#     controller for the lifetime of the JWK generation task and into
+#     /tmp inside the container; both are deleted in the `always` block.
+#   - The decrypted JWK private key NEVER touches the controller — only
+#     the JWE-encrypted blob (priv.json) is pulled, which is useless
+#     without `vault_step_ca.jwk_controller_password`.
+
+- name: Configure step-ca provisioners + SAN policy
+  hosts: localhost
+  connection: local
+  gather_facts: false
+
+  vars:
+    _stepca_remote: "{{ step_ca_target_remote }}"
+    _stepca_remote_prefix: "{{ (_stepca_remote + ':') if _stepca_remote != 'local' else '' }}"
+    _stepca_instance: "step-ca"
+    _stepca_project: "default"
+    _stepca_steppath: "{{ step_ca_steppath }}"
+    # Temporary paths INSIDE the container used for JWK generation.
+    _stepca_ctn_tmp_dir: "/tmp/stepca-jwk"
+    _stepca_ctn_jwk_pub: "{{ _stepca_ctn_tmp_dir }}/jwk.pub.json"
+    _stepca_ctn_jwk_priv: "{{ _stepca_ctn_tmp_dir }}/jwk.priv.json"
+    _stepca_ctn_jwk_pwd: "{{ _stepca_ctn_tmp_dir }}/jwk.pwd"
+
+  pre_tasks:
+    - name: Validate 1Password connectivity
+      ansible.builtin.include_tasks:
+        file: ../tasks/validate_onepassword.yaml
+
+    - name: Validate step-ca is enabled
+      ansible.builtin.assert:
+        that:
+          - step_ca_enabled | default(false) | bool
+        fail_msg: "step_ca_enabled is false; refusing to configure step-ca."
+
+    - name: Validate required step-ca variables
+      ansible.builtin.assert:
+        that:
+          - step_ca_env_id is defined and step_ca_env_id | length > 0
+          - step_ca_jwk_provisioner_name is defined
+          - step_ca_jwk_kty is defined
+          - step_ca_jwk_crv is defined
+          - step_ca_op_item_jwk is defined
+          - step_ca_op_jwk_pub_attachment is defined
+          - step_ca_op_jwk_priv_attachment is defined
+          - step_ca_san_policy is defined
+          - vault_step_ca.jwk_controller_password is defined
+
+    - name: Verify step-ca container exists on target remote
+      ansible.builtin.command:
+        argv:
+          - incus
+          - info
+          - "{{ _stepca_remote_prefix }}{{ _stepca_instance }}"
+          - "--project={{ _stepca_project }}"
+      register: _stepca_info
+      changed_when: false
+      check_mode: false
+      failed_when: _stepca_info.rc != 0
+
+  tasks:
+
+    # ------------------------------------------------------------------
+    # 0. Ensure the container is running so its $STEPPATH volume is
+    #    mounted and `incus file pull/push` can see ca.json.
+    #
+    #    If step-ca itself is crash-looping (e.g. we just pushed a
+    #    bad ca.json), the container will be stopped and `incus file`
+    #    operations fail with "file does not exist" because the volume
+    #    is not mounted on the rootfs. Use the same entrypoint-override
+    #    trick as the Ring 0 bootstrap to bring the container up with
+    #    a sleep entrypoint so the volume is mounted and we can read
+    #    + repair ca.json. We restore the real entrypoint at the end
+    #    of the play.
+    # ------------------------------------------------------------------
+
+    - name: Probe container running state
+      ansible.builtin.command:
+        argv:
+          - incus
+          - list
+          - "{{ _stepca_remote_prefix }}{{ _stepca_instance }}"
+          - "--project={{ _stepca_project }}"
+          - "--format=csv"
+          - "--columns=s"
+      register: _stepca_state_probe
+      changed_when: false
+      check_mode: false
+
+    - name: Determine whether container repair-mode is required
+      ansible.builtin.set_fact:
+        _stepca_repair_mode: "{{ 'RUNNING' not in (_stepca_state_probe.stdout | upper) }}"
+
+    - name: Container is stopped — bring it up with a sleep entrypoint for repair
+      when: _stepca_repair_mode
+      block:
+        - name: Override OCI entrypoint to keep container alive during repair
+          ansible.builtin.command:
+            argv:
+              - incus
+              - config
+              - set
+              - "{{ _stepca_remote_prefix }}{{ _stepca_instance }}"
+              - "--project={{ _stepca_project }}"
+              - "oci.entrypoint=/bin/sh -c 'sleep infinity'"
+          changed_when: true
+
+        - name: Start step-ca container with bootstrap entrypoint
+          ansible.builtin.command:
+            argv:
+              - incus
+              - start
+              - "{{ _stepca_remote_prefix }}{{ _stepca_instance }}"
+              - "--project={{ _stepca_project }}"
+          register: _stepca_repair_start
+          changed_when: _stepca_repair_start.rc == 0
+          failed_when:
+            - _stepca_repair_start.rc != 0
+            - "'already running' not in (_stepca_repair_start.stderr | default(''))"
+
+        - name: Wait briefly for container to be ready for file ops
+          ansible.builtin.pause:
+            seconds: 3
+
+    # ------------------------------------------------------------------
+    # 1. Pull and parse the current ca.json from the container.
+    # ------------------------------------------------------------------
+
+    - name: Create controller temp dir for ca.json work
+      ansible.builtin.tempfile:
+        state: directory
+        prefix: "stepca-cfg-"
+      register: _stepca_tmp
+
+    - name: Set working artefact paths
+      ansible.builtin.set_fact:
+        _ca_json_current: "{{ _stepca_tmp.path }}/ca.json.current"
+        _ca_json_desired: "{{ _stepca_tmp.path }}/ca.json.desired"
+        _jwk_pub_local:   "{{ _stepca_tmp.path }}/jwk.pub.json"
+        _jwk_priv_local:  "{{ _stepca_tmp.path }}/jwk.priv.json"
+        _jwk_pwd_local:   "{{ _stepca_tmp.path }}/jwk.pwd"
+
+    - name: Pull current ca.json from container
+      ansible.builtin.command:
+        argv:
+          - incus
+          - file
+          - pull
+          - "{{ _stepca_remote_prefix }}{{ _stepca_instance }}/{{ _stepca_steppath[1:] }}/config/ca.json"
+          - "{{ _ca_json_current }}"
+          - "--project={{ _stepca_project }}"
+      changed_when: false
+
+    - name: Parse current ca.json
+      ansible.builtin.set_fact:
+        _ca_json_obj: "{{ lookup('ansible.builtin.file', _ca_json_current) | from_json }}"
+
+    - name: Identify existing JWK provisioner (if any)
+      ansible.builtin.set_fact:
+        _existing_jwk: >-
+          {{ (_ca_json_obj.authority.provisioners | default([]))
+             | selectattr('type', 'defined')
+             | selectattr('type', 'equalto', 'JWK')
+             | selectattr('name', 'equalto', step_ca_jwk_provisioner_name)
+             | list }}
+
+    - name: Determine whether a fresh JWK keypair must be obtained
+      ansible.builtin.set_fact:
+        _jwk_needs_material: "{{ _existing_jwk | length == 0 }}"
+
+    # ------------------------------------------------------------------
+    # 2. Obtain JWK material (only if no matching provisioner exists).
+    # ------------------------------------------------------------------
+
+    - name: Obtain JWK keypair (1P recovery or fresh generation)
+      when: _jwk_needs_material
+      block:
+
+        - name: Probe — fetch 1Password JWK item metadata (JSON)
+          ansible.builtin.command:
+            argv:
+              - op
+              - item
+              - get
+              - "{{ step_ca_op_item_jwk }}"
+              - "--vault={{ op_vault_name }}"
+              - "--format=json"
+          register: _stepca_op_jwk_raw
+          changed_when: false
+          check_mode: false
+          no_log: true
+
+        - name: Determine which JWK attachments are present in 1P
+          ansible.builtin.set_fact:
+            _jwk_op_files: >-
+              {{ (_stepca_op_jwk_raw.stdout | from_json).files
+                 | default([]) | map(attribute='name') | list }}
+
+        - name: Set JWK source (recovery vs generate)
+          ansible.builtin.set_fact:
+            _jwk_recover_from_1p: >-
+              {{ (step_ca_op_jwk_pub_attachment in _jwk_op_files)
+                 and (step_ca_op_jwk_priv_attachment in _jwk_op_files) }}
+
+        # ---- 2a. Recovery path: pull both JWK files from 1P ----------
+
+        - name: Recover JWK public half from 1P (script wrapper for TTY)
+          ansible.builtin.command:
+            argv:
+              - script
+              - -qfc
+              - >-
+                op read
+                "op://{{ op_vault_name }}/{{ step_ca_op_item_jwk }}/{{ step_ca_op_jwk_pub_attachment }}"
+                --out-file {{ _jwk_pub_local | quote }}
+              - /dev/null
+          when: _jwk_recover_from_1p
+          changed_when: true
+          no_log: true
+
+        - name: Recover JWK private half from 1P (script wrapper for TTY)
+          ansible.builtin.command:
+            argv:
+              - script
+              - -qfc
+              - >-
+                op read
+                "op://{{ op_vault_name }}/{{ step_ca_op_item_jwk }}/{{ step_ca_op_jwk_priv_attachment }}"
+                --out-file {{ _jwk_priv_local | quote }}
+              - /dev/null
+          when: _jwk_recover_from_1p
+          changed_when: true
+          no_log: true
+
+        # ---- 2b. Generate path: use container's step CLI -------------
+        # The smallstep image (v0.28.5) ships /usr/local/bin/step. We
+        # stage a password file + scratch dir under /tmp inside the
+        # container (NOT under $STEPPATH so the volume can't persist
+        # leftover plaintext), run `step crypto jwk create`, pull the
+        # two output files to the controller, then wipe /tmp/stepca-jwk.
+
+        - name: Stage JWK password file on controller (mode 0600)
+          ansible.builtin.copy:
+            content: "{{ vault_step_ca.jwk_controller_password }}"
+            dest: "{{ _jwk_pwd_local }}"
+            mode: "0600"
+          when: not _jwk_recover_from_1p
+          no_log: true
+
+        - name: Ensure container-side scratch dir exists
+          ansible.builtin.command:
+            argv:
+              - incus
+              - exec
+              - "{{ _stepca_remote_prefix }}{{ _stepca_instance }}"
+              - "--project={{ _stepca_project }}"
+              - "--"
+              - sh
+              - -c
+              - >-
+                rm -rf {{ _stepca_ctn_tmp_dir }} &&
+                mkdir -p {{ _stepca_ctn_tmp_dir }} &&
+                chmod 0700 {{ _stepca_ctn_tmp_dir }}
+          when: not _jwk_recover_from_1p
+          changed_when: true
+
+        - name: Push JWK password file into container scratch dir
+          ansible.builtin.command:
+            argv:
+              - incus
+              - file
+              - push
+              - "--mode=0600"
+              - "{{ _jwk_pwd_local }}"
+              - "{{ _stepca_remote_prefix }}{{ _stepca_instance }}{{ _stepca_ctn_jwk_pwd }}"
+              - "--project={{ _stepca_project }}"
+          when: not _jwk_recover_from_1p
+          changed_when: true
+          no_log: true
+
+        - name: Generate JWK keypair inside the container
+          # `step crypto jwk create` writes the public key (cleartext
+          # JSON) to the first argument and the JWE-encrypted private
+          # key to the second. --use sig restricts it to signing.
+          ansible.builtin.command:
+            argv:
+              - incus
+              - exec
+              - "{{ _stepca_remote_prefix }}{{ _stepca_instance }}"
+              - "--project={{ _stepca_project }}"
+              - "--"
+              - step
+              - crypto
+              - jwk
+              - create
+              - "{{ _stepca_ctn_jwk_pub }}"
+              - "{{ _stepca_ctn_jwk_priv }}"
+              - "--use=sig"
+              - "--kty={{ step_ca_jwk_kty }}"
+              - "--crv={{ step_ca_jwk_crv }}"
+              - "--password-file={{ _stepca_ctn_jwk_pwd }}"
+              - "--force"
+          when: not _jwk_recover_from_1p
+          changed_when: true
+
+        - name: Pull JWK public half from container to controller
+          ansible.builtin.command:
+            argv:
+              - incus
+              - file
+              - pull
+              - "{{ _stepca_remote_prefix }}{{ _stepca_instance }}{{ _stepca_ctn_jwk_pub }}"
+              - "{{ _jwk_pub_local }}"
+              - "--project={{ _stepca_project }}"
+          when: not _jwk_recover_from_1p
+          changed_when: true
+
+        - name: Pull JWK private (JWE) half from container to controller
+          ansible.builtin.command:
+            argv:
+              - incus
+              - file
+              - pull
+              - "{{ _stepca_remote_prefix }}{{ _stepca_instance }}{{ _stepca_ctn_jwk_priv }}"
+              - "{{ _jwk_priv_local }}"
+              - "--project={{ _stepca_project }}"
+          when: not _jwk_recover_from_1p
+          changed_when: true
+
+        - name: Wipe container-side JWK scratch dir
+          ansible.builtin.command:
+            argv:
+              - incus
+              - exec
+              - "{{ _stepca_remote_prefix }}{{ _stepca_instance }}"
+              - "--project={{ _stepca_project }}"
+              - "--"
+              - rm
+              - "-rf"
+              - "{{ _stepca_ctn_tmp_dir }}"
+          when: not _jwk_recover_from_1p
+          changed_when: true
+
+        # ---- Upload freshly-generated JWK to 1P as DR backup ---------
+
+        - name: Upload JWK public half to 1Password (script wrapper for TTY)
+          ansible.builtin.command:
+            argv:
+              - script
+              - -qfc
+              - >-
+                op item edit
+                --vault={{ op_vault_name | quote }}
+                --format=json
+                {{ step_ca_op_item_jwk | quote }}
+                {{ (step_ca_op_jwk_pub_attachment ~ '[file]=' ~ _jwk_pub_local) | quote }}
+              - /dev/null
+          when: not _jwk_recover_from_1p
+          changed_when: true
+
+        - name: Upload JWK private (JWE) half to 1Password (script wrapper for TTY)
+          ansible.builtin.command:
+            argv:
+              - script
+              - -qfc
+              - >-
+                op item edit
+                --vault={{ op_vault_name | quote }}
+                --format=json
+                {{ step_ca_op_item_jwk | quote }}
+                {{ (step_ca_op_jwk_priv_attachment ~ '[file]=' ~ _jwk_priv_local) | quote }}
+              - /dev/null
+          when: not _jwk_recover_from_1p
+          changed_when: true
+          no_log: true
+
+    # ------------------------------------------------------------------
+    # 3. Build desired ca.json — inject JWK provisioner + SAN policy.
+    # ------------------------------------------------------------------
+
+    - name: Load JWK material into facts (when we just obtained it)
+      when: _jwk_needs_material
+      ansible.builtin.set_fact:
+        _jwk_pub_obj:  "{{ lookup('ansible.builtin.file', _jwk_pub_local) | from_json }}"
+        _jwk_priv_str: "{{ lookup('ansible.builtin.file', _jwk_priv_local) }}"
+
+    - name: Reuse existing JWK provisioner (when present already)
+      when: not _jwk_needs_material
+      ansible.builtin.set_fact:
+        _jwk_pub_obj:  "{{ _existing_jwk[0].key }}"
+        _jwk_priv_str: "{{ _existing_jwk[0].encryptedKey | default('') }}"
+
+    - name: Build desired JWK provisioner entry
+      ansible.builtin.set_fact:
+        _jwk_provisioner:
+          type: "JWK"
+          name: "{{ step_ca_jwk_provisioner_name }}"
+          key: "{{ _jwk_pub_obj }}"
+          encryptedKey: "{{ _jwk_priv_str }}"
+          options:
+            x509:
+              allow:
+                dns: "{{ step_ca_san_policy.dns.allow }}"
+
+    - name: Drop any previous instance of this JWK provisioner from the list
+      ansible.builtin.set_fact:
+        _provisioners_filtered: >-
+          {{ (_ca_json_obj.authority.provisioners | default([]))
+             | rejectattr('name', 'equalto', step_ca_jwk_provisioner_name)
+             | list }}
+
+    - name: Append our JWK provisioner
+      ansible.builtin.set_fact:
+        _provisioners_new: "{{ _provisioners_filtered + [_jwk_provisioner] }}"
+
+    - name: Build desired authority block (provisioners + SAN policy + leaf-duration claims)
+      # `claims` controls min/default/max leaf validity. Reconciled here
+      # (in addition to being rendered by the Ring 0 bootstrap template)
+      # so the operator can change `step_ca_leaf_validity_days` and have
+      # the update applied on the next Ring 0a run without re-bootstrapping
+      # the entire CA. Go duration has no `d` unit → multiply by 24 hours.
+      ansible.builtin.set_fact:
+        _authority_new: >-
+          {{ _ca_json_obj.authority
+             | combine({
+                 'provisioners': _provisioners_new,
+                 'policy': {
+                   'x509': {
+                     'allow': { 'dns': step_ca_san_policy.dns.allow }
+                   }
+                 },
+                 'claims': {
+                   'minTLSCertDuration':     '5m',
+                   'maxTLSCertDuration':     ((step_ca_leaf_validity_days | int) * 24) ~ 'h0m0s',
+                   'defaultTLSCertDuration': ((step_ca_leaf_validity_days | int) * 24) ~ 'h0m0s'
+                 }
+               }, recursive=True) }}
+
+    - name: Build desired ca.json document
+      ansible.builtin.set_fact:
+        _ca_json_new: "{{ _ca_json_obj | combine({'authority': _authority_new}, recursive=True) }}"
+
+    - name: Render desired ca.json to disk (pretty)
+      ansible.builtin.copy:
+        content: "{{ _ca_json_new | to_nice_json(indent=2) }}\n"
+        dest: "{{ _ca_json_desired }}"
+        mode: "0644"
+
+    # ------------------------------------------------------------------
+    # 4. Diff against current; push + restart only if changed.
+    # ------------------------------------------------------------------
+
+    - name: Compare desired ca.json to current
+      ansible.builtin.command:
+        argv:
+          - diff
+          - "-q"
+          - "{{ _ca_json_current }}"
+          - "{{ _ca_json_desired }}"
+      register: _ca_json_diff
+      changed_when: false
+      failed_when: false
+      check_mode: false
+
+    - name: Set ca.json-changed flag
+      ansible.builtin.set_fact:
+        _ca_json_changed: "{{ _ca_json_diff.rc != 0 }}"
+
+    - name: Push updated ca.json into container
+      when: _ca_json_changed
+      ansible.builtin.command:
+        argv:
+          - incus
+          - file
+          - push
+          - "--mode=0644"
+          - "{{ _ca_json_desired }}"
+          - "{{ _stepca_remote_prefix }}{{ _stepca_instance }}/{{ _stepca_steppath[1:] }}/config/ca.json"
+          - "--project={{ _stepca_project }}"
+      changed_when: true
+
+    - name: Chown ca.json back to step:step
+      when: _ca_json_changed
+      ansible.builtin.command:
+        argv:
+          - incus
+          - exec
+          - "{{ _stepca_remote_prefix }}{{ _stepca_instance }}"
+          - "--project={{ _stepca_project }}"
+          - "--"
+          - chown
+          - "step:step"
+          - "{{ _stepca_steppath }}/config/ca.json"
+      changed_when: true
+
+    - name: Restart step-ca container to reload ca.json
+      when:
+        - _ca_json_changed
+        - not _stepca_repair_mode
+      ansible.builtin.command:
+        argv:
+          - incus
+          - restart
+          - "--force"
+          - "{{ _stepca_remote_prefix }}{{ _stepca_instance }}"
+          - "--project={{ _stepca_project }}"
+      changed_when: true
+
+    # When we started the container ourselves with the sleep override,
+    # restore the image-default entrypoint and bring it back up cleanly
+    # so the smallstep entrypoint can re-execute against the (now
+    # repaired) ca.json. This branch is taken regardless of whether
+    # ca.json was changed — the entrypoint override must always be
+    # rolled back at the end of the play.
+    - name: Stop container before restoring real entrypoint (repair mode)
+      when: _stepca_repair_mode
+      ansible.builtin.command:
+        argv:
+          - incus
+          - stop
+          - "--force"
+          - "{{ _stepca_remote_prefix }}{{ _stepca_instance }}"
+          - "--project={{ _stepca_project }}"
+      register: _stepca_repair_stop
+      changed_when: _stepca_repair_stop.rc == 0
+      failed_when:
+        - _stepca_repair_stop.rc != 0
+        - "'is not running' not in (_stepca_repair_stop.stderr | default(''))"
+        - "'already stopped' not in (_stepca_repair_stop.stderr | default(''))"
+
+    - name: Restore image-default entrypoint (repair mode)
+      when: _stepca_repair_mode
+      ansible.builtin.command:
+        argv:
+          - incus
+          - config
+          - unset
+          - "{{ _stepca_remote_prefix }}{{ _stepca_instance }}"
+          - "--project={{ _stepca_project }}"
+          - "oci.entrypoint"
+      changed_when: true
+
+    - name: Start step-ca container with real entrypoint (repair mode)
+      when: _stepca_repair_mode
+      ansible.builtin.command:
+        argv:
+          - incus
+          - start
+          - "{{ _stepca_remote_prefix }}{{ _stepca_instance }}"
+          - "--project={{ _stepca_project }}"
+      register: _stepca_repair_final_start
+      changed_when: _stepca_repair_final_start.rc == 0
+      failed_when:
+        - _stepca_repair_final_start.rc != 0
+        - "'already running' not in (_stepca_repair_final_start.stderr | default(''))"
+
+    - name: Wait for step-ca health endpoint
+      ansible.builtin.uri:
+        url: "https://{{ ip_plan_hosts.step_ca }}/health"
+        validate_certs: false
+        return_content: false
+        status_code: 200
+      register: _stepca_health
+      retries: 30
+      delay: 2
+      until: _stepca_health.status == 200
+
+    - name: Verify JWK provisioner is advertised by the CA
+      ansible.builtin.uri:
+        url: "https://{{ ip_plan_hosts.step_ca }}/provisioners"
+        validate_certs: false
+        return_content: true
+        status_code: 200
+      register: _stepca_provisioners
+
+    - name: Assert JWK provisioner is present in the live CA
+      ansible.builtin.assert:
+        that:
+          - (_stepca_provisioners.json.provisioners | default([]))
+            | selectattr('name', 'equalto', step_ca_jwk_provisioner_name)
+            | list | length == 1
+        fail_msg: >-
+          step-ca did not report a JWK provisioner named
+          '{{ step_ca_jwk_provisioner_name }}' after reload.
+
+  post_tasks:
+    - name: Configure complete — summary
+      ansible.builtin.debug:
+        msg:
+          - "step-ca provisioner '{{ step_ca_jwk_provisioner_name }}' is configured."
+          - "SAN policy (dns.allow): {{ step_ca_san_policy.dns.allow }}"
+          - "ca.json changed this run: {{ _ca_json_changed }}"
+          - "JWK material obtained this run: {{ _jwk_needs_material }}"
+          - "Next: implement playbooks/tasks/pki/issue-cert-stepca.yaml and flip ha_tls_issuer: stepca."
+
+    - name: Remove controller temp working dir
+      ansible.builtin.file:
+        path: "{{ _stepca_tmp.path }}"
+        state: absent
+      when: _stepca_tmp is defined and _stepca_tmp.path is defined

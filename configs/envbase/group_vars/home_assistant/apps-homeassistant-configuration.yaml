@@ -354,6 +354,25 @@ ha_tls_validity_days: 3650
 #     - "dev-homeassistant.local"
 #     - "dev.homeassistant.{{ localdomain }}"
 
+# ---------- HA frontend URLs ----------
+# When TLS is on, HA refuses to infer its internal URL from request
+# headers and surfaces "Invalid local network URL" in Settings → Network
+# until `homeassistant.internal_url` is set to a name covered by the
+# cert. Default below picks the first SAN; override per env if a
+# different SAN should be the primary internal URL (e.g. the .mszlocal
+# LAN-DNS name rather than the .local mDNS one).
+ha_frontend_port: 8123
+ha_internal_url: >-
+  {%- if ha_tls_enabled | default(false) | bool and (ssl_cert_names | default([]) | length > 0) -%}
+  https://{{ ssl_cert_names[0] }}:{{ ha_frontend_port }}
+  {%- else -%}
+  http://{{ ha_hostname }}.local:{{ ha_frontend_port }}
+  {%- endif -%}
+# External URL is optional and only meaningful when HA is reachable
+# from the public internet (reverse-proxy / Nabu Casa). Leave empty
+# to omit the key.
+ha_external_url: ""
+
 # ---------- MariaDB recorder ----------
 # Override ha_mariadb_password and ha_recorder_db_url in environment config
 # (e.g. via 1Password / vault). The password is used both to configure the
