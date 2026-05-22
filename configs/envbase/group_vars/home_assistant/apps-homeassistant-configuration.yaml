@@ -312,8 +312,9 @@ ha_mqtt_password: ""
 #
 # Migration path to a real CA (Let's Encrypt, step-ca, ...) later only
 # changes the issuance task; the `http:` block in configuration.yaml and
-# the on-disk filenames at /ssl/ stay the same.
-ha_tls_enabled: true
+# the on-disk filenames at /ssl/ stay the same. Defaults to where we started
+# to avoid any un-intentional changes to existing production.
+ha_tls_enabled: false
 
 # Which issuer mints the HA cert. Switching this swaps which primitive
 # in playbooks/tasks/pki/ runs; the rest of the deploy flow is identical.
