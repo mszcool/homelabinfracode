@@ -49,6 +49,7 @@ This document covers both the infrastructure architecture (what physical and log
 | **Incus Compute Nodes** | Virtualization hosts (VMs + containers) | Bare-metal Ubuntu servers | LVM storage pools, macvlan + NAT networking |
 | **TrueNAS Scale** | Network-attached storage (SMB, NFS), snapshots | VM on Incus (PCIe passthrough) | SATA controller passed through for direct disk access |
 | **Samba4 AD DC** | Active Directory, DNS, Kerberos, LDAP | VM on Incus | Centralized identity for all services |
+| **step-ca** | Internal X.509 Certificate Authority (root + intermediate) | OCI container on Incus | Root key in 1Password, intermediate key in container $STEPPATH volume |
 | **Edge Devices** | WiFi bridging (optional) | Raspberry Pi | Bridge remote network segments |
 
 #### Ring 1 — Operations Components
@@ -57,8 +58,8 @@ This document covers both the infrastructure architecture (what physical and log
 |-----------|------|------|-------|
 | **k3s Cluster** | Kubernetes orchestration | VMs on Incus | Lightweight k8s for containerized workloads |
 | **Authentik** | OAuth/OIDC SSO provider | Container (planned) | Security token service |
-| **MQTT Broker** | Event messaging | Container (planned) | IoT and home automation messaging |
-| **Home Assistant** | Home automation | Container (planned) | Integrates with MQTT and identity |
+| **MQTT Broker** | Event messaging | Container | IoT and home automation messaging (Mosquitto) |
+| **Home Assistant** | Home automation | VM on Incus | TLS via step-ca (Ring 0), MQTT broker, MariaDB recorder |
 
 #### Ring 2 — Application Components
 
@@ -104,6 +105,18 @@ Samba4 AD DC provides centralized identity:
 - **LDAP**: Directory services for service integration
 - **TrueNAS integration**: AD domain join for unified file access permissions
 
+### PKI Architecture
+
+`step-ca` (Smallstep) runs as an OCI container on Incus and acts as the internal Certificate Authority for the homelab. It is a Ring 0 *peer* of identity/storage/networking — never consumed by Incus or Samba4 themselves (see the layering invariant in [01-principles.md](01-principles.md)).
+
+- **Two-tier hierarchy**: a long-lived **Root CA** (NIST P-384, 10 years) signs a shorter-lived **Intermediate CA**, which signs leaf certificates for services.
+- **Root key custody**: the encrypted Root CA private key lives only as a 1Password document attachment (`rootcakeyenc` on item `Step CA Root <env_id>`). It is never written to a container or VM. The public Root CA cert is published to `configs/envbase/pki/homelab-<env_id_lower>-root-ca.crt` so it can be imported on client devices.
+- **Intermediate key custody**: lives inside the step-ca container's persistent `$STEPPATH` volume (a dedicated Incus storage volume), encrypted with the passphrase from `vault_step_ca.intermediate_password` in 1Password.
+- **Provisioner**: a single **JWK provisioner** (named via `step_ca_jwk_provisioner_name`) authenticates issuance requests with a password from 1Password. The JWK key pair itself is also backed up to 1Password as document attachments so that destroying the container does not require rotating the provisioner.
+- **Trust distribution**: clients (browsers, OS keychains, mobile devices) only need to import the **Root CA** public cert once. Leaves are served with the intermediate appended, so the chain validates without per-leaf trust.
+- **SAN policy**: enforced by step-ca on every issuance request. step-ca requires the wildcard `*` to be the leading label and only allows one wildcard per rule, so deeper service names are covered by enumerating per-service entries like `*.homeassistant.<localdomain>`.
+- **Issuance integration**: Ring 1 / Ring 2 service playbooks call the shared primitive `playbooks/tasks/pki/issue-cert-stepca.yaml` (or the local-only fallback `issue-cert-selfsigned.yaml`) to request a cert; the primitive handles CSR generation on the controller, signing inside the step-ca container, and idempotent reuse of unexpired certs.
+
 ## Automation Architecture
 
 ### Repository Layout
@@ -137,8 +150,10 @@ homelabinfracode/                    # Main public repository
 ├── playbooks/                       # All Ansible playbooks
 │   ├── prepare-localhost.yaml       # Control host package setup
 │   ├── all-base/                    # Cross-ring host bootstrap/upgrade
+│   ├── tasks/                       # Cross-ring reusable task primitives
+│   │   └── pki/                     # Cert issuance primitives (stepca, selfsigned)
 │   ├── ring0/                       # Initial infrastructure setup
-│   │   ├── templates/               # Jinja2 templates (RouterOS, autoinstall, Incus)
+│   │   ├── templates/               # Jinja2 templates (RouterOS, autoinstall, Incus, ca.json)
 │   │   ├── tasks/                   # Reusable task includes
 │   │   └── projects/                # Incus project definitions (YAML per project)
 │   ├── ring0a/                      # Continuous configuration
@@ -299,13 +314,19 @@ eval $(./scripts/op-session.sh 1h test)   # 1-hour test session
 | `ring0/identity-samba4-addc-setup.yaml` | 0 | Provision Samba4 AD DC |
 | `ring0/storage-truenas-scale-fundamental-config.yaml` | 0 | Initial TrueNAS configuration |
 | `ring0/storage-vm-incus-truenas-find-disk-pci.yaml` | 0 | Discover PCI-to-disk mappings |
+| `ring0/pki-stepca-bootstrap-root.yaml` | 0 | Generate Root CA (controller-side), store encrypted key in 1Password |
+| `ring0/pki-stepca-bootstrap.yaml` | 0 | Initialise `$STEPPATH` and Intermediate CA inside the step-ca container |
 | `ring0a/networking-mikrotik-continuous-configure-all.yaml` | 0a | Continuous router configuration |
 | `ring0a/networking-mikrotik-continuous-cleanup.yaml` | 0a | Remove orphaned router entries |
 | `ring0a/host-incus-update.yaml` | 0a | Incus node maintenance |
 | `ring0a/host-incus-import-iso.yaml` | 0a | Import ISO images to Incus |
 | `ring0a/identity-lifecycle.yaml` | 0a | Identity user/group lifecycle |
 | `ring0a/storage-truenas-configure.yaml` | 0a | Ongoing TrueNAS dataset/share config |
+| `ring0a/pki-stepca-configure.yaml` | 0a | Reconcile JWK provisioner, SAN policy, and leaf-duration claims on step-ca |
 | `ring1/create-k8s-cluster.yaml` | 1 | Deploy k3s Kubernetes cluster |
+| `ring1/apps-homeassistant-configure.yaml` | 1 | Configure Home Assistant (TLS via step-ca, MQTT, recorder) |
+| `tasks/pki/issue-cert-stepca.yaml` | — | Shared primitive: request a leaf cert from step-ca |
+| `tasks/pki/issue-cert-selfsigned.yaml` | — | Shared primitive: generate a self-signed leaf cert on the controller |
 | `ring2/apps-truenas-syncthing.yaml` | 2 | Deploy Syncthing on TrueNAS |
 
 ## Further Reading

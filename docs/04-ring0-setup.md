@@ -13,7 +13,10 @@ Ring 0 components must be set up in a specific sequence because of inter-depende
 2. Incus Compute Nodes ──→ Virtualization platform (needs network from step 1)
 3. TrueNAS Scale       ──→ Storage (runs as VM on Incus from step 2)
 4. Samba4 AD DC        ──→ Identity (runs as VM on Incus, may use TrueNAS DNS)
+5. step-ca (PKI)       ──→ Internal Certificate Authority (OCI container on Incus)
 ```
+
+> step-ca is a Ring 0 *peer* — Ring 0a / Ring 1 / Ring 2 services consume its certificates, but Incus, the router, TrueNAS and Samba4 themselves keep their existing self-signed / internal-trust models (see [01-principles.md](01-principles.md)).
 
 ---
 
@@ -314,6 +317,102 @@ Samba4 configuration is defined in:
 - **Environment overlay**: Actual admin password (from 1Password), DNS forwarders, IP addresses
 
 See [Samba4 AD DC Guide](identity-addc/INDEX.md) for comprehensive documentation including examples, quick reference, and troubleshooting.
+
+---
+
+## 5. step-ca (Internal PKI) Setup
+
+`step-ca` provides the internal Certificate Authority for the homelab. It runs as an OCI container on Incus (`smallstep/step-ca`), provisioned via Terraform, then bootstrapped in two phases via Ansible.
+
+### Step 5a: Provision the step-ca container with Terraform
+
+Define the container in your environment's `ring0.tfvars` under `docker_containers`. Example for envtest:
+
+```hcl
+# configs/envtest/ring0.tfvars (excerpt)
+docker_containers = {
+  "step-ca" = {
+    target_remote = "incus.incussingledisk.mszlocaltest"
+    project       = "default"
+    image         = "docker:smallstep/step-ca:0.28.5"
+    cpu_limit     = "1"
+    memory_limit  = "512MiB"
+    devices = {
+      "stepvol" = {
+        type   = "disk"
+        source = "step-ca-data"   # pre-created Incus storage volume
+        path   = "/home/step"
+      }
+      "eth0" = {
+        type    = "nic"
+        nictype = "bridged"
+        parent  = "phys-br"
+      }
+    }
+  }
+}
+```
+
+Apply with the `ring0` workspace selected. The container starts but the `$STEPPATH` volume is empty until Ansible bootstraps it.
+
+### Step 5b: Required inventory variables
+
+Set the following in the environment overlay (e.g., `configs/envtest/inventory/group_vars/all/pki-stepca.yaml`). All other defaults come from [configs/envbase/group_vars/all/pki-stepca.yaml](../configs/envbase/group_vars/all/pki-stepca.yaml).
+
+```yaml
+step_ca_enabled:       true
+step_ca_env_id:        "Test"                                    # 1P item suffix and filename token
+step_ca_hostname:      "step-ca.{{ localdomain }}"               # served TLS SAN; must resolve via router DNS
+step_ca_target_remote: "incus.incussingledisk.mszlocaltest"      # Incus remote hosting the container
+step_ca_root_private_dir: "{{ playbook_dir }}/../../configs.private/envtest/pki"
+
+# Enumerate per-service second-level subdomains you intend to issue under.
+# step-ca only allows the wildcard as the first label and one wildcard per
+# rule, so deeper names like dev.homeassistant.<localdomain> need an
+# explicit *.homeassistant.<localdomain> entry. Extend, don't redefine.
+step_ca_san_policy_service_subdomains:
+  - homeassistant
+  - step-ca
+```
+
+### Step 5c: Bootstrap the Root CA (controller-side, one-time per env)
+
+```bash
+eval $(./scripts/op-session.sh 1h test)
+
+ansible-playbook \
+    -i configs/envbase/ \
+    -i configs/envtest/inventory/ \
+    playbooks/ring0/pki-stepca-bootstrap-root.yaml
+```
+
+The playbook:
+
+1. Validates the three `Step CA …` 1Password items exist with their password fields populated.
+2. Probes 1Password for an existing `rootcakeyenc` attachment on `Step CA Root <env_id>`. If present and the public cert is already published in `configs/envbase/pki/`, the playbook **skips** generation entirely (idempotent on re-runs and after `terraform destroy`).
+3. Otherwise: generates a NIST P-384 Root CA on the controller in a tempdir, encrypts the private key with `vault_step_ca.root_ca_password`, uploads the encrypted PEM as the `rootcakeyenc` attachment, publishes the public cert to `configs/envbase/pki/homelab-<env_id_lower>-root-ca.crt`, and wipes the tempdir.
+
+The Root CA private key never lands on disk outside the encrypted 1Password attachment.
+
+### Step 5d: Bootstrap `$STEPPATH` and the Intermediate CA
+
+```bash
+ansible-playbook \
+    -i configs/envbase/ \
+    -i configs/envtest/inventory/ \
+    playbooks/ring0/pki-stepca-bootstrap.yaml
+```
+
+The playbook:
+
+1. Checks whether `$STEPPATH/config/ca.json` already exists inside the container. If yes, skips initialisation and just ensures the container is healthy.
+2. Otherwise: enters a temporary entrypoint-override (sleep) so the volume is mounted and writable, downloads the Root CA cert from 1Password, generates a fresh Intermediate CA key on the controller, builds a CSR, signs it with the Root key (in-memory, controller-side), pushes the Intermediate cert + encrypted key + passphrase + rendered `ca.json` into `$STEPPATH`, then restores the real entrypoint and starts the container.
+
+After Step 5d, step-ca serves HTTPS on `https://<step_ca_hostname>` and `/health` returns 200, but it has **no provisioners** yet — that is reconciled by Ring 0a (see [05-ring0a-automated.md](05-ring0a-automated.md), section "PKI / step-ca continuous configuration").
+
+### Step 5e: Distribute the Root CA cert to client devices
+
+Import `configs/envbase/pki/homelab-<env_id_lower>-root-ca.crt` into the trust store of every device that will consume step-ca-issued leaves (laptops, phones, browsers with their own store). Same root → no per-leaf import needed. The file contains only the public certificate and is safe to publish.
 
 ---
 
