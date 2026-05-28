@@ -439,9 +439,25 @@
                     "show_states": true,
                     "colorize_states": true
                   },
+                  "grid_options": {
+                    "square": false,
+                    "columns": 12
+                  },
                   "apex_config": {
                     "chart": {
-                      "height": "315x"
+                      "height": "315px"
+                    },
+                    "xaxis": {
+                      "type": "datetime",
+                      "labels": {
+                        "format": "MMM"
+                      },
+                      "tickAmount": 12
+                    },
+                    "tooltip": {
+                      "x": {
+                        "format": "MMMM yyyy"
+                      }
                     }
                   },
                   "graph_span": "1y",
@@ -453,11 +469,15 @@
                     {
                       "entity": "sensor.pool_energy_monthly",
                       "type": "column",
-                      "group_by": {
-                        "duration": "1month",
-                        "func": "max"
+                      "color": "red",
+                      "statistics": {
+                        "type": "state",
+                        "period": "day"
                       },
-                      "color": "red"
+                      "group_by": {
+                        "func": "max",
+                        "duration": "1month"
+                      }
                     }
                   ],
                   "yaxis": [

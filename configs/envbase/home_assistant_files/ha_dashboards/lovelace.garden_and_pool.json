@@ -140,7 +140,19 @@
                   },
                   "apex_config": {
                     "chart": {
-                      "height": "315x"
+                      "height": "315px"
+                    },
+                    "xaxis": {
+                      "type": "datetime",
+                      "labels": {
+                        "format": "MMM"
+                      },
+                      "tickAmount": 12
+                    },
+                    "tooltip": {
+                      "x": {
+                        "format": "MMMM yyyy"
+                      }
                     }
                   },
                   "graph_span": "1y",
@@ -151,11 +163,15 @@
                     {
                       "entity": "sensor.garden_water_monthly",
                       "type": "column",
-                      "group_by": {
-                        "duration": "1month",
-                        "func": "max"
+                      "color": "lightblue",
+                      "statistics": {
+                        "type": "state",
+                        "period": "day"
                       },
-                      "color": "lightblue"
+                      "group_by": {
+                        "func": "max",
+                        "duration": "1month"
+                      }
                     }
                   ]
                 },
@@ -173,7 +189,19 @@
                   },
                   "apex_config": {
                     "chart": {
-                      "height": "315x"
+                      "height": "315px"
+                    },
+                    "xaxis": {
+                      "type": "datetime",
+                      "labels": {
+                        "format": "MMM"
+                      },
+                      "tickAmount": 12
+                    },
+                    "tooltip": {
+                      "x": {
+                        "format": "MMMM yyyy"
+                      }
                     }
                   },
                   "graph_span": "1y",
@@ -184,12 +212,15 @@
                     {
                       "entity": "sensor.pool_water_monthly",
                       "type": "column",
-                      "group_by": {
-                        "duration": "1month",
-                        "func": "max"
+                      "color": "blue",
+                      "statistics": {
+                        "type": "state",
+                        "period": "day"
                       },
-                      "unit": "L",
-                      "color": "blue"
+                      "group_by": {
+                        "func": "max",
+                        "duration": "1month"
+                      }
                     }
                   ]
                 }
