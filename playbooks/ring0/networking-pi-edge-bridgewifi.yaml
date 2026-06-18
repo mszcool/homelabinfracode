@@ -93,7 +93,8 @@
         wifi:
           mode: ap
           band: bg
-          channel: 6
+          channel: "{{ edge_wifi_channel }}"
+          powersave: "{{ edge_wifi_powersave }}"
         wifi_sec:
           auth-alg: "open"
           key-mgmt: "wpa-psk"

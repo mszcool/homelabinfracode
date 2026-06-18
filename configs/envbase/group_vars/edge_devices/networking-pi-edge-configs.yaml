@@ -8,6 +8,17 @@
 # WiFi country code (same across environments)
 wifi_country: "AT"
 
+# WiFi access-point radio settings for the bridged AP
+# edge_wifi_channel: 2.4 GHz channel used by the AP. This is location-specific —
+#   override it per environment when the default channel is congested. The base
+#   default keeps the historical channel; the production pool edge overrides this
+#   to a clear channel (see envprod edge_devices/config.yaml).
+edge_wifi_channel: 6
+# edge_wifi_powersave: NetworkManager 802-11-wireless.powersave value
+#   (0=default, 1=ignore, 2=disable, 3=enable). Disabled to stop the onboard
+#   brcmfmac radio entering power-save, which caused AP latency and drops.
+edge_wifi_powersave: 2
+
 # Firewall allowed ports (same across all edge devices)
 edge_fw_allowed_ports:
   - "80"
