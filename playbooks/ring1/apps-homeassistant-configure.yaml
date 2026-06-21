@@ -152,6 +152,7 @@
       ansible.builtin.set_fact:
         _ha_config_changed: false
         _ha_storage_changed: false
+        _ha_tls_changed: false
 
   tasks:
     # Rename the HAOS host so its Avahi-published <hostname>.local mDNS
@@ -175,6 +176,14 @@
 
     - name: Install HACS components (custom_components and frontend cards)
       ansible.builtin.include_tasks: tasks/ha-install-hacs-components.yaml
+
+    # Generate (controller-side) and ship a self-signed TLS cert to /ssl/
+    # on HAOS BEFORE configuration.yaml is rendered, so the `http:` block
+    # in configuration.yaml (which references /ssl/<cert>) points at a
+    # cert that is already on disk by the time HA Core restarts.
+    # Skipped entirely when `ha_tls_enabled` is false (envbase default).
+    - name: Deploy HA TLS certificate (self-signed, opt-in)
+      ansible.builtin.include_tasks: tasks/ha-deploy-tls.yaml
 
     - name: Deploy configuration files
       ansible.builtin.include_tasks: tasks/ha-deploy-config-files.yaml

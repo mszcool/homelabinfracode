@@ -1,0 +1,196 @@
+---
+# Base (shared) constants for the homelab step-ca instance.
+#
+# step-ca is the homelab internal Certificate Authority (Ring 0). It
+# issues certificates to Ring 0a / Ring 1 / Ring 2 services so we no
+# longer rely on per-service self-signed certs.
+#
+# Layering invariant (see docs/01-principles.md):
+#   - step-ca lives in Ring 0 (bootstrap) and Ring 0a (continuous config).
+#   - Incus and Samba4 must NEVER consume step-ca certificates: they keep
+#     their existing self-signed/internal trust models so that step-ca
+#     being down can never break the foundational layer.
+#
+# Per-environment overrides live under:
+#   configs.private/<env>/inventory/group_vars/all/pki-stepca.yaml
+# (created on demand; this base file already provides safe defaults
+# parameterized via `step_ca_env_id`.)
+#
+# Required environment-layer variables:
+#   step_ca_env_id     Short id used in 1Password item names and on-disk
+#                      filenames. Must match the secrets in
+#                      vault_step_ca.* (e.g., "LocalDev", "Prod").
+#                      Defined in the envlocaldev / envprod overlay.
+#   ip_plan_hosts.step_ca   IP of the step-ca container on the LAN.
+
+# ---------- Feature toggle ----------
+# Master switch — environments that have not yet bootstrapped step-ca
+# leave this `false` (default). The Ring 0 bootstrap playbooks and the
+# `issue-cert-stepca.yaml` primitive both refuse to run when this is
+# false, which prevents accidentally consuming step-ca before it exists.
+step_ca_enabled: false
+
+# ---------- Identity ----------
+# Short id baked into 1Password item names (`Step CA Root <env_id>`,
+# `Step CA Intermediate <env_id>`, `Step CA JWK Controller <env_id>`)
+# and into on-disk artefact filenames (`homelab-<env_id_lower>-root-ca.crt`).
+# Override per environment.
+step_ca_env_id: ""
+
+# DNS hostname presented by the step-ca container on the LAN. Per the
+# envlocaldev plan this is `dev.step-ca.<localdomain>`; envprod will
+# use `step-ca.<localdomain>`. Override per env.
+step_ca_hostname: "step-ca.{{ localdomain }}"
+
+# ACME / API endpoint (used by `issue-cert-stepca.yaml` and by
+# `step ca bootstrap`). Always HTTPS on 443 inside the container,
+# exposed on the host.
+step_ca_url: "https://{{ step_ca_hostname }}"
+
+# ---------- Container deployment (Terraform) ----------
+# These values are mirrored in the Terraform `docker_containers` block
+# for the step-ca container. Centralised here so Ansible playbooks can
+# re-derive paths without duplicating literals.
+step_ca_image: "docker:smallstep/step-ca:0.28.5"
+step_ca_target_remote: ""  # Override per env (e.g., "incus.peladin.mszlocal")
+
+# Persistent $STEPPATH inside the container. Mounted from a dedicated
+# Incus volume so re-creating the container never destroys the
+# Intermediate CA private key.
+step_ca_steppath: "/home/step"
+
+# ---------- CA hierarchy / validity ----------
+# Root CA: software-only, NIST P-384 (secp384r1), long lifetime.
+# Private key is encrypted with vault_step_ca.root_ca_password and
+# stored as the `rootcakeyenc` document attachment on 1Password item
+# "Step CA Root <env_id>". Public cert is published to
+# configs/envbase/pki/homelab-<env_id_lower>-root-ca.crt.
+#
+# IMPORTANT: step-ca (Go crypto/x509) only accepts NIST P-curves
+# (secp256r1, secp384r1, secp521r1). Binary curves like sect571r1 will
+# fail with "unsupported elliptic curve" when step-ca parses the cert.
+step_ca_root_key_type: "ECC"
+step_ca_root_key_curve: "secp384r1"
+step_ca_root_validity_days: 3650           # 10 years
+step_ca_root_cn: "Homelab {{ step_ca_env_id }} Root CA"
+
+# Intermediate CA: NIST P-384 (secp384r1), signed by the root, lives
+# inside the container's $STEPPATH. Encrypted with
+# vault_step_ca.intermediate_password.
+#
+# IMPORTANT: step-ca (Go crypto/x509) only accepts NIST P-curves
+# (secp256r1, secp384r1, secp521r1). Binary curves like sect571r1 will
+# fail with "unsupported elliptic curve" when step-ca parses the cert.
+step_ca_intermediate_key_type: "ECC"
+step_ca_intermediate_key_curve: "secp384r1"
+step_ca_intermediate_validity_days: 1825   # 5 years
+step_ca_intermediate_cn: "Homelab {{ step_ca_env_id }} Intermediate CA"
+
+# Leaf certificates: 397 days (≈13 months — matches the CA/Browser
+# Forum maximum for publicly-trusted TLS leaves, comfortable headroom
+# for consumers that renew annually rather than continuously).
+# Consumer playbooks pass `pki_cert_validity_days` per request; this
+# value is the CA-side ceiling enforced via authority.claims.
+step_ca_leaf_validity_days: 397
+
+# ---------- Provisioners ----------
+# JWK provisioner used by Ansible automation. Password lives in
+# vault_step_ca.jwk_controller_password. Issued certs are restricted by
+# the SAN policy below.
+#
+# How a JWK provisioner works in step-ca:
+#   1. A JSON Web Key (JWK) keypair is generated. The PUBLIC half goes
+#      into `ca.json` under provisioners[].key so step-ca can verify
+#      tokens. The PRIVATE half is JWE-encrypted with the provisioner
+#      password and ALSO stored in ca.json under provisioners[].encryptedKey
+#      so any client with just the password can sign tokens — no need
+#      to distribute the private key file out-of-band.
+#   2. To request a cert, a client builds a short-lived JWT (subject =
+#      cert CN, SANs = requested SANs) and signs it with the decrypted
+#      JWK private key. `step ca certificate --provisioner ansible-controller`
+#      does this transparently given --provisioner-password-file=...
+#   3. The SAN policy below limits which DNS names the JWK can mint
+#      certs for, so a compromised password cannot issue certs outside
+#      the homelab namespace.
+#
+# We generate an EC P-256 JWK (the step CLI default for --use sig).
+step_ca_jwk_provisioner_name: "ansible-controller"
+step_ca_jwk_kty: "EC"
+step_ca_jwk_crv: "P-256"
+
+# 1Password document attachments on the "Step CA JWK Controller <env_id>"
+# item — backup of the JWK pair so the provisioner survives a ca.json
+# loss without rotation. Ring 0a writes these on first run and reads
+# them on subsequent runs if ca.json was wiped.
+step_ca_op_jwk_pub_attachment: "jwkpub"
+step_ca_op_jwk_priv_attachment: "jwkpriv"
+
+# ACME provisioner for services that natively speak ACME (e.g., Caddy,
+# Traefik, certbot). Future use; created by Ring 0a so adding it here
+# does not enable it until Ring 0a runs.
+step_ca_acme_provisioner_name: "homelab-acme"
+
+# SAN policy — restrict what names step-ca will sign so a compromised
+# provisioner password cannot be used to mint certificates for arbitrary
+# domains.
+#
+# step-ca DNS allow-list rules (per https://smallstep.com/docs/step-ca/policies/
+# and confirmed empirically against v0.28.5):
+#   - The match is label-count-strict: a rule with N labels matches
+#     ONLY names with exactly N labels.
+#   - The wildcard `*` may appear only as the very first label, and
+#     only one wildcard per rule is permitted.
+#       - `*.example.com`             → matches `foo.example.com`
+#                                       (NOT `example.com`,
+#                                        NOT `foo.bar.example.com`)
+#       - `*.foo.example.com`         → matches `bar.foo.example.com`
+#       - `*.*.example.com`           → REJECTED at startup
+#                                       ("can only have wildcard as
+#                                        starting character")
+#       - `.example.com`              → REJECTED at startup
+#       - `**.example.com`            → REJECTED at startup
+#
+# Consequence: to allow 3-label names like `dev.homeassistant.mszlocal`
+# we must enumerate one rule per second-level service we operate
+# (`*.homeassistant.mszlocal`, `*.step-ca.mszlocal`, ...). The list
+# `step_ca_san_policy_service_subdomains` below carries those service
+# labels; each environment overlay can extend it without re-defining
+# the full policy.
+step_ca_san_policy_service_subdomains:
+  - homeassistant
+  - step-ca
+
+step_ca_san_policy:
+  dns:
+    allow: "{{
+        [localdomain, '*.' ~ localdomain, 'local', '*.local']
+        + (step_ca_san_policy_service_subdomains
+            | map('regex_replace', '^(.+)$', '*.\\1.' ~ localdomain)
+            | list)
+        + (step_ca_san_policy_service_subdomains
+            | map('regex_replace', '^(.+)$', '*.\\1.local')
+            | list)
+      }}"
+
+# ---------- On-disk artefacts (controller) ----------
+# Source-of-truth location for the env's root CA public certificate.
+# Lives in configs.private/<env>/pki/ so it is captured in the private
+# repo and can be pushed to clients. A read-only copy is published to
+# configs/envbase/pki/ for documentation/onboarding scripts.
+step_ca_root_cert_filename: "homelab-{{ step_ca_env_id | lower }}-root-ca.crt"
+# step_ca_root_private_dir: must be set per environment overlay (no safe
+# generic default — the env name is not available as a variable).
+step_ca_root_published_dir: "{{ playbook_dir }}/../../configs/envbase/pki"
+
+# ---------- 1Password item naming ----------
+# Single source of truth for item titles, referenced by the bootstrap
+# playbook (op CLI for document attachments) and by secrets-vault.yaml
+# (lookup plugin for password fields). Match these exactly when
+# creating 1Password items.
+step_ca_op_item_root: "Step CA Root {{ step_ca_env_id }}"
+step_ca_op_item_intermediate: "Step CA Intermediate {{ step_ca_env_id }}"
+step_ca_op_item_jwk: "Step CA JWK Controller {{ step_ca_env_id }}"
+
+# Document attachment name on the root item that holds the encrypted
+# Root CA private key (PEM, AES-256 with vault_step_ca.root_ca_password).
+step_ca_op_root_key_attachment: "rootcakeyenc"

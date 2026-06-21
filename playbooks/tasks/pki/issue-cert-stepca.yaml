@@ -1,0 +1,334 @@
+---
+# Reusable primitive: issue an X.509 certificate signed by the homelab
+# step-ca instance, using the JWK provisioner provisioned in Ring 0a.
+#
+# Input/Output contract matches issue-cert-selfsigned.yaml exactly so
+# the dispatcher in ring1/tasks/ha-deploy-tls.yaml (and any future
+# callers) can swap issuers without per-issuer wiring.
+#
+# --- Input contract ---------------------------------------------------
+#   pki_cert_dir            (string, required)  Controller dir for output
+#                                               artefacts. Created 0700
+#                                               if missing.
+#   pki_cert_filename       (string, required)  e.g. "homeassistant.crt"
+#   pki_key_filename        (string, required)  e.g. "homeassistant.key"
+#   pki_cert_cn             (string, required)  Subject Common Name.
+#   pki_cert_sans           (list,   required)  DNS SANs (first should
+#                                               typically equal pki_cert_cn).
+#   pki_cert_validity_days  (int,    default 90)  Capped by step-ca claims.
+#   pki_cert_key_size       (int,    default 4096) RSA key size.
+#
+# --- Output -----------------------------------------------------------
+#   pki_cert_changed        (bool)  True if the cert/key were (re)issued
+#                                   on this run.
+#
+# --- Strategy ---------------------------------------------------------
+# 1. Generate (or reuse) an RSA private key + CSR on the controller via
+#    community.crypto — keeps key material on the controller, identical
+#    to the selfsigned primitive.
+# 2. Decide whether issuance is needed:
+#       - cert file missing                              → issue
+#       - key/CSR were regenerated this run              → issue
+#       - cert SANs differ from desired                  → issue
+#       - cert issued by something other than our        → issue
+#         step-ca intermediate
+#       - cert expires within 1/3 of pki_cert_validity   → issue (renew)
+#    Otherwise the existing cert is fine → skip.
+# 3. When issuing, sign the CSR by running `step ca certificate --csr`
+#    INSIDE the step-ca container (smallstep image ships /usr/local/bin/
+#    step, $STEPPATH already populated, no need for a controller-side
+#    step CLI). Push the CSR + provisioner password into a /tmp scratch
+#    dir, sign, pull the cert back, wipe the scratch dir.
+#
+# --- Security ---------------------------------------------------------
+#   - The JWK provisioner password is the only credential exposed during
+#     issuance. It is written to a 0600 file on the controller and
+#     pushed into a 0600 file under /tmp/stepca-sign inside the
+#     container; both are removed in `always:` blocks.
+#   - The leaf private key never leaves the controller.
+#   - The CSR contains only public information.
+
+- name: Validate step-ca primitive inputs
+  ansible.builtin.assert:
+    that:
+      - pki_cert_dir is defined and pki_cert_dir | length > 0
+      - pki_cert_filename is defined and pki_cert_filename | length > 0
+      - pki_key_filename is defined and pki_key_filename | length > 0
+      - pki_cert_cn is defined and pki_cert_cn | length > 0
+      - pki_cert_sans is defined
+      - pki_cert_sans | length > 0
+    fail_msg: >
+      issue-cert-stepca.yaml: required input variables missing.
+      Caller must supply pki_cert_dir, pki_cert_filename, pki_key_filename,
+      pki_cert_cn, and pki_cert_sans (non-empty list).
+  delegate_to: localhost
+  run_once: true
+
+- name: Validate step-ca is enabled + configured for this environment
+  ansible.builtin.assert:
+    that:
+      - step_ca_enabled | default(false) | bool
+      - step_ca_jwk_provisioner_name is defined
+      - step_ca_target_remote is defined
+      - step_ca_steppath is defined
+      - step_ca_intermediate_cn is defined
+      - vault_step_ca.jwk_controller_password is defined
+    fail_msg: >
+      issue-cert-stepca.yaml: step-ca is not configured for this env.
+      Required: step_ca_enabled true, step_ca_jwk_provisioner_name,
+      step_ca_target_remote, step_ca_steppath, step_ca_intermediate_cn,
+      and vault_step_ca.jwk_controller_password.
+  delegate_to: localhost
+  run_once: true
+
+- name: Ensure local PKI directory exists on controller
+  ansible.builtin.file:
+    path: "{{ pki_cert_dir }}"
+    state: directory
+    mode: "0700"
+  delegate_to: localhost
+
+# ---------------------------------------------------------------------
+# 1. Generate / reuse the leaf private key and CSR on the controller.
+# ---------------------------------------------------------------------
+
+- name: Set step-ca primitive working paths
+  ansible.builtin.set_fact:
+    _stepca_key_path:  "{{ pki_cert_dir }}/{{ pki_key_filename }}"
+    _stepca_cert_path: "{{ pki_cert_dir }}/{{ pki_cert_filename }}"
+    _stepca_csr_path:  "{{ pki_cert_dir }}/{{ pki_cert_filename | regex_replace('\\.crt$', '') }}.csr"
+  delegate_to: localhost
+
+- name: Generate private key (controller, step-ca primitive)
+  community.crypto.openssl_privatekey:
+    path: "{{ _stepca_key_path }}"
+    size: "{{ pki_cert_key_size | default(4096) | int }}"
+    type: RSA
+    mode: "0600"
+  delegate_to: localhost
+  register: _stepca_key_reg
+
+- name: Generate CSR (controller, step-ca primitive)
+  community.crypto.openssl_csr:
+    path: "{{ _stepca_csr_path }}"
+    privatekey_path: "{{ _stepca_key_path }}"
+    common_name: "{{ pki_cert_cn }}"
+    subject_alt_name: "{{ pki_cert_sans | map('regex_replace', '^(.*)$', 'DNS:\\1') | list }}"
+    mode: "0644"
+  delegate_to: localhost
+  register: _stepca_csr_reg
+
+# ---------------------------------------------------------------------
+# 2. Inspect any existing cert to decide whether issuance is needed.
+# ---------------------------------------------------------------------
+
+- name: Probe existing certificate on controller (if any)
+  ansible.builtin.stat:
+    path: "{{ _stepca_cert_path }}"
+  delegate_to: localhost
+  register: _stepca_cert_stat
+
+- name: Read existing cert metadata
+  community.crypto.x509_certificate_info:
+    path: "{{ _stepca_cert_path }}"
+  delegate_to: localhost
+  register: _stepca_cert_info
+  when: _stepca_cert_stat.stat.exists
+
+- name: Compute desired SANs and renewal threshold
+  ansible.builtin.set_fact:
+    _stepca_desired_sans: "{{ pki_cert_sans | map('regex_replace', '^(.*)$', 'DNS:\\1') | list | sort }}"
+    _stepca_renewal_threshold_seconds: >-
+      {{ ((pki_cert_validity_days | default(90) | int) // 3) * 86400 }}
+
+- name: Capture current UTC timestamp for expiry comparison
+  ansible.builtin.set_fact:
+    _stepca_now_utc: "{{ lookup('pipe', 'date -u +%Y%m%d%H%M%SZ') }}"
+  delegate_to: localhost
+
+- name: Evaluate whether the existing certificate is acceptable
+  ansible.builtin.set_fact:
+    _stepca_cert_ok: >-
+      {{
+        _stepca_cert_stat.stat.exists
+        and (not (_stepca_key_reg is changed))
+        and (not (_stepca_csr_reg is changed))
+        and ((_stepca_cert_info.subject_alt_name | default([]) | sort)
+             == _stepca_desired_sans)
+        and (step_ca_intermediate_cn
+             in (_stepca_cert_info.issuer.commonName | default('')))
+        and (
+          ((_stepca_cert_info.not_after | to_datetime('%Y%m%d%H%M%SZ'))
+           - (_stepca_now_utc | to_datetime('%Y%m%d%H%M%SZ'))
+          ).total_seconds() > (_stepca_renewal_threshold_seconds | int)
+        )
+      }}
+
+- name: Skip issuance — existing step-ca cert is current
+  when: _stepca_cert_ok
+  block:
+    - name: Set pki_cert_changed=false (cert reuse)
+      ansible.builtin.set_fact:
+        pki_cert_changed: false
+
+    - name: Note skip reason
+      ansible.builtin.debug:
+        msg:
+          - "Reusing existing certificate at {{ _stepca_cert_path }}"
+          - "SANs match, issued by step-ca intermediate, sufficient validity remaining."
+
+# ---------------------------------------------------------------------
+# 3. Issue (or renew) the certificate via the step-ca container.
+# ---------------------------------------------------------------------
+
+- name: Issue certificate via step-ca container
+  when: not _stepca_cert_ok
+  vars:
+    _stepca_remote: "{{ step_ca_target_remote }}"
+    _stepca_remote_prefix: "{{ (_stepca_remote + ':') if _stepca_remote != 'local' else '' }}"
+    _stepca_instance: "step-ca"
+    _stepca_project: "default"
+    _stepca_ctn_tmp_dir: "/tmp/stepca-sign"
+    _stepca_ctn_csr: "/tmp/stepca-sign/leaf.csr"
+    _stepca_ctn_crt: "/tmp/stepca-sign/leaf.crt"
+    _stepca_ctn_pwd: "/tmp/stepca-sign/provisioner.pwd"
+  delegate_to: localhost
+  block:
+
+    - name: Create controller tempdir for signing exchange
+      ansible.builtin.tempfile:
+        state: directory
+        prefix: "stepca-sign-"
+      register: _stepca_sign_tmp
+
+    - name: Set controller-side scratch paths
+      ansible.builtin.set_fact:
+        _stepca_pwd_local: "{{ _stepca_sign_tmp.path }}/provisioner.pwd"
+
+    - name: Stage provisioner password on controller (mode 0600)
+      ansible.builtin.copy:
+        content: "{{ vault_step_ca.jwk_controller_password }}"
+        dest: "{{ _stepca_pwd_local }}"
+        mode: "0600"
+      no_log: true
+
+    - name: Prepare container-side scratch directory
+      ansible.builtin.command:
+        argv:
+          - incus
+          - exec
+          - "{{ _stepca_remote_prefix }}{{ _stepca_instance }}"
+          - "--project={{ _stepca_project }}"
+          - "--"
+          - sh
+          - -c
+          - >-
+            rm -rf {{ _stepca_ctn_tmp_dir }} &&
+            mkdir -p {{ _stepca_ctn_tmp_dir }} &&
+            chmod 0700 {{ _stepca_ctn_tmp_dir }}
+      changed_when: true
+
+    - name: Push CSR into container scratch dir
+      ansible.builtin.command:
+        argv:
+          - incus
+          - file
+          - push
+          - "--mode=0644"
+          - "{{ _stepca_csr_path }}"
+          - "{{ _stepca_remote_prefix }}{{ _stepca_instance }}{{ _stepca_ctn_csr }}"
+          - "--project={{ _stepca_project }}"
+      changed_when: true
+
+    - name: Push provisioner password into container scratch dir
+      ansible.builtin.command:
+        argv:
+          - incus
+          - file
+          - push
+          - "--mode=0600"
+          - "{{ _stepca_pwd_local }}"
+          - "{{ _stepca_remote_prefix }}{{ _stepca_instance }}{{ _stepca_ctn_pwd }}"
+          - "--project={{ _stepca_project }}"
+      changed_when: true
+      no_log: true
+
+    - name: Sign CSR via step-ca (`step ca sign`)
+      # We hit the CA by its DNS hostname (step_ca_url) because the
+      # CA's serving certificate only includes the DNS SAN
+      # `{{ '{{' }} step_ca_hostname {{ '}}' }}` — it has no IP SAN, so
+      # talking to https://127.0.0.1 fails TLS validation. The
+      # container's resolver uses the LAN MikroTik DNS, where the
+      # static reservation for that hostname is provisioned by the
+      # Ring 0 / Ring 0a configure flow, so name resolution works
+      # from inside the container even though we're exec'd into it.
+      # --root points at the in-container root_ca.crt so TLS
+      # validation succeeds without any host trust store mutation.
+      #
+      # NOTE: use `step ca sign <csr> <crt>` (not `step ca certificate
+      # --csr`). `step ca certificate` always generates a fresh key
+      # and has no --csr flag; it would treat "--csr=..." as a literal
+      # positional path and fail with "no such file or directory".
+      # `step ca sign` is the dedicated subcommand for signing an
+      # externally-generated CSR (subject + SANs come from the CSR,
+      # so no CN positional arg is required here).
+      ansible.builtin.command:
+        argv:
+          - incus
+          - exec
+          - "{{ _stepca_remote_prefix }}{{ _stepca_instance }}"
+          - "--project={{ _stepca_project }}"
+          - "--"
+          - step
+          - ca
+          - sign
+          - "{{ _stepca_ctn_csr }}"
+          - "{{ _stepca_ctn_crt }}"
+          - "--provisioner={{ step_ca_jwk_provisioner_name }}"
+          - "--provisioner-password-file={{ _stepca_ctn_pwd }}"
+          - "--ca-url={{ step_ca_url }}"
+          - "--root={{ step_ca_steppath }}/certs/root_ca.crt"
+          - "--not-after={{ (pki_cert_validity_days | default(90) | int) * 24 }}h"
+          - "--force"
+      changed_when: true
+
+    - name: Pull signed certificate back to controller
+      ansible.builtin.command:
+        argv:
+          - incus
+          - file
+          - pull
+          - "{{ _stepca_remote_prefix }}{{ _stepca_instance }}{{ _stepca_ctn_crt }}"
+          - "{{ _stepca_cert_path }}"
+          - "--project={{ _stepca_project }}"
+      changed_when: true
+
+    - name: Normalise pulled cert file mode
+      ansible.builtin.file:
+        path: "{{ _stepca_cert_path }}"
+        mode: "0644"
+
+    - name: Set pki_cert_changed=true (cert was issued/renewed)
+      ansible.builtin.set_fact:
+        pki_cert_changed: true
+
+  always:
+    - name: Wipe container-side scratch directory
+      ansible.builtin.command:
+        argv:
+          - incus
+          - exec
+          - "{{ _stepca_remote_prefix }}{{ _stepca_instance }}"
+          - "--project={{ _stepca_project }}"
+          - "--"
+          - rm
+          - "-rf"
+          - "{{ _stepca_ctn_tmp_dir }}"
+      changed_when: false
+      failed_when: false
+
+    - name: Remove controller-side scratch tempdir
+      ansible.builtin.file:
+        path: "{{ _stepca_sign_tmp.path }}"
+        state: absent
+      when: _stepca_sign_tmp is defined and _stepca_sign_tmp.path is defined

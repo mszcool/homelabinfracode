@@ -1,0 +1,135 @@
+---
+# Task: Issue and deploy a TLS certificate for the HA frontend.
+#
+# This file is a Ring 1 dispatcher: it picks the right issuance
+# primitive from playbooks/tasks/pki/ based on `ha_tls_issuer`,
+# then ships the resulting cert + key to /ssl/ on the HAOS host
+# using a /tmp staging + atomic-mv pattern (BusyBox-safe).
+#
+# Skipped entirely when `ha_tls_enabled` is false (envbase default),
+# so this task is fully opt-in per environment.
+#
+# Supported issuers:
+#   selfsigned   Generate a self-signed cert on the controller.
+#                Default. Easy to remove. Each client device must
+#                manually trust the .crt before browsers stop warning.
+#   stepca       (planned) Issue via the homelab step-ca instance.
+#                Single root cert per env, trusted once per device.
+#
+# Migration: switching issuer changes only the included primitive.
+# The `http:` block in configuration.yaml and the on-disk filenames
+# at /ssl/ stay the same regardless of issuer.
+
+- name: Skip TLS task when disabled
+  ansible.builtin.debug:
+    msg: "ha_tls_enabled is false — skipping HA HTTPS certificate deployment."
+  when: not (ha_tls_enabled | default(false) | bool)
+
+- name: Issue and deploy HA TLS certificate
+  when: ha_tls_enabled | default(false) | bool
+  block:
+    - name: Validate HA TLS variables
+      ansible.builtin.assert:
+        that:
+          - ssl_cert_names is defined
+          - ssl_cert_names | length > 0
+          - ha_tls_local_dir is defined
+          - ha_tls_local_dir | length > 0
+          - ha_tls_cert_filename is defined
+          - ha_tls_key_filename is defined
+          - ha_tls_remote_dir is defined
+          - ha_tls_validity_days | int > 0
+          - ha_tls_issuer is defined
+          - ha_tls_issuer in ['selfsigned', 'stepca']
+        fail_msg: >
+          ha_tls_enabled is true but required TLS variables are missing
+          or invalid. Ensure `ssl_cert_names` is set in the env override
+          (CN + SANs), `ha_tls_*` defaults from envbase apps-homeassistant-
+          configuration.yaml are reachable, and `ha_tls_issuer` is one of
+          'selfsigned' or 'stepca'.
+      delegate_to: localhost
+      run_once: true
+
+    # --- Issue the cert via the configured issuer primitive ---
+
+    - name: Issue HA cert via self-signed primitive
+      ansible.builtin.include_tasks: ../../tasks/pki/issue-cert-selfsigned.yaml
+      vars:
+        pki_cert_dir: "{{ ha_tls_local_dir }}"
+        pki_cert_filename: "{{ ha_tls_cert_filename }}"
+        pki_key_filename: "{{ ha_tls_key_filename }}"
+        pki_cert_cn: "{{ ssl_cert_names[0] }}"
+        pki_cert_sans: "{{ ssl_cert_names }}"
+        pki_cert_validity_days: "{{ ha_tls_validity_days | int }}"
+      when: ha_tls_issuer == 'selfsigned'
+
+    - name: Issue HA cert via step-ca primitive
+      ansible.builtin.include_tasks: ../../tasks/pki/issue-cert-stepca.yaml
+      vars:
+        pki_cert_dir: "{{ ha_tls_local_dir }}"
+        pki_cert_filename: "{{ ha_tls_cert_filename }}"
+        pki_key_filename: "{{ ha_tls_key_filename }}"
+        pki_cert_cn: "{{ ssl_cert_names[0] }}"
+        pki_cert_sans: "{{ ssl_cert_names }}"
+        pki_cert_validity_days: "{{ ha_tls_validity_days | int }}"
+      when: ha_tls_issuer == 'stepca'
+
+    # --- Ship to HAOS via /tmp staging + atomic mv (BusyBox-safe) ---
+
+    - name: Ensure /ssl exists on HAOS host
+      ansible.builtin.file:
+        path: "{{ ha_tls_remote_dir }}"
+        state: directory
+        mode: "0755"
+
+    - name: Stage HA certificate to /tmp on HAOS host
+      ansible.builtin.copy:
+        src: "{{ ha_tls_local_dir }}/{{ ha_tls_cert_filename }}"
+        dest: "/tmp/{{ ha_tls_cert_filename }}"
+        mode: "0644"
+      register: _ha_tls_cert_staged
+
+    - name: Stage HA private key to /tmp on HAOS host
+      ansible.builtin.copy:
+        src: "{{ ha_tls_local_dir }}/{{ ha_tls_key_filename }}"
+        dest: "/tmp/{{ ha_tls_key_filename }}"
+        mode: "0600"
+      register: _ha_tls_key_staged
+      no_log: true
+
+    - name: Move staged HA certificate into place (atomic)
+      ansible.builtin.shell: |
+        mv "/tmp/{{ ha_tls_cert_filename }}" "{{ ha_tls_remote_dir }}/{{ ha_tls_cert_filename }}"
+        chmod 0644 "{{ ha_tls_remote_dir }}/{{ ha_tls_cert_filename }}"
+      when: _ha_tls_cert_staged is changed
+      changed_when: true
+
+    - name: Move staged HA private key into place (atomic)
+      ansible.builtin.shell: |
+        mv "/tmp/{{ ha_tls_key_filename }}" "{{ ha_tls_remote_dir }}/{{ ha_tls_key_filename }}"
+        chmod 0600 "{{ ha_tls_remote_dir }}/{{ ha_tls_key_filename }}"
+      when: _ha_tls_key_staged is changed
+      changed_when: true
+      no_log: true
+
+    - name: Clean up any leftover staged TLS files on HAOS host
+      ansible.builtin.file:
+        path: "/tmp/{{ item }}"
+        state: absent
+      loop:
+        - "{{ ha_tls_cert_filename }}"
+        - "{{ ha_tls_key_filename }}"
+
+    # --- Track change so the deploy-storage-and-restart task can
+    #     decide whether HA Core needs a restart. ---
+
+    - name: Set TLS changed flag
+      ansible.builtin.set_fact:
+        _ha_tls_changed: "{{ (_ha_tls_cert_staged is changed) or (_ha_tls_key_staged is changed) }}"
+
+    - name: TLS deployment status
+      ansible.builtin.debug:
+        msg: >-
+          {{ 'HA TLS cert/key updated on HAOS — restart will be triggered.'
+             if (_ha_tls_changed | bool)
+             else 'HA TLS cert/key already current on HAOS — no restart needed.' }}

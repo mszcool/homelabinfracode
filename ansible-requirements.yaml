@@ -3,6 +3,8 @@
 collections:
   - name: community.general
     version: ">=10.5.0"
+  - name: community.crypto
+    version: ">=2.20.0"
   - name: community.routeros
     version: ">=3.16.0"
   - name: pfsensible.core

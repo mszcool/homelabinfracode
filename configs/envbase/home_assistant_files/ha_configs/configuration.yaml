@@ -1,6 +1,29 @@
 # Loads default set of integrations. Do not remove.
 default_config:
 
+{% if (ha_internal_url | default('')) or (ha_external_url | default('')) %}
+# Core URL configuration. `internal_url` is required when HTTPS is on,
+# otherwise HA shows "Invalid local network URL" in Settings → Network.
+# Both URLs are owned by group_vars/home_assistant/apps-homeassistant-
+# configuration.yaml (`ha_internal_url` / `ha_external_url`).
+homeassistant:
+{% if ha_internal_url | default('') %}
+  internal_url: "{{ ha_internal_url }}"
+{% endif %}
+{% if ha_external_url | default('') %}
+  external_url: "{{ ha_external_url }}"
+{% endif %}
+
+{% endif %}
+{% if ha_tls_enabled | default(false) | bool %}
+# HTTPS for the HA frontend. Cert + key are deployed by
+# playbooks/ring1/tasks/ha-deploy-tls.yaml. When `ha_tls_enabled` is
+# false (envbase default) this block disappears and HA serves plain HTTP.
+http:
+  ssl_certificate: {{ ha_tls_remote_dir }}/{{ ha_tls_cert_filename }}
+  ssl_key: {{ ha_tls_remote_dir }}/{{ ha_tls_key_filename }}
+
+{% endif %}
 # Load frontend themes from the themes folder
 frontend:
   themes: !include_dir_merge_named themes

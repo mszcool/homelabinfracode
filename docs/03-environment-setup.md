@@ -55,6 +55,7 @@ This script performs:
 |------------|---------|---------|
 | `community.general` | >= 10.5.0 | 1Password lookup, general utilities |
 | `community.routeros` | >= 3.16.0 | MikroTik RouterOS API and CLI |
+| `community.crypto` | >= 2.20.0 | X.509 key/CSR/cert generation for PKI primitives |
 | `ansible.netcommon` | >= 8.0.0 | Network device connectivity (SSH to router) |
 | `arensb.truenas` | >= 0.1.0 | TrueNAS Scale API modules |
 | `pfsensible.core` | >= 0.6.1 | pfSense management (optional/future) |
@@ -135,6 +136,28 @@ eval $(./scripts/op-session.sh 1h test)   # Test, 1-hour session
 
 The session script creates a short-lived service account token with `read_items` access to the appropriate vault (`HomeLab-Prod` or `HomeLab-Test`).
 
+## Step 8: Create PKI 1Password Items (one-time, per environment)
+
+The step-ca bootstrap playbooks (Ring 0) and the JWK reconciler (Ring 0a) read passphrases from three 1Password items that must exist **before** the first bootstrap run. Item names follow `Step CA <Role> <env_id>` where `<env_id>` is the value of `step_ca_env_id` for the environment (e.g., `Test`).
+
+| 1Password item | Required field | Purpose |
+|----------------|----------------|---------|
+| `Step CA Root <env_id>` | password | Encrypts the Root CA private key (stored as `rootcakeyenc` attachment on the same item after first bootstrap) |
+| `Step CA Intermediate <env_id>` | password | Encrypts the Intermediate CA private key inside `$STEPPATH/secrets/intermediate_ca_key` |
+| `Step CA JWK Controller <env_id>` | password | Protects the JWK provisioner; clients (issue-cert primitives) pass this to `step ca sign` |
+
+Map these to the inventory vault block (example `vault_step_ca` for envtest):
+
+```yaml
+# configs/envtest/inventory/group_vars/all/vault.yaml (example)
+vault_step_ca:
+  root_ca_password:           "{{ lookup('community.general.onepassword', 'Step CA Root Test',           field='password', vault='HomeLab-Test') }}"
+  intermediate_password:      "{{ lookup('community.general.onepassword', 'Step CA Intermediate Test',   field='password', vault='HomeLab-Test') }}"
+  jwk_controller_password:    "{{ lookup('community.general.onepassword', 'Step CA JWK Controller Test', field='password', vault='HomeLab-Test') }}"
+```
+
+No `step` CLI is required on the control host — all `step` commands run inside the step-ca container via `incus exec`.
+
 ## Ansible Configuration Reference
 
 The `ansible.cfg` file configures:
@@ -176,6 +199,7 @@ cd terraform && terraform init && terraform validate
 - [ ] Terraform installed and `terraform init` successful
 - [ ] Incus client installed and configured with remotes
 - [ ] 1Password CLI installed and session creation works
+- [ ] PKI 1Password items (`Step CA Root/Intermediate/JWK Controller <env_id>`) created with password fields
 - [ ] Inventory validation passes
 - [ ] Playbook syntax validation passes
 

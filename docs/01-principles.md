@@ -32,6 +32,9 @@ Ring 0 contains the physical and logical foundation that everything else depends
 - **Compute**: Incus virtualization nodes — bare-metal servers running Ubuntu with Incus for VMs and containers
 - **Storage**: TrueNAS Scale — primary NAS providing SMB/NFS shares, dataset hierarchies, and snapshots
 - **Identity**: Samba4 Active Directory Domain Controller — centralized user/group management, DNS, Kerberos authentication
+- **PKI**: `step-ca` instance — internal Certificate Authority (root + intermediate) used to issue X.509 certs to Ring 0a / Ring 1 / Ring 2 services. The root CA private key never leaves 1Password (encrypted at rest); only the intermediate CA key lives in the running container.
+
+**Layering invariant for PKI**: Incus and the Samba4 AD DC **must never consume step-ca certificates**. They keep their existing self-signed / internal-trust models so that a step-ca outage cannot cascade into the foundational layer. step-ca is a Ring 0 *peer*, not a Ring 0 dependency for the other foundational components.
 
 **Automation characteristics**: Ring 0 setup is **not fully automated**. Bootstrapping bare-metal hardware, flashing router firmware, and initial OS installation require manual intervention. This is intentional — fully automating Ring 0 would require additional services (PXE boot infrastructure, out-of-band management controllers) that are not yet available in this homelab. The playbooks generate artifacts (RouterOS scripts, autoinstall ISOs) that must be applied manually during initial setup.
 
@@ -43,8 +46,9 @@ Ring 0a represents the **day-2 operations** for Ring 0 services. Once the founda
 - Incus cluster maintenance: client certificate rotation, ISO image updates, OS patching
 - TrueNAS dataset creation, ACL management, share configuration
 - Identity lifecycle: user/group creation, password management, organizational unit maintenance
+- PKI reconciliation: step-ca provisioner (JWK) install, SAN policy + leaf-validity claims, container recovery when the CA has crash-looped on a bad config
 
-**Automation characteristics**: Ring 0a is **fully automated** and designed to be triggered by GitOps workflows. Every playbook is idempotent and can be re-run safely at any time. Changes to inventory files (device lists, firewall rules, dataset definitions, user accounts) are applied by running the corresponding playbook.
+**Automation characteristics**: Ring 0a is **fully automated** and designed to be triggered by GitOps workflows. Every playbook is idempotent and can be re-run safely at any time. Changes to inventory files (device lists, firewall rules, dataset definitions, user accounts, CA SAN policy) are applied by running the corresponding playbook.
 
 ### Ring 1 — Essential Operations Services
 
@@ -104,6 +108,10 @@ All automation — Ansible playbooks and Terraform modules — must be **as idem
 - Destructive operations (deleting orphaned firewall rules, removing identity objects) require explicit confirmation flags like `-e delete_confirmed=true`
 
 This principle ensures operators can safely re-run automation at any time without fear of breaking existing infrastructure.
+
+### Idempotency under `terraform destroy && terraform apply`
+
+Long-lived secrets and trust anchors (root CA private key + public cert, JWK provisioner key material, AD secrets) live in 1Password and in `configs/envbase/pki/` (public certs only), **not** on the destroyed VMs/containers. After a full destroy + re-apply of an environment, re-running the Ring 0 and Ring 0a playbooks reuses the existing root CA from 1Password, regenerates the intermediate CA inside the fresh container, and restores the JWK provisioner from its 1Password backup. End-user devices keep trusting the same root — no per-device re-import is needed.
 
 ## Dual-Repository Security Model
 

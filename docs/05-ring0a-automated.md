@@ -16,6 +16,7 @@ The workflow is simple: update the inventory/configuration, then run the corresp
 | `host-incus-import-iso.yaml` | Incus compute nodes | Import/update ISO images in Incus storage |
 | `identity-lifecycle.yaml` | Samba4 AD DC | User/group/OU lifecycle management |
 | `storage-truenas-configure.yaml` | TrueNAS Scale | Datasets, ACLs, shares, services |
+| `pki-stepca-configure.yaml` | step-ca container | JWK provisioner, SAN policy, leaf-duration claims; self-heals crashed containers |
 
 ---
 
@@ -278,6 +279,51 @@ To add a new group:
 
 ---
 
+## 5. Continuous PKI / step-ca Configuration
+
+After Ring 0 bootstraps the Root + Intermediate CA, the step-ca container is running but has no provisioners and no SAN policy. The Ring 0a playbook reconciles the runtime authority configuration to match inventory:
+
+```bash
+eval $(./scripts/op-session.sh 1h test)
+
+ansible-playbook \
+    -i configs/envbase/ \
+    -i configs/envtest/inventory/ \
+    playbooks/ring0a/pki-stepca-configure.yaml
+```
+
+### What Gets Configured
+
+- **JWK provisioner**: Installs (or restores) a JWK provisioner named by `step_ca_jwk_provisioner_name`. If `ca.json` has no JWK material and the 1Password item `Step CA JWK Controller <env_id>` has `jwkpub` / `jwkpriv` document attachments from a prior run, the playbook restores them so the existing JWK password keeps working after `terraform destroy`. Otherwise it generates a fresh EC P-256 JWK pair inside the container and uploads both halves to 1Password as backup.
+- **SAN policy**: Pushes `authority.policy.x509.allow.dns` from `step_ca_san_policy.dns.allow` (computed in [configs/envbase/group_vars/all/pki-stepca.yaml](../configs/envbase/group_vars/all/pki-stepca.yaml) from `step_ca_san_policy_service_subdomains`). Reminder: step-ca rejects `**`, leading-dot, or non-leading wildcards — only `*.<labels>` form, one wildcard per rule, and the rule's label count must match the requested name's label count.
+- **Leaf-duration claims**: Reconciles `authority.claims.{min,default,max}TLSCertDuration` from `step_ca_leaf_validity_days`. Go's duration syntax has no `d` unit, so the playbook multiplies by 24 and renders `<N>h0m0s`. Lets you bump the maximum leaf lifetime without re-bootstrapping the CA.
+- **Container repair mode**: If the container is stopped (typically because the previous `ca.json` was invalid and step-ca crash-looped on startup), the playbook temporarily overrides `oci.entrypoint` with `sleep infinity`, starts the container so its `$STEPPATH` volume is mounted and `incus file pull/push` can see `ca.json`, applies the corrected config, then unsets the entrypoint override and starts the container with the real entrypoint. Re-running Ring 0a is the standard recovery path after a bad SAN-policy push.
+- **Verification**: Waits for the `/health` endpoint to return 200 and asserts the JWK provisioner is advertised on `/provisioners`.
+
+### Adjusting the SAN Policy
+
+To allow a new service subdomain (e.g. `mqtt.<localdomain>` and `*.mqtt.<localdomain>`):
+
+1. Extend `step_ca_san_policy_service_subdomains` in the environment overlay:
+
+    ```yaml
+    # configs/envtest/inventory/group_vars/all/pki-stepca.yaml
+    step_ca_san_policy_service_subdomains: "{{ step_ca_san_policy_service_subdomains + ['mqtt'] }}"
+    ```
+
+2. Re-run `pki-stepca-configure.yaml` — the new rule is merged into `ca.json` and step-ca is restarted.
+
+### Bumping Leaf Validity
+
+Set `step_ca_leaf_validity_days` (e.g. to `90` for short-lived leaves or `397` for browser-tolerated yearly leaves) in the environment overlay and re-run the playbook. Newly-issued certs honour the new cap; existing certs remain valid until their own `notAfter`.
+
+### Configuration Source
+
+- **`configs/envbase/group_vars/all/pki-stepca.yaml`**: Base PKI defaults (hierarchy, key types, 1P item names, JWK provisioner, SAN policy template, claims).
+- **Environment overlay** (e.g. `configs/envtest/inventory/group_vars/all/pki-stepca.yaml`): `step_ca_env_id`, `step_ca_hostname`, `step_ca_target_remote`, `step_ca_san_policy_service_subdomains`, `step_ca_leaf_validity_days`.
+
+---
+
 ## GitOps Integration
 
 All Ring 0a playbooks are designed for GitOps-style workflows:
@@ -307,7 +353,10 @@ ansible-playbook ... playbooks/ring0a/storage-truenas-configure.yaml
 ansible-playbook ... playbooks/ring0a/host-incus-update.yaml
 ansible-playbook ... playbooks/ring0a/host-incus-import-iso.yaml
 
-# 5. Optional: cleanup orphaned router entries
+# 5. PKI reconciliation (Ring 1 cert issuance depends on this)
+ansible-playbook ... playbooks/ring0a/pki-stepca-configure.yaml
+
+# 6. Optional: cleanup orphaned router entries
 ansible-playbook ... playbooks/ring0a/networking-mikrotik-continuous-cleanup.yaml
 ```
 

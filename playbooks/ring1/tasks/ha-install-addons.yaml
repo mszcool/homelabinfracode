@@ -63,8 +63,20 @@
   register: _addon_options_result
   changed_when: _addon_options_result.status == 200
 
+# Use the Supervisor REST API directly instead of `ha apps start` because the
+# `ha` CLI uses a fixed ~30s HTTP client timeout. Slow-starting add-ons (e.g.
+# Studio Code Server) cause the CLI to return "context deadline exceeded"
+# even though the Supervisor continues starting the add-on in the background.
+# A 200 response means "start accepted"; the wait loop below confirms it
+# actually reached the 'started' state.
 - name: Start add-ons that are not running
-  ansible.builtin.shell: "ha apps start {{ item.slug }}"
+  ansible.builtin.uri:
+    url: "http://supervisor/addons/{{ item.slug }}/start"
+    method: POST
+    headers:
+      Authorization: "Bearer {{ _supervisor_token }}"
+    status_code: [200]
+    timeout: 300
   when: >
     (not _addon_states[item.slug].installed) or
     (_addon_states[item.slug].state != 'started')
@@ -72,7 +84,12 @@
   loop_control:
     label: "{{ item.name }}"
   register: _addon_start_result
-  changed_when: _addon_start_result.rc == 0
+  # Tolerate read timeouts: Supervisor keeps starting the add-on; the wait
+  # loop below verifies readiness. Any other failure should still fail hard.
+  failed_when:
+    - _addon_start_result.failed | default(false)
+    - "'timed out' not in (_addon_start_result.msg | default(''))"
+  changed_when: (_addon_start_result.status | default(0)) == 200
 
 - name: Wait for add-ons to reach started state
   ansible.builtin.shell: |

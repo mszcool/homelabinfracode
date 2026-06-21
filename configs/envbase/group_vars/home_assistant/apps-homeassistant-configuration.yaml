@@ -305,6 +305,75 @@ ha_mqtt_username: homeassistant
 # ha_mqtt_password: override in environment config (from 1Password)
 ha_mqtt_password: ""
 
+# ---------- TLS / HTTPS for the HA frontend ----------
+# Self-signed certificate, generated on the controller and copied to /ssl/
+# on the HAOS host. Off by default; enable per environment by setting
+# `ha_tls_enabled: true` and providing `ssl_cert_names` (CN + SAN list).
+#
+# Migration path to a real CA (Let's Encrypt, step-ca, ...) later only
+# changes the issuance task; the `http:` block in configuration.yaml and
+# the on-disk filenames at /ssl/ stay the same. Defaults to where we started
+# to avoid any un-intentional changes to existing production.
+ha_tls_enabled: false
+
+# Which issuer mints the HA cert. Switching this swaps which primitive
+# in playbooks/tasks/pki/ runs; the rest of the deploy flow is identical.
+#   selfsigned   Generate locally with community.crypto. No CA, browsers
+#                warn until the .crt is manually trusted on each device.
+#   stepca       Issue from the homelab step-ca instance (Ring 0). One
+#                root cert per env, trusted once per device. Requires the
+#                step-ca container to be reachable (see playbooks/ring0/
+#                pki-stepca-bootstrap.yaml).
+ha_tls_issuer: "selfsigned"
+
+# Where the cert and private key live on the controller. Default places
+# them under the env's home_assistant_files/ tree so they ride along with
+# the rest of the env-specific HA data. The .key file is gitignored in
+# configs.private; the .crt is fine to keep in the private repo for
+# manual trust install on client devices.
+ha_tls_local_dir: "{{ ha_config_env_path }}/ssl"
+
+# Filenames on both controller and HAOS host. Kept identical so the
+# `http:` block in configuration.yaml works regardless of issuer.
+ha_tls_cert_filename: "ha-selfsigned.crt"
+ha_tls_key_filename: "ha-selfsigned.key"
+
+# /ssl/ is the HAOS standard mount for certificate material.
+ha_tls_remote_dir: "/ssl"
+
+# 10y validity — self-signed, no rush to rotate. When migrating to LE
+# this drops to 90d and renewal moves to the issuer.
+ha_tls_validity_days: 3650
+
+# Subject Alt Name list for the cert. MUST be set per environment via
+# the existing `ssl_cert_names` inventory variable (see envlocaldev /
+# envprod overrides). The first entry becomes the CN; all entries are
+# emitted as DNS SANs.
+# Example:
+#   ssl_cert_names:
+#     - "dev-homeassistant"
+#     - "dev-homeassistant.local"
+#     - "dev.homeassistant.{{ localdomain }}"
+
+# ---------- HA frontend URLs ----------
+# When TLS is on, HA refuses to infer its internal URL from request
+# headers and surfaces "Invalid local network URL" in Settings → Network
+# until `homeassistant.internal_url` is set to a name covered by the
+# cert. Default below picks the first SAN; override per env if a
+# different SAN should be the primary internal URL (e.g. the .mszlocal
+# LAN-DNS name rather than the .local mDNS one).
+ha_frontend_port: 8123
+ha_internal_url: >-
+  {%- if ha_tls_enabled | default(false) | bool and (ssl_cert_names | default([]) | length > 0) -%}
+  https://{{ ssl_cert_names[0] }}:{{ ha_frontend_port }}
+  {%- else -%}
+  http://{{ ha_hostname }}.local:{{ ha_frontend_port }}
+  {%- endif -%}
+# External URL is optional and only meaningful when HA is reachable
+# from the public internet (reverse-proxy / Nabu Casa). Leave empty
+# to omit the key.
+ha_external_url: ""
+
 # ---------- MariaDB recorder ----------
 # Override ha_mariadb_password and ha_recorder_db_url in environment config
 # (e.g. via 1Password / vault). The password is used both to configure the

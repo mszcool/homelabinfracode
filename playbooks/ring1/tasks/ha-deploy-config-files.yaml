@@ -6,6 +6,22 @@
 
 # --- Deploy main config files ---
 
+# `configuration.yaml` is templated separately because it contains
+# Jinja conditionals (e.g. the `http:` block guarded by
+# `ha_tls_enabled`). All other ha_config_files are static and use
+# `copy:` below.
+
+- name: Deploy configuration.yaml (templated, first_found layering)
+  ansible.builtin.template:
+    src: "{{ lookup('first_found', _search_paths) }}"
+    dest: "{{ ha_config_path }}/configuration.yaml"
+    mode: "0644"
+  vars:
+    _search_paths: >-
+      {{ ([ha_config_env_path ~ '/ha_configs/configuration.yaml'] if ha_config_env_path | length > 0 else [])
+         + [ha_config_base_path ~ '/ha_configs/configuration.yaml'] }}
+  register: _configuration_yaml_result
+
 - name: Deploy configuration files (first_found layering)
   ansible.builtin.copy:
     src: "{{ lookup('first_found', _search_paths) }}"
@@ -15,7 +31,7 @@
     _search_paths: >-
       {{ ([ha_config_env_path ~ '/ha_configs/' ~ item] if ha_config_env_path | length > 0 else [])
          + [ha_config_base_path ~ '/ha_configs/' ~ item] }}
-  loop: "{{ ha_config_files }}"
+  loop: "{{ ha_config_files | reject('equalto', 'configuration.yaml') | list }}"
   register: _config_files_result
 
 # --- Deploy secrets.yaml via template (needs variable interpolation) ---
@@ -104,6 +120,7 @@
   ansible.builtin.set_fact:
     _ha_config_changed: >-
       {{ _ha_config_changed | bool or
+         (_configuration_yaml_result is changed) or
          (_config_files_result.results | selectattr('changed', 'equalto', true) | list | length > 0) or
          (_secrets_file_result is changed) or
          (_template_files_result.results | selectattr('changed', 'equalto', true) | list | length > 0) }}
@@ -122,6 +139,7 @@
          + ((_template_files_result.results
              | selectattr('changed', 'equalto', true)
              | map(attribute='item') | list) | default([]))
+         + (['configuration.yaml'] if (_configuration_yaml_result is changed) else [])
          + (['secrets.yaml'] if (_secrets_file_result is changed) else []) }}
 
 - name: Decide if change is reload-only (msz_mqtt_sensors/* exclusively)
