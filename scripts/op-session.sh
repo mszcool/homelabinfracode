@@ -1,26 +1,43 @@
 #!/usr/bin/env bash
 # ─────────────────────────────────────────────────────────────────────────────
-# op-session.sh — Create a short-lived 1Password service account token for
-#                 HomeLab infrastructure work (Terraform + Ansible).
+# op-session.sh — Provide a 1Password service account token for HomeLab
+#                 infrastructure work (Terraform + Ansible).
 #
 # Usage:
-#   eval $(./scripts/op-session.sh [duration] [environment] [access])
+#   eval $(./scripts/op-session.sh [environment] [access])
 #
 # Arguments:
-#   duration     Token TTL (default: 2h). Accepts: 30m, 1h, 2h, 8h, 24h, etc.
 #   environment  "prod" or "test" (default: prod)
 #   access       "read" (default) or "write". "write" grants read+write
 #                permissions on the vault(s) for the session.
+#
+# Why this design:
+#   The `op` CLI (as of 2.x) can only CREATE service accounts. It cannot list,
+#   delete, or rotate the token of an existing service account — those actions
+#   are web-console only. Minting a fresh service account per session therefore
+#   piles up orphaned accounts that can never be cleaned up via script and
+#   eventually hits the account's service-account limit (→ 400 Bad Request).
+#
+#   Instead, this script keeps ONE long-lived service account per
+#   (environment, access) combination — at most four total. The token is stored
+#   in your Private vault (a service account can never be granted access to the
+#   Private vault, so only your personal `op` session can read it back). On each
+#   run the script simply reads and exports the stored token. It only creates a
+#   new service account when the stored token is missing or has expired.
 #
 # Prerequisites:
 #   - 1Password CLI (op) installed and signed in to your personal account
 #   - jq installed
 #
+# Configuration (environment variable overrides):
+#   OP_SA_STORE_VAULT   Vault used to store the tokens (default: Private)
+#   OP_SA_LIFETIME      Lifetime for newly created SA tokens (default: 90d)
+#   OP_SA_RENEW_BUFFER  Seconds before expiry to proactively rotate (default: 86400)
+#
 # Examples:
-#   eval $(./scripts/op-session.sh)                  # 2h prod, read-only
-#   eval $(./scripts/op-session.sh 1h test)          # 1h test, read-only
-#   eval $(./scripts/op-session.sh 8h prod)          # full work day, prod
-#   eval $(./scripts/op-session.sh 1h prod write)    # 1h prod, read+write
+#   eval $(./scripts/op-session.sh)                  # prod, read-only
+#   eval $(./scripts/op-session.sh test)             # test, read-only
+#   eval $(./scripts/op-session.sh prod write)       # prod, read+write
 #
 # After eval, both Terraform and Ansible will use the token automatically:
 #   terraform plan --var-file ../configs.private/envprod/ring0.tfvars
@@ -28,9 +45,21 @@
 # ─────────────────────────────────────────────────────────────────────────────
 set -euo pipefail
 
-DURATION="${1:-2h}"
-ENV="${2:-prod}"
-ACCESS="${3:-read}"
+STORE_VAULT="${OP_SA_STORE_VAULT:-Private}"
+SA_LIFETIME="${OP_SA_LIFETIME:-90d}"
+RENEW_BUFFER="${OP_SA_RENEW_BUFFER:-86400}" # rotate if expiring within this many seconds
+
+# ── Backward compatibility: the old signature was [duration] [environment] ──
+# If the first argument looks like a duration (e.g. 2h, 30m, 90d), treat it as a
+# lifetime override and shift it out so the rest of the arguments line up.
+if [[ "${1:-}" =~ ^[0-9]+[smhd]$ ]]; then
+  echo "# Note: leading duration argument is deprecated; using '$1' as SA lifetime." >&2
+  SA_LIFETIME="$1"
+  shift
+fi
+
+ENV="${1:-prod}"
+ACCESS="${2:-read}"
 
 # ── Validate prerequisites ──────────────────────────────────────────────────
 for cmd in op jq; do
@@ -47,51 +76,6 @@ unset OP_SERVICE_ACCOUNT_TOKEN
 if ! op whoami &>/dev/null; then
   echo "Error: Not signed in to 1Password CLI. Run 'eval \$(op signin)' first." >&2
   exit 1
-fi
-
-# ── Clean up outdated / expired HomeLab service accounts ─────────────────────
-# Delete every service account whose name starts with "HomeLab-" and that is
-# either already expired or whose TTL has elapsed since creation. This keeps
-# the 1Password tenant tidy and avoids hitting the SA quota.
-echo "# → Scanning for outdated HomeLab service accounts..." >&2
-
-NOW_EPOCH=$(date -u +%s)
-
-# `op service-account list` returns: id, name, created_at, expires_at, state ...
-# Some op CLI versions name the field differently; tolerate both.
-SA_JSON=$(op service-account list --format json 2>/dev/null || echo '[]')
-
-# Build a list of "id<TAB>name<TAB>reason" for accounts to delete.
-TO_DELETE=$(jq -r --argjson now "$NOW_EPOCH" '
-  .[]
-  | select(.name | startswith("HomeLab-"))
-  | . as $sa
-  | (.expires_at // .expiresAt // .expiry // null) as $exp_raw
-  | (.state // .status // "") as $state
-  | (
-      if $exp_raw == null then null
-      else ($exp_raw | sub("\\.[0-9]+Z$"; "Z") | fromdateiso8601)
-      end
-    ) as $exp_epoch
-  | if ($state | ascii_downcase) == "expired" then
-      "\(.id)\t\(.name)\texpired (state)"
-    elif ($exp_epoch != null and $exp_epoch <= $now) then
-      "\(.id)\t\(.name)\texpired at \($exp_raw)"
-    else
-      empty
-    end
-' <<<"$SA_JSON" 2>/dev/null || true)
-
-if [[ -n "$TO_DELETE" ]]; then
-  while IFS=$'\t' read -r SA_ID SA_OLD_NAME SA_REASON; do
-    [[ -z "$SA_ID" ]] && continue
-    echo "#   • Deleting '$SA_OLD_NAME' ($SA_REASON)" >&2
-    if ! op service-account delete "$SA_ID" >/dev/null 2>&1; then
-      echo "#     ! Failed to delete '$SA_OLD_NAME' ($SA_ID) — continuing" >&2
-    fi
-  done <<<"$TO_DELETE"
-else
-  echo "#   (no outdated HomeLab service accounts found)" >&2
 fi
 
 # ── Resolve permission set based on access mode ──────────────────────────────
@@ -111,24 +95,73 @@ case "$ACCESS" in
 esac
 
 # ── Define vault access per environment ──────────────────────────────────────
-declare -a VAULT_ARGS=()
+case "$ENV" in
+  prod)
+    SA_VAULT="HomeLab-Prod"
+    ;;
+  test)
+    SA_VAULT="HomeLab-Test"
+    ;;
+  *)
+    echo "Error: Unknown environment '$ENV'. Use 'prod' or 'test'." >&2
+    exit 1
+    ;;
+esac
 
-if [[ "$ENV" == "prod" ]]; then
-  # Infrastructure vault (includes VM passwords and AD user passwords)
-  VAULT_ARGS+=("--vault" "HomeLab-Prod:${PERMS}")
-elif [[ "$ENV" == "test" ]]; then
-  VAULT_ARGS+=("--vault" "HomeLab-Test:${PERMS}")
-else
-  echo "Error: Unknown environment '$ENV'. Use 'prod' or 'test'." >&2
-  exit 1
+# ── Convert a lifetime spec (e.g. 90d, 2h) into an absolute expiry epoch ──────
+lifetime_to_epoch() {
+  local spec="$1" now num unit
+  now=$(date -u +%s)
+  num="${spec%[smhd]}"
+  unit="${spec##*[0-9]}"
+  case "$unit" in
+    s) echo $((now + num)) ;;
+    m) echo $((now + num * 60)) ;;
+    h) echo $((now + num * 3600)) ;;
+    d) echo $((now + num * 86400)) ;;
+    *) echo $((now + num)) ;;
+  esac
+}
+
+# Warn if the configured lifetime is short — short lifetimes recreate the
+# service account frequently and re-introduce the orphaned-account pile-up.
+if (( $(lifetime_to_epoch "$SA_LIFETIME") - $(date -u +%s) < 86400 )); then
+  echo "# Warning: SA lifetime '$SA_LIFETIME' is under a day. Each expiry creates a" >&2
+  echo "#          new (undeletable) service account. Prefer a long lifetime (e.g. 90d)." >&2
 fi
 
-# ── Create the service account with a unique timestamped name ────────────────
+# Title of the item that stores the reusable token for this (env, access) combo.
+ITEM_TITLE="HomeLab-SA-${ENV}-${ACCESS}"
+TOKEN_REF="op://${STORE_VAULT}/${ITEM_TITLE}/credential"
+
+# ── Try to reuse an existing, still-valid stored token ───────────────────────
+EXISTING_TOKEN=""
+EXISTING_EXP=""
+if op item get "$ITEM_TITLE" --vault "$STORE_VAULT" &>/dev/null; then
+  EXISTING_TOKEN=$(op read "$TOKEN_REF" 2>/dev/null || true)
+  EXISTING_EXP=$(op item get "$ITEM_TITLE" --vault "$STORE_VAULT" \
+    --fields label=expires --format json 2>/dev/null \
+    | jq -r 'if type=="array" then (.[0].value // empty) else (.value // empty) end' 2>/dev/null || true)
+fi
+
+NOW_EPOCH=$(date -u +%s)
+if [[ -n "$EXISTING_TOKEN" && -n "$EXISTING_EXP" ]] \
+  && (( EXISTING_EXP - NOW_EPOCH > RENEW_BUFFER )); then
+  echo "export OP_SERVICE_ACCOUNT_TOKEN=\"${EXISTING_TOKEN}\""
+  echo "export TF_VAR_op_service_account_token=\"${EXISTING_TOKEN}\""
+  echo "# ✓ Reusing stored token '$ITEM_TITLE' (valid until $(date -u -d "@${EXISTING_EXP}" '+%Y-%m-%d %H:%M:%SZ'))" >&2
+  echo "#   Environment: $ENV   Access: $ACCESS ($PERMS)   Vault: $SA_VAULT" >&2
+  exit 0
+fi
+
+# ── Otherwise create a fresh service account and store its token ─────────────
+echo "# → No valid stored token for '$ITEM_TITLE'; creating a new service account..." >&2
+
 SA_NAME="HomeLab-${ENV}-${ACCESS}-$(date +%Y%m%d-%H%M%S)"
 
 TOKEN=$(op service-account create "$SA_NAME" \
-  --expires-in "$DURATION" \
-  "${VAULT_ARGS[@]}" \
+  --expires-in "$SA_LIFETIME" \
+  --vault "${SA_VAULT}:${PERMS}" \
   --format json | jq -r '.token')
 
 if [[ -z "$TOKEN" || "$TOKEN" == "null" ]]; then
@@ -136,13 +169,29 @@ if [[ -z "$TOKEN" || "$TOKEN" == "null" ]]; then
   exit 1
 fi
 
+EXP_EPOCH=$(lifetime_to_epoch "$SA_LIFETIME")
+
+# Upsert the stored item with the new token, expiry and SA name.
+if op item get "$ITEM_TITLE" --vault "$STORE_VAULT" &>/dev/null; then
+  op item edit "$ITEM_TITLE" --vault "$STORE_VAULT" \
+    "credential[password]=${TOKEN}" \
+    "expires[text]=${EXP_EPOCH}" \
+    "sa_name[text]=${SA_NAME}" >/dev/null
+else
+  op item create \
+    --category "API Credential" \
+    --title "$ITEM_TITLE" \
+    --vault "$STORE_VAULT" \
+    "credential[password]=${TOKEN}" \
+    "expires[text]=${EXP_EPOCH}" \
+    "sa_name[text]=${SA_NAME}" >/dev/null
+fi
+
 # ── Output the export command (consumed by eval) ─────────────────────────────
 echo "export OP_SERVICE_ACCOUNT_TOKEN=\"${TOKEN}\""
 echo "export TF_VAR_op_service_account_token=\"${TOKEN}\""
 
-# Print info to stderr so it's visible but doesn't interfere with eval
-echo "# ✓ Created 1Password session '$SA_NAME' (expires in $DURATION)" >&2
-echo "#   Environment: $ENV" >&2
-echo "#   Access:      $ACCESS ($PERMS)" >&2
-echo "#   Vaults: ${VAULT_ARGS[*]}" >&2
+echo "# ✓ Created service account '$SA_NAME' and stored token as '$ITEM_TITLE'." >&2
+echo "#   Environment: $ENV   Access: $ACCESS ($PERMS)   Vault: $SA_VAULT" >&2
+echo "#   Token valid until $(date -u -d "@${EXP_EPOCH}" '+%Y-%m-%d %H:%M:%SZ') (lifetime $SA_LIFETIME)" >&2
 echo "#   Token exported as OP_SERVICE_ACCOUNT_TOKEN" >&2
