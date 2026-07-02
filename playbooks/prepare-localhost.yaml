@@ -80,3 +80,4 @@
         name: "incus-client{{ '=' + incus_client_version if incus_client_version else '' }}"
         state: "{{ 'present' if incus_client_version else 'latest' }}"
         update_cache: true
+

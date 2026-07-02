@@ -40,6 +40,7 @@ variable "vms" {
     system_disk_gb          = optional(number, 64)
     network_bridge          = optional(string, "phys-br")
     mac_address             = optional(string, "")
+    ipv4_address            = optional(string, "")
     iso_volume_name         = optional(string, "")
     iso_mounted             = optional(bool, false)
     enable_pcie_passthrough = optional(bool, false)
@@ -48,14 +49,14 @@ variable "vms" {
     # Whether to wait for the Incus agent (VMs) or IPv4 (containers) after creation.
     # Set to false for appliance-type VMs (e.g., Home Assistant OS) that do not
     # include the Incus agent and cannot report readiness.
-    wait_for_network        = optional(bool, true)
-    root_username           = optional(string, "admin")
-    sudo_passwordless       = optional(bool, false)
-    ssh_public_key          = optional(string, "")
-    root_password           = optional(string, "")
-    root_pwd_vault          = optional(string, "")
-    root_pwd_vault_item     = optional(string, "")
-    root_pwd_vault_field    = optional(string, "password") # 1Password field name containing the yescrypt hash
+    wait_for_network     = optional(bool, true)
+    root_username        = optional(string, "admin")
+    sudo_passwordless    = optional(bool, false)
+    ssh_public_key       = optional(string, "")
+    root_password        = optional(string, "")
+    root_pwd_vault       = optional(string, "")
+    root_pwd_vault_item  = optional(string, "")
+    root_pwd_vault_field = optional(string, "password") # 1Password field name containing the yescrypt hash
     data_disks = optional(list(object({
       name = string
       size = optional(number, 100) # in GB
@@ -65,14 +66,21 @@ variable "vms" {
     # Terraform invokes ansible-playbook via local-exec, passing extra_vars
     # with highest precedence to override inventory values.
     ansible_playbook = optional(object({
-      playbook               = string            # Path from repo root, e.g., "playbooks/ring1/remote-maintenance-shell.yaml"
-      inventory_dirs         = list(string)      # Inventory directories for -i flags
-      limit                  = string            # Ansible --limit pattern (e.g., "remote_maintenance")
-      extra_vars             = optional(map(string), {}) # Variable name → value string (passed as --extra-vars)
+      playbook       = string                    # Path from repo root, e.g., "playbooks/ring1/remote-maintenance-shell.yaml"
+      inventory_dirs = list(string)              # Inventory directories for -i flags
+      limit          = string                    # Ansible --limit pattern (e.g., "remote_maintenance")
+      extra_vars     = optional(map(string), {}) # Variable name → value string (passed as --extra-vars)
       # When set, the instance's Terraform-assigned IPv4 is injected as an
       # --extra-var with this name.  Use "ansible_host" to override the
       # inventory's ansible_host so Ansible connects to the fresh IP.
-      instance_ip_var        = optional(string, null)
+      instance_ip_var = optional(string, null)
+      # Optional SSH ProxyJump spec (e.g. "user@incus-host") used to reach the
+      # instance for post-provisioning when it sits on an isolated network the
+      # control host cannot route to directly (e.g. the envlocaldev iso-nat
+      # bridge). When set, the module's SSH-readiness probe tests TCP/22 on the
+      # target THROUGH this jump host. The Ansible connection itself proxies via
+      # the inventory's ansible_ssh_common_args. Leave unset for prod (direct).
+      ssh_proxy_jump = optional(string, null)
     }), null)
   }))
   default = {}
@@ -115,13 +123,14 @@ variable "docker_containers" {
     root_disk_gb          = optional(number, 0) # 0 = no explicit limit
     network_bridge        = optional(string, "phys-br")
     mac_address           = optional(string, "")
+    ipv4_address          = optional(string, "")
     enable_boot_autostart = optional(bool, true)
     running               = optional(bool, true) # Set false for containers configured by Ansible before first start
     environment           = optional(map(string), {})
     # Override the OCI container's entrypoint. Combines the image entrypoint and
     # command into a single string (e.g., "dumb-init -- ak server").
     # Leave empty to use the image's default ENTRYPOINT/CMD.
-    oci_cmd               = optional(string, "")
+    oci_cmd = optional(string, "")
     # Map of environment variable names to other docker_container names.
     # At deploy time Terraform resolves each referenced container's IPv4
     # address and injects it as the named environment variable.
@@ -141,9 +150,9 @@ variable "docker_containers" {
     # Terraform invokes ansible-playbook via local-exec, passing extra_vars
     # with highest precedence to override inventory values (e.g., inject IPs).
     ansible_playbook = optional(object({
-      playbook       = string            # Path from repo root, e.g., "playbooks/ring1/apps-mosquitto-configure.yaml"
-      inventory_dirs = list(string)       # Inventory directories for -i flags
-      limit          = string            # Ansible --limit pattern (e.g., "localhost")
+      playbook       = string                    # Path from repo root, e.g., "playbooks/ring1/apps-mosquitto-configure.yaml"
+      inventory_dirs = list(string)              # Inventory directories for -i flags
+      limit          = string                    # Ansible --limit pattern (e.g., "localhost")
       extra_vars     = optional(map(string), {}) # Variable name → JSON value string (passed as --extra-vars)
       # Map of Ansible variable names to Phase 1 container names.
       # Terraform resolves the container's IPv4 address at apply time and
@@ -184,7 +193,7 @@ variable "mac_prefix_by_project" {
     range used by Incus. The 4th octet encodes the ring identity.
     Set to empty map to disable prefix validation.
   EOT
-  type    = map(string)
+  type        = map(string)
   default = {
     prodlayer0 = "00:16:3e:11:"
     prodlayer1 = "00:16:3e:12:"

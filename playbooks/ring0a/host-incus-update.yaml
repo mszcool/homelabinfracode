@@ -6,6 +6,9 @@
 
   vars:
     param_incus_config: "{{ incus_config }}"
+    # Managed NAT bridge created by the Incus preseed (see the incus preseed
+    # template). Instances on this bridge rely on the host's dnsmasq for DHCP/DNS.
+    incus_nat_bridge: "iso-nat"
 
   tasks:
     - name: Set the hostname from inventory.
@@ -35,17 +38,72 @@
         key: "{{ incus_root_user_publickey }}"
         exclusive: true
 
-    - name: Allow inbound SSH on port 22.
+    - name: Allow host-directed inbound services on all interfaces (e.g. SSH, Incus API).
+      # Host-wide INPUT allows that must be reachable from the management LAN. The
+      # ports come from inventory (incus_host_input_services — a safe default in
+      # envbase); the Incus management API port is appended from incus_config so it
+      # always tracks the daemon's configured port. These are deliberately NOT
+      # interface-scoped, unlike the NAT-bridge services below.
+      # SAFETY: the play later sets default-deny-incoming and enables UFW, so SSH
+      # (22) MUST remain in incus_host_input_services or the node becomes
+      # unreachable from the LAN.
       community.general.ufw:
         rule: allow
-        port: "22"
-        proto: tcp
+        port: "{{ item.port }}"
+        proto: "{{ item.proto | default(omit) }}"
+      loop: "{{ incus_host_input_services + [{'port': param_incus_config.port | string, 'proto': 'tcp'}] }}"
+      loop_control:
+        label: "{{ item.port }}/{{ item.proto | default('any') }}"
 
-    - name: Allow inbound HTTPS on the Incus port.
+    - name: Allow host services (DHCP, DNS) requested from the isolated NAT bridge.
+      # Host-directed traffic from the isolated NAT bridge is deliberately limited
+      # to the services the host actually provides to those instances — dnsmasq
+      # DHCP + DNS (incus_nat_bridge_host_services, a safe default in envbase).
+      # Incus installs its own nftables accept rules for these, but UFW registers
+      # separate base chains on the same input hook with a default-drop policy, and
+      # nftables evaluates every base chain on a hook independently — so without an
+      # explicit UFW allow, UFW silently drops the DHCP DISCOVER before dnsmasq can
+      # answer and instances never obtain an IP. Interface-scoping (instead of a
+      # blanket host allow) keeps other host services (e.g. SSH) unreachable from
+      # the isolated instances. An entry with no proto matches both TCP and UDP.
       community.general.ufw:
         rule: allow
-        port: "{{ param_incus_config.port }}"
-        proto: tcp
+        direction: in
+        interface: "{{ incus_nat_bridge }}"
+        to_port: "{{ item.to_port }}"
+        proto: "{{ item.proto | default(omit) }}"
+      loop: "{{ incus_nat_bridge_host_services }}"
+      loop_control:
+        label: "{{ incus_nat_bridge }} in -> :{{ item.to_port }}/{{ item.proto | default('any') }}"
+
+    - name: Deny forwarding from the isolated NAT bridge to private LAN ranges.
+      # Egress from the isolated NAT bridge (forward hook): deny reaching the
+      # private LAN/prod ranges so a compromised dev instance cannot pivot into the
+      # local network, then allow everything else (internet) via NAT below. The
+      # ranges come from inventory (incus_nat_egress_denied_ranges — a safe default
+      # in envbase). The deny rules are declared before the allow so they take
+      # precedence in UFW's ordered ruleset. The bridge's own subnet is unaffected:
+      # instance-to-host and instance-to-instance traffic stays on the bridge
+      # (input hook / L2) and never traverses this forward chain.
+      community.general.ufw:
+        route: true
+        rule: deny
+        direction: in
+        interface: "{{ incus_nat_bridge }}"
+        dest: "{{ item }}"
+      loop: "{{ incus_nat_egress_denied_ranges }}"
+
+    - name: Allow forwarding from the isolated NAT bridge to the internet (via NAT).
+      # NAT egress traverses the forward hook, where UFW's FORWARD chain also
+      # defaults to drop. UFW's before-forward chain already accepts established/
+      # related traffic, so allowing forwarding inbound from the bridge (minus the
+      # denied LAN ranges above) is enough for the masqueraded outbound path and
+      # its return traffic to work.
+      community.general.ufw:
+        route: true
+        rule: allow
+        direction: in
+        interface: "{{ incus_nat_bridge }}"
 
     - name: Set default policy to deny inbound traffic.
       community.general.ufw:
@@ -82,6 +140,19 @@
     - name: Display Incus network configuration.
       ansible.builtin.debug:
         msg: "Incus is now accessible at https://{{ param_incus_listen_address }}:{{ param_incus_config.port }}"
+
+    # ---------- Incus network LAN port-forwards (dev services on iso-nat) ----------
+    # Publish selected service ports of NAT'd instances on the node's LAN IP via
+    # Incus network forwards (DNAT) and open the matching UFW route rules
+    # (restricted to source_subnet). Driven by incus_network_forwards in the
+    # incus-group group_vars. The current entries expose the dev iso-nat services;
+    # a no-op where undefined.
+    - name: Manage Incus network LAN port-forwards.
+      ansible.builtin.include_tasks: ./tasks/host-incus-network-forwards-tasks.yaml
+      when: incus_network_forwards | default([]) | length > 0
+      tags:
+        - network-forwards
+        - network
 
     - name: Validate and rotate Incus server certificate if needed.
       ansible.builtin.include_tasks: ./tasks/host-incus-validate-server-cert-tasks.yaml

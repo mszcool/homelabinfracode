@@ -88,6 +88,12 @@ variable "mac_address" {
   default     = ""
 }
 
+variable "ipv4_address" {
+  description = "Optional static IPv4 address for the primary NIC on a managed Incus bridge (sets the NIC device's ipv4.address). Leave empty for DHCP/auto-assignment. Only valid on managed bridge networks (e.g. 'iso-nat')."
+  type        = string
+  default     = ""
+}
+
 variable "iso_volume_name" {
   description = "Name of the pre-imported ISO storage volume (e.g., 'truenas-25.10.1'). Must exist in the specified storage pool. The volume must be imported via Ansible playbook before applying Terraform."
   type        = string
@@ -233,6 +239,21 @@ variable "ansible_extra_vars" {
 
 variable "ansible_instance_ip_var" {
   description = "When set, the instance's IPv4 address is injected as an --extra-var with this name (e.g., 'ansible_host')."
+  type        = string
+  default     = null
+}
+
+variable "ansible_ssh_proxy_jump" {
+  description = <<-EOT
+    Optional SSH ProxyJump spec (e.g. 'user@incus-host') used to reach the
+    instance for post-provisioning when it sits on an isolated network the
+    control host cannot route to directly (e.g. the envlocaldev iso-nat bridge).
+    When set, the SSH-readiness probe connects to the jump host and tests TCP/22
+    on the target from there (the control host cannot reach the target IP), and
+    the local ssh-keyscan/known_hosts handling is skipped. The Ansible
+    connection itself proxies via the inventory's ansible_ssh_common_args.
+    Empty/null = direct connection to the target IP (default, used by prod).
+  EOT
   type        = string
   default     = null
 }

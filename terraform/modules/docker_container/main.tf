@@ -26,7 +26,7 @@ resource "null_resource" "oci_image_copy" {
   }
 
   provisioner "local-exec" {
-    command     = <<-EOT
+    command = <<-EOT
       # If the image alias already exists in the target project, skip the copy.
       # This handles the case where multiple containers share the same OCI image
       # and their oci_image_copy resources run in parallel.
@@ -168,7 +168,8 @@ resource "incus_instance" "container" {
     type = "nic"
     properties = merge(
       { network = var.network_bridge },
-      var.mac_address != "" ? { hwaddr = var.mac_address } : {}
+      var.mac_address != "" ? { hwaddr = var.mac_address } : {},
+      var.ipv4_address != "" ? { "ipv4.address" = var.ipv4_address } : {}
     )
   }
 
@@ -215,7 +216,10 @@ resource "null_resource" "ansible_configure" {
       ],
       var.ansible_limit != null ? ["--limit", jsonencode(var.ansible_limit)] : [],
       [for dir in var.ansible_inventory_dirs : "-i ${jsonencode(dir)}"],
-      [for k, v in var.ansible_extra_vars : "-e ${jsonencode("${k}=${v}")}"],
+      # Skip vars whose value is null (e.g. an unresolved container IP): omitting
+      # the override lets the playbook fall back to its inventory default rather
+      # than crashing on a null string interpolation.
+      [for k, v in var.ansible_extra_vars : "-e ${jsonencode("${k}=${v}")}" if v != null],
       [jsonencode(var.ansible_playbook)]
     ))
 
