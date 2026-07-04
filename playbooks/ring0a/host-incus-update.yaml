@@ -10,6 +10,13 @@
     # template). Instances on this bridge rely on the host's dnsmasq for DHCP/DNS.
     incus_nat_bridge: "iso-nat"
 
+  pre_tasks:
+    - name: Enforce environment change-level guardrail
+      ansible.builtin.include_tasks:
+        file: ../tasks/validate_change_level.yaml
+      vars:
+        required_change_level: -1
+
   tasks:
     - name: Set the hostname from inventory.
       ansible.builtin.set_fact:

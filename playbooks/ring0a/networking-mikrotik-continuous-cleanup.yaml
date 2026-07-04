@@ -15,6 +15,13 @@
     param_start_marker_text: "{{ start_marker_text }}"
     param_router_host_config: "{{ mainrouterconfig }}"
 
+  pre_tasks:
+    - name: Enforce environment change-level guardrail
+      ansible.builtin.include_tasks:
+        file: ../tasks/validate_change_level.yaml
+      vars:
+        required_change_level: -1
+
   tasks:
     # Create a list of protected interfaces that should never be removed
     - name: Safety -- Create list of protected interfaces

@@ -16,6 +16,12 @@
 
   # First, ensure the pre-requisites are met
   pre_tasks:
+    - name: Enforce environment change-level guardrail
+      ansible.builtin.include_tasks:
+        file: ../tasks/validate_change_level.yaml
+      vars:
+        required_change_level: 1
+
     # First, make sure the environment variable for SSH access to the nodes is present.
     - include_tasks: ../../tasklib/checkuserenv-tasks.yaml
 
@@ -89,6 +95,12 @@
 
   # First, ensure the pre-requisites are met
   pre_tasks:
+    - name: Enforce environment change-level guardrail
+      ansible.builtin.include_tasks:
+        file: ../tasks/validate_change_level.yaml
+      vars:
+        required_change_level: 1
+
     # First, make sure the environment variable for SSH access to the nodes is present.
     - include_tasks: ../tasklib/checkuserenv-tasks.yaml
 

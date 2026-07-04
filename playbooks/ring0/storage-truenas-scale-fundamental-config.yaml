@@ -17,6 +17,12 @@
   gather_facts: false
 
   pre_tasks:
+    - name: Enforce environment change-level guardrail
+      ansible.builtin.include_tasks:
+        file: ../tasks/validate_change_level.yaml
+      vars:
+        required_change_level: 0
+
     - name: Pre-flight -- Validate secrets backend connectivity
       ansible.builtin.include_tasks:
         file: ../tasks/validate_secrets.yaml

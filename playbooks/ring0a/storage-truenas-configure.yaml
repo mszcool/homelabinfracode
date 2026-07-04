@@ -18,6 +18,12 @@
     - arensb.truenas
 
   pre_tasks:
+    - name: Enforce environment change-level guardrail
+      ansible.builtin.include_tasks:
+        file: ../tasks/validate_change_level.yaml
+      vars:
+        required_change_level: 0
+
     - name: Ensure arensb.truenas facts are available
       arensb.truenas.truenas_facts:
 
