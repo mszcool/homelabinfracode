@@ -1,0 +1,108 @@
+---
+# Incus network port-forward tasks (generic, node-agnostic)
+#
+# Publishes selected service ports of NAT'd instances on the Incus host's LAN
+# address via Incus network forwards (DNAT), and opens the matching UFW route
+# (forward-chain) rules so the DNAT'd traffic is allowed to reach the instances
+# despite UFW's default-drop FORWARD policy.
+#
+# Driven by incus_network_forwards in the incus-group group_vars. Each entry
+# targets a node by its inventory hostname (remote) and a network on that node,
+# publishes on a listen_address (typically the node's LAN IP), and restricts
+# allowed sources to source_subnet. The entries currently in the inventory expose
+# the dev iso-nat services, but the mechanism works for any host/network. A no-op
+# where the variable is undefined.
+#
+# Runs on the Incus node itself (the including play uses hosts: incus, become),
+# so the incus commands act on the local daemon (no remote prefix needed).
+
+- name: Select Incus network forwards targeting this node.
+  ansible.builtin.set_fact:
+    param_node_nat_forwards: "{{ incus_network_forwards | default([]) | selectattr('remote', 'equalto', inventory_hostname) | list }}"
+
+- name: Check whether each dev NAT network forward already exists.
+  ansible.builtin.command:
+    cmd: "incus network forward show {{ item.network }} {{ item.listen_address }}"
+  loop: "{{ param_node_nat_forwards }}"
+  loop_control:
+    label: "{{ item.network }}:{{ item.listen_address }}"
+  register: nat_forward_show
+  changed_when: false
+  failed_when: false
+
+- name: Create missing dev NAT network forwards.
+  ansible.builtin.command:
+    cmd: "incus network forward create {{ item.item.network }} {{ item.item.listen_address }}"
+  loop: "{{ nat_forward_show.results | default([]) }}"
+  loop_control:
+    label: "{{ item.item.network }}:{{ item.item.listen_address }}"
+  when: item.rc != 0
+  changed_when: true
+
+- name: Re-read current dev NAT network forwards after ensuring they exist.
+  ansible.builtin.command:
+    cmd: "incus network forward show {{ item.network }} {{ item.listen_address }}"
+  loop: "{{ param_node_nat_forwards }}"
+  loop_control:
+    label: "{{ item.network }}:{{ item.listen_address }}"
+  register: nat_forward_current
+  changed_when: false
+
+# Rebuild the full desired forward config (declarative) and apply it via
+# `incus network forward edit`, which both ADDS new ports and REMOVES stale ones.
+# Change detection compares the current vs desired port set (protocol, listen
+# port, target address, target port) so a converged forward reports no change.
+- name: Reconcile ports on each dev NAT network forward (declarative edit).
+  ansible.builtin.command:
+    cmd: "incus network forward edit {{ item.item.network }} {{ item.item.listen_address }}"
+    stdin: "{{ param_desired_yaml }}"
+  vars:
+    _cur_ports: "{{ (item.stdout | from_yaml).ports | default([]) }}"
+    param_cur_set: >-
+      {{ (_cur_ports | map(attribute='protocol') | list)
+         | zip(_cur_ports | map(attribute='listen_port') | map('string') | list,
+               _cur_ports | map(attribute='target_address') | list,
+               _cur_ports | map(attribute='target_port') | map('string') | list)
+         | map('join', ':') | sort | list }}
+    param_des_set: >-
+      {{ (item.item.ports | map(attribute='proto') | list)
+         | zip(item.item.ports | map(attribute='listen') | map('string') | list,
+               item.item.ports | map(attribute='target_ip') | list,
+               item.item.ports | map(attribute='target') | map('string') | list)
+         | map('join', ':') | sort | list }}
+    param_desired_yaml: |
+      description: "Dev NAT service exposure (managed by Ansible)"
+      config: {}
+      listen_address: "{{ item.item.listen_address }}"
+      ports:
+      {% for p in item.item.ports %}
+        - description: "{{ p.description | default('') }}"
+          protocol: "{{ p.proto }}"
+          listen_port: "{{ p.listen }}"
+          target_address: "{{ p.target_ip }}"
+          target_port: "{{ p.target }}"
+      {% endfor %}
+  loop: "{{ nat_forward_current.results | default([]) }}"
+  loop_control:
+    label: "{{ item.item.network }}:{{ item.item.listen_address }}"
+  when: param_cur_set != param_des_set
+  changed_when: true
+
+# UFW's FORWARD chain defaults to drop, and nftables evaluates it independently
+# of the Incus forward chain, so the DNAT'd inbound traffic must be explicitly
+# allowed to leave the host onto the bridge. Restrict the source to source_subnet
+# so only the LAN can reach the exposed ports. Return traffic is permitted by
+# UFW's established/related accept in the before-forward chain.
+- name: Allow forwarded LAN traffic into the dev NAT instances (UFW route rules).
+  community.general.ufw:
+    route: true
+    rule: allow
+    direction: out
+    interface: "{{ item.0.network }}"
+    from_ip: "{{ item.0.source_subnet | default('any') }}"
+    dest: "{{ item.1.target_ip }}"
+    to_port: "{{ item.1.target | string }}"
+    proto: "{{ item.1.proto }}"
+  loop: "{{ param_node_nat_forwards | subelements('ports') }}"
+  loop_control:
+    label: "{{ item.0.network }} out -> {{ item.1.target_ip }}:{{ item.1.target }}/{{ item.1.proto }}"

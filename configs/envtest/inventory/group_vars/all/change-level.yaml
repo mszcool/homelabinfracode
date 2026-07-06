@@ -1,0 +1,9 @@
+---
+# Environment change-level guardrail (test)
+#
+# See configs/envbase/group_vars/all/change-level.yaml for the full model.
+# envtest is (or is evolving into) a fully self-contained environment whose
+# "foundation" hosts (incus, router) are themselves virtualized instances spun up
+# via nested virtualization. It is therefore allowed to change every ring level,
+# including those virtualized foundations.
+env_allow_change_level: -1

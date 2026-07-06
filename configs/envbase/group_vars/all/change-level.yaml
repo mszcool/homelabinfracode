@@ -1,0 +1,35 @@
+---
+# Environment change-level guardrail (base default)
+#
+# `env_allow_change_level` declares how deep — toward the bare-metal foundation —
+# an environment is permitted to make changes. LOWER = MORE privileged.
+#
+#   -1  may change FOUNDATIONS (incus hosts + networking/router) and everything above
+#    0  may change virtualized ring0 (truenas / samba / step-ca) + ring1 + ring2,
+#       but NOT the bare-metal foundation
+#    1  may change ring1 (evcc, mosquitto, mqtt-translator, home-assistant,
+#       remote-maintenance, k8s) + ring2
+#    2  may change ring2 (syncthing) only
+#
+# Each mutating playbook declares its own `required_change_level` (the ring it
+# touches) and includes playbooks/tasks/validate_change_level.yaml as its first
+# pre_task. The guard runs the play only when:
+#
+#     env_allow_change_level <= required_change_level
+#
+# i.e. the environment is allowed to reach at least as deep as the playbook mutates.
+#
+# This value lives in group_vars/all so it is in scope for every play regardless of
+# the target host/group. Because layered `-i` inventory VARIABLES override (last
+# layer wins) — unlike host/group membership, which unions and cannot be subtracted
+# — an environment overlay can lower its own privilege even while a more-privileged
+# inventory (e.g. envprod) is layered underneath it.
+#
+# Per-environment overrides:
+#   envprod      -> -1  (full production infrastructure, incl. bare metal)
+#   envtest      -> -1  (self-contained; its foundations are virtualized instances)
+#   envlocaldev  ->  0  (dev workloads on prod bare metal: never touch foundations)
+#
+# The base default below is deliberately FAIL-CLOSED: an environment that forgets
+# to set the value is permitted to change nothing (no required_change_level <= 99).
+env_allow_change_level: 99

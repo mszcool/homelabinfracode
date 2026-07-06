@@ -77,11 +77,13 @@ REQUIRED_COLLECTIONS=(
 )
 ALL_OK=true
 for col in "${REQUIRED_COLLECTIONS[@]}"; do
-    COL_PATH="${COLLECTIONS_PATH}/ansible_collections/${col//\.//}"
-    if [[ -d "${COL_PATH}" ]]; then
+    # Use ansible-galaxy so verification honors all configured collection search
+    # paths (e.g. collections bundled with the pip 'ansible' package under
+    # site-packages), not just ~/.ansible/collections.
+    if ansible-galaxy collection list "${col}" &> /dev/null; then
         echo -e "  ${GREEN}✓${NC} ${col}"
     else
-        echo -e "  ${RED}✗${NC} ${col} — not found at ${COL_PATH}"
+        echo -e "  ${RED}✗${NC} ${col} — not resolvable via ansible-galaxy"
         ALL_OK=false
     fi
 done

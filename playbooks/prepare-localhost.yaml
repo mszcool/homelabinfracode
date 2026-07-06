@@ -16,6 +16,9 @@
 #   - isolinux       : ISO boot loader   (host-incus-image-unified, host-incus-image-multiiso)
 #   - p7zip-full     : 7z archive tool   (host-incus-image-unified, host-incus-image-multiiso)
 #   - genisoimage    : ISO generation     (host-incus-image-unified, host-incus-image-multiiso)
+#   - qemu-utils     : qemu-img disk convert (host-incus-import-qcow2: convert non-qcow2 VM disks)
+#   - xz-utils       : xz decompression    (host-incus-import-qcow2: auto-decompress .xz sources)
+#   - virt-viewer    : SPICE/VNC remote-viewer (incus console <vm> --type=vga graphical console)
 #   - python3-paramiko : SSH library      (networking-mikrotik-continuous-configure-all, cleanup)
 #   - skopeo         : OCI image tool    (incus image copy from docker: remote)
 #   - incus-client     : Incus CLI tool   (Zabbly repo)
@@ -36,6 +39,12 @@
   vars:
     incus_repo_channel: "lts-6.0"
     incus_client_version: ""
+    # ansible.cfg points ansible_python_interpreter at ~/pythonvenv/default/bin/python3,
+    # but the leading ~ is NOT expanded when Ansible executes the interpreter for
+    # the ad-hoc `-i localhost,` inventory this playbook is run with
+    # (/bin/sh: ~/pythonvenv/...: not found), even though the venv exists. Use the
+    # interpreter Ansible itself is running under — always a valid absolute path.
+    ansible_python_interpreter: "{{ ansible_playbook_python }}"
 
   tasks:
     - name: Install packages required for Incus ISO image generation and INCUS OCI image copying
@@ -46,6 +55,9 @@
           - isolinux
           - p7zip-full
           - genisoimage
+          - qemu-utils
+          - xz-utils
+          - virt-viewer
           - skopeo
         state: present
         update_cache: true
@@ -80,3 +92,4 @@
         name: "incus-client{{ '=' + incus_client_version if incus_client_version else '' }}"
         state: "{{ 'present' if incus_client_version else 'latest' }}"
         update_cache: true
+

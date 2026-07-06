@@ -57,12 +57,12 @@ locals {
         : secret.field == "username"
         ? data.onepassword_item.container_secret["${secret.vault}/${secret.item}"].username
         : try(
-            one([
-              for section in data.onepassword_item.container_secret["${secret.vault}/${secret.item}"].section :
-              one([for f in section.field : f.value if f.label == secret.field])
-            ]),
-            ""
-          )
+          one([
+            for section in data.onepassword_item.container_secret["${secret.vault}/${secret.item}"].section :
+            one([for f in section.field : f.value if f.label == secret.field])
+          ]),
+          ""
+        )
       )
     }
   }
@@ -77,7 +77,7 @@ module "vm" {
 
   instance_name           = each.key
   target_remote           = each.value.target_remote
-  incus_project           = var.incus_project
+  incus_project           = local.incus_project
   incus_profile           = each.value.incus_profile
   storage_pool            = each.value.storage_pool
   type                    = each.value.type
@@ -87,6 +87,7 @@ module "vm" {
   system_disk_gb          = each.value.system_disk_gb
   network_bridge          = each.value.network_bridge
   mac_address             = each.value.mac_address
+  ipv4_address            = each.value.ipv4_address
   iso_volume_name         = each.value.iso_volume_name
   iso_mounted             = each.value.iso_mounted
   enable_pcie_passthrough = each.value.enable_pcie_passthrough
@@ -105,13 +106,14 @@ module "vm" {
   tags = var.tags
 
   # Ansible post-provisioning
-  ansible_playbook             = try(each.value.ansible_playbook.playbook, null)
-  ansible_inventory_dirs       = try(each.value.ansible_playbook.inventory_dirs, [])
-  ansible_limit                = try(each.value.ansible_playbook.limit, null)
-  ansible_extra_vars           = try(each.value.ansible_playbook.extra_vars, {})
-  ansible_instance_ip_var      = try(each.value.ansible_playbook.instance_ip_var, null)
-  op_service_account_token     = var.op_service_account_token
-  repo_root_dir                = local.repo_root_dir
+  ansible_playbook         = try(each.value.ansible_playbook.playbook, null)
+  ansible_inventory_dirs   = try(each.value.ansible_playbook.inventory_dirs, [])
+  ansible_limit            = try(each.value.ansible_playbook.limit, null)
+  ansible_extra_vars       = try(each.value.ansible_playbook.extra_vars, {})
+  ansible_instance_ip_var  = try(each.value.ansible_playbook.instance_ip_var, null)
+  ansible_ssh_proxy_jump   = try(each.value.ansible_playbook.ssh_proxy_jump, null)
+  op_service_account_token = var.op_service_account_token
+  repo_root_dir            = local.repo_root_dir
 }
 
 # Container Instances (future module)
@@ -163,7 +165,7 @@ check "mac_address_ring_prefix" {
       for id, mac in local.all_mac_addresses :
       startswith(lower(mac), lower(local.expected_mac_prefix))
     ])
-    error_message = "MAC addresses must use prefix '${local.expected_mac_prefix}' for project '${var.incus_project}'. Offending entries: ${join(", ", [
+    error_message = "MAC addresses must use prefix '${local.expected_mac_prefix}' for project '${local.incus_project}'. Offending entries: ${join(", ", [
       for id, mac in local.all_mac_addresses :
       "${id}=${mac}" if local.expected_mac_prefix != "" && !startswith(lower(mac), lower(local.expected_mac_prefix))
     ])}. See docs/terraform/MAC_ADDRESS_CONVENTION.md."
@@ -194,7 +196,7 @@ module "docker_container" {
 
   instance_name         = each.key
   target_remote         = each.value.target_remote
-  incus_project         = var.incus_project
+  incus_project         = local.incus_project
   incus_profile         = each.value.incus_profile
   storage_pool          = each.value.storage_pool
   image                 = each.value.image
@@ -203,23 +205,24 @@ module "docker_container" {
   root_disk_gb          = each.value.root_disk_gb
   network_bridge        = each.value.network_bridge
   mac_address           = each.value.mac_address
+  ipv4_address          = each.value.ipv4_address
   enable_boot_autostart = each.value.enable_boot_autostart
   running               = each.value.running
   environment = merge(
     each.value.environment,
     lookup(local.container_resolved_secrets, each.key, {})
   )
-  oci_cmd               = each.value.oci_cmd
-  volumes               = each.value.volumes
-  tags                  = var.tags
+  oci_cmd = each.value.oci_cmd
+  volumes = each.value.volumes
+  tags    = var.tags
 
   # Ansible post-provisioning
-  ansible_playbook       = try(each.value.ansible_playbook.playbook, null)
-  ansible_inventory_dirs = try(each.value.ansible_playbook.inventory_dirs, [])
-  ansible_limit          = try(each.value.ansible_playbook.limit, null)
-  ansible_extra_vars     = try(each.value.ansible_playbook.extra_vars, {})
+  ansible_playbook         = try(each.value.ansible_playbook.playbook, null)
+  ansible_inventory_dirs   = try(each.value.ansible_playbook.inventory_dirs, [])
+  ansible_limit            = try(each.value.ansible_playbook.limit, null)
+  ansible_extra_vars       = try(each.value.ansible_playbook.extra_vars, {})
   op_service_account_token = var.op_service_account_token
-  repo_root_dir          = local.repo_root_dir
+  repo_root_dir            = local.repo_root_dir
 }
 
 module "docker_container_with_deps" {
@@ -229,7 +232,7 @@ module "docker_container_with_deps" {
 
   instance_name         = each.key
   target_remote         = each.value.target_remote
-  incus_project         = var.incus_project
+  incus_project         = local.incus_project
   incus_profile         = each.value.incus_profile
   storage_pool          = each.value.storage_pool
   image                 = each.value.image
@@ -238,6 +241,7 @@ module "docker_container_with_deps" {
   root_disk_gb          = each.value.root_disk_gb
   network_bridge        = each.value.network_bridge
   mac_address           = each.value.mac_address
+  ipv4_address          = each.value.ipv4_address
   enable_boot_autostart = each.value.enable_boot_autostart
   running               = each.value.running
   environment = merge(
@@ -247,7 +251,7 @@ module "docker_container_with_deps" {
       env_key => module.docker_container[container_name].instance_ipv4_address
     }
   )
-  oci_cmd        = each.value.oci_cmd
+  oci_cmd = each.value.oci_cmd
   volumes = each.value.volumes
   tags    = var.tags
 
@@ -262,5 +266,5 @@ module "docker_container_with_deps" {
     }
   )
   op_service_account_token = var.op_service_account_token
-  repo_root_dir = local.repo_root_dir
+  repo_root_dir            = local.repo_root_dir
 }

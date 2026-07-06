@@ -98,7 +98,8 @@ resource "incus_instance" "vm" {
       {
         network = var.network_bridge
       },
-      var.mac_address != "" ? { "hwaddr" = var.mac_address } : {}
+      var.mac_address != "" ? { "hwaddr" = var.mac_address } : {},
+      var.ipv4_address != "" ? { "ipv4.address" = var.ipv4_address } : {}
     )
   }
 
@@ -184,38 +185,57 @@ resource "null_resource" "ansible_configure" {
       set -e
       cd ${jsonencode(var.repo_root_dir)}
 
-      # Remove stale known_hosts entry for this IP so a recreated VM
-      # with a new host key does not cause SSH to abort the connection.
       if [ -n "$TARGET_IP" ]; then
+        # Remove any stale known_hosts entry for this IP so a recreated VM with a
+        # new host key does not cause SSH to abort. This applies to BOTH paths:
+        # host-key verification of TARGET_IP happens on the local control host and
+        # is recorded under TARGET_IP even when the connection is proxied, so a
+        # mismatched stale entry would break the subsequent (proxied) Ansible run.
         ssh-keygen -R "$TARGET_IP" 2>/dev/null || true
-      fi
 
-      # Wait for SSH to become available on newly created VM
-      if [ -n "$TARGET_IP" ]; then
-        echo "Waiting for SSH on $TARGET_IP..."
-        for i in $(seq 1 60); do
-          ssh-keyscan -T 5 "$TARGET_IP" 2>/dev/null | grep -q . && break
-          if [ "$i" -eq 60 ]; then echo "ERROR: SSH not available after 5 minutes"; exit 1; fi
-          sleep 5
-        done
+        if [ -n "$SSH_PROXY_JUMP" ]; then
+          # Isolated instance reachable only via an SSH hop through the Incus
+          # host (e.g. the envlocaldev iso-nat NAT bridge). The control host
+          # cannot reach TARGET_IP directly, so probe TCP/22 on the target FROM
+          # the jump host.
+          echo "Waiting for SSH on $TARGET_IP via ProxyJump $SSH_PROXY_JUMP..."
+          for i in $(seq 1 60); do
+            ssh -o BatchMode=yes -o StrictHostKeyChecking=no -o ConnectTimeout=10 \
+              "$SSH_PROXY_JUMP" "timeout 5 bash -c '</dev/tcp/$TARGET_IP/22'" 2>/dev/null && break
+            if [ "$i" -eq 60 ]; then echo "ERROR: SSH not available after 5 minutes"; exit 1; fi
+            sleep 5
+          done
+        else
+          # Wait for SSH to become available on newly created VM
+          echo "Waiting for SSH on $TARGET_IP..."
+          for i in $(seq 1 60); do
+            ssh-keyscan -T 5 "$TARGET_IP" 2>/dev/null | grep -q . && break
+            if [ "$i" -eq 60 ]; then echo "ERROR: SSH not available after 5 minutes"; exit 1; fi
+            sleep 5
+          done
+        fi
       fi
 
       exec ansible-playbook \
         ${join(" ", concat(
-          var.ansible_limit != null ? ["--limit", jsonencode(var.ansible_limit)] : [],
-          [for dir in var.ansible_inventory_dirs : "-i ${jsonencode(dir)}"],
-          var.ansible_instance_ip_var != null ? ["-e ${jsonencode("${var.ansible_instance_ip_var}=${incus_instance.vm.ipv4_address}")}"] : [],
-          [for k, v in var.ansible_extra_vars : "-e ${jsonencode("${k}=${v}")}"],
-          [jsonencode(var.ansible_playbook)]
-        ))}
+    var.ansible_limit != null ? ["--limit", jsonencode(var.ansible_limit)] : [],
+    [for dir in var.ansible_inventory_dirs : "-i ${jsonencode(dir)}"],
+    var.ansible_instance_ip_var != null ? ["-e ${jsonencode("${var.ansible_instance_ip_var}=${incus_instance.vm.ipv4_address}")}"] : [],
+    # Skip vars whose value is null (e.g. an unresolved container IP): omitting
+    # the override lets the playbook fall back to its inventory default rather
+    # than crashing on a null string interpolation.
+    [for k, v in var.ansible_extra_vars : "-e ${jsonencode("${k}=${v}")}" if v != null],
+    [jsonencode(var.ansible_playbook)]
+))}
     SCRIPT
 
-    environment = {
-      ANSIBLE_HOST_KEY_CHECKING = "False"
-      TARGET_IP                 = var.ansible_instance_ip_var != null ? incus_instance.vm.ipv4_address : ""
-      OP_SERVICE_ACCOUNT_TOKEN  = var.op_service_account_token
-    }
-  }
+environment = {
+  ANSIBLE_HOST_KEY_CHECKING = "False"
+  TARGET_IP                 = var.ansible_instance_ip_var != null ? incus_instance.vm.ipv4_address : ""
+  SSH_PROXY_JUMP            = var.ansible_ssh_proxy_jump != null ? var.ansible_ssh_proxy_jump : ""
+  OP_SERVICE_ACCOUNT_TOKEN  = var.op_service_account_token
+}
+}
 
-  depends_on = [incus_instance.vm]
+depends_on = [incus_instance.vm]
 }

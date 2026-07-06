@@ -1,0 +1,18 @@
+---
+# Production Layer 2 Project Configuration for Incus
+# This file defines the preseed configuration for the prodlayer2 project.
+# It is auto-discovered by the Incus preseed generator
+# (playbooks/ring0/tasks/host-incus-image-unified-server-tasks.yml) and rendered
+# into the generated incus-preseed.yaml — do NOT edit the generated preseed files.
+name: prodlayer2
+config:
+  features.images: true
+  features.networks: false
+  features.profiles: true
+  features.storage.volumes: true
+  limits.disk: "{{ tp_incus_config.project_disk_limits.production }}"
+  restricted: true
+  restricted.networks.access: phys-br,iso-nat
+  restricted.devices.gpu: allow
+  restricted.devices.usb: allow
+description: Production VMs (prodlayer2) with bridged networking and higher storage limits

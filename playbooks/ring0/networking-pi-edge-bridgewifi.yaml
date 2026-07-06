@@ -11,6 +11,13 @@
     param_edge_bridge_name: "{{ hostvars[inventory_hostname].edge_bridge_name }}"
     param_edge_fw_allowed_ports: "{{ hostvars[inventory_hostname].edge_fw_allowed_ports }}"
 
+  pre_tasks:
+    - name: Enforce environment change-level guardrail
+      ansible.builtin.include_tasks:
+        file: ../tasks/validate_change_level.yaml
+      vars:
+        required_change_level: -1
+
   tasks:
     - name: Pre-Checks - Validate WiFi password is available
       ansible.builtin.assert:

@@ -48,6 +48,12 @@
     SUPERVISOR_TOKEN: "{{ _supervisor_token | default('') }}"
 
   pre_tasks:
+    - name: Enforce environment change-level guardrail
+      ansible.builtin.include_tasks:
+        file: ../tasks/validate_change_level.yaml
+      vars:
+        required_change_level: 1
+
     - name: Diagnose SUPERVISOR_TOKEN sources on the HA host
       # MUST use raw to see the SSH-injected environment (see comment on
       # Capture SUPERVISOR_TOKEN below). The `environment: {}` override

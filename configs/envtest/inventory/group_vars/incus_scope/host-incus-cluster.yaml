@@ -49,6 +49,7 @@ incus_preseed_output_dir: "../../configs/incus"
 # Incus client certificate paths (used by incus_trusted_clients in base)
 incus_cert_full_access: "../../configs/incus/trusted-client-certs/dev-workstation1.crt"
 incus_cert_limited_access: "../../configs/incus/trusted-client-certs/dev-workstation2.crt"
+incus_cert_dev_default_only: "../../configs/incus/trusted-client-certs/dev-workstation3.crt"
 
 # ---------- Hardware configurations (test - virtual/simulated) ----------
 host_configs:

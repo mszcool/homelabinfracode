@@ -80,6 +80,12 @@ variable "mac_address" {
   default     = ""
 }
 
+variable "ipv4_address" {
+  description = "Optional static IPv4 address for the container's primary NIC on a managed Incus bridge (sets the NIC device's ipv4.address). Leave empty for DHCP/auto-assignment. Only valid on managed bridge networks (e.g. 'iso-nat')."
+  type        = string
+  default     = ""
+}
+
 variable "enable_boot_autostart" {
   description = "Automatically start the container on host boot"
   type        = bool
@@ -108,8 +114,8 @@ variable "oci_cmd" {
     
     Leave empty to use the image's default ENTRYPOINT/CMD.
   EOT
-  type    = string
-  default = ""
+  type        = string
+  default     = ""
 }
 
 variable "volumes" {

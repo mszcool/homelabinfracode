@@ -63,6 +63,44 @@ minimum_packages:
 # ISO target name for unified autoinstall
 incus_iso_target_name: "ubuntu-mszprod-unified-autoinstall.iso"
 
+# ---------- Host firewall (UFW) baseline for Incus nodes ----------
+# Consumed by playbooks/ring0a/host-incus-update.yaml. These are SAFE DEFAULTS
+# that apply to most environments; override per-env only when a node must expose
+# more or fewer services. The three lists are intentionally separate because the
+# rules they drive are NOT interchangeable (different scope / interface):
+#
+#   incus_host_input_services      -> host-wide INPUT allows (reachable from the
+#                                     management LAN, no interface scoping).
+#   incus_nat_bridge_host_services -> INPUT allows scoped to the isolated NAT
+#                                     bridge only (never exposed to the LAN).
+#   incus_nat_egress_denied_ranges -> forward/route DENY targets for NAT egress.
+
+# Host-directed services allowed on ALL interfaces (i.e. reachable from the LAN).
+# The Incus management API port is appended automatically by the playbook from
+# incus_config.port, so it is NOT listed here.
+# SAFETY: the playbook sets default-deny-incoming and enables UFW, so SSH (22)
+# MUST remain in this list or the node becomes unreachable from the LAN.
+incus_host_input_services:
+  - { port: "22", proto: "tcp" }   # SSH
+
+# Host-directed services the node provides ONLY to instances on the isolated
+# Incus NAT bridge (interface-scoped, never exposed to the LAN). Kept deliberately
+# minimal — just the dnsmasq DHCP + DNS the instances need to obtain an IP and
+# resolve names. An entry with no proto matches both TCP and UDP.
+incus_nat_bridge_host_services:
+  - { to_port: "67", proto: "udp" }   # DHCP
+  - { to_port: "53" }                 # DNS (TCP + UDP)
+
+# Private (RFC1918) ranges that instances on the isolated NAT bridge must NOT be
+# able to reach via the host's forward/route path — this prevents a compromised
+# instance from pivoting into the LAN/prod networks. Safe default applying to most
+# environments; the bridge's own subnet is L2 and unaffected. Everything not
+# denied here is allowed out to the internet (masqueraded).
+incus_nat_egress_denied_ranges:
+  - "10.0.0.0/8"
+  - "172.16.0.0/12"
+  - "192.168.0.0/16"
+
 # ---------- Templated from environment seeds ----------
 
 # Incus daemon configuration (sizing from env seeds)
@@ -97,6 +135,12 @@ incus_trusted_clients:
     projects:
       - "default"
       - "prodlayer1"
+  - name: "dev-default-only"
+    description: "Development identity restricted to the default project only"
+    certificate_file: "{{ incus_cert_dev_default_only }}"
+    restricted: true
+    projects:
+      - "default"
 
 # ---------- Operator home directory ----------
 # Resolves the real invoking user's home directory, even when run under sudo.
@@ -107,16 +151,16 @@ operator_home_dir: "{{ lookup('pipe', 'getent passwd ' + (lookup('env', 'SUDO_US
 # ---------- ISO images ----------
 # Shared across environments. Override with [] or different list per-env if needed.
 iso_images:
-  - name: "truenas-scale-25.10.1"
-    project: "prodlayer0"
+  - name: "truenas-scale-25.10.4"
+    project: "{{ ring_standard_incus_projects.ring0 }}"
     storage_pool: "incus-instances"
-    iso_path: "/srv/iso/truenas-25.04.2.5.iso"
-    iso_source_local: "{{ operator_home_dir }}/iso/TrueNAS-SCALE-25.10.1.iso"
-  - name: "ubuntu-desktop-24.04.3"
-    project: "prodlayer1"
+    iso_path: "/srv/iso/truenas-25.10.4.iso"
+    iso_source_local: "{{ operator_home_dir }}/iso/TrueNAS-SCALE-25.10.4.iso"
+  - name: "ubuntu-desktop-26.04"
+    project: "{{ ring_standard_incus_projects.ring1 }}"
     storage_pool: "incus-instances"
-    iso_path: "/srv/iso/ubuntu-24.04.3-desktop-amd64.iso"
-    iso_source_local: "{{ operator_home_dir }}/iso/ubuntu-24.04.3-desktop-amd64.iso"
+    iso_path: "/srv/iso/ubuntu-26.04-desktop-amd64.iso"
+    iso_source_local: "{{ operator_home_dir }}/iso/ubuntu-26.04-desktop-amd64.iso"
 
 # ---------- QCOW2 VM images ----------
 # Appliance disk images imported via `incus image import`.
@@ -124,7 +168,7 @@ iso_images:
 #   ansible-playbook playbooks/ring0a/host-incus-import-qcow2.yaml \
 #     -i configs/envbase/ -i configs.private/envlocaldev/inventory/
 qcow2_images:
-  - name: "haos-17.1"
-    project: "prodlayer1"
-    source_local: "{{ operator_home_dir }}/iso/haos_ova-17.1.qcow2"
-    source_url: "https://github.com/home-assistant/operating-system/releases/download/17.1/haos_ova-17.1.qcow2.xz"
+  - name: "haos-18.1"
+    project: "{{ ring_standard_incus_projects.ring1 }}"
+    source_local: "{{ operator_home_dir }}/iso/haos_ova-18.1.qcow2.xz"
+    source_url: "https://github.com/home-assistant/operating-system/releases/download/18.1/haos_ova-18.1.qcow2.xz"

@@ -1,0 +1,51 @@
+---
+# Pre-flight guard: environment change-level enforcement
+#
+# Include this task file as the FIRST pre_task of every mutating playbook. It
+# enforces the `env_allow_change_level` guardrail (see
+# configs/envbase/group_vars/all/change-level.yaml for the full model).
+#
+# The including playbook MUST declare the ring level it mutates by passing
+# `required_change_level` at the include site, e.g.:
+#
+#   pre_tasks:
+#     - name: Enforce environment change-level guardrail
+#       ansible.builtin.include_tasks:
+#         file: ../tasks/validate_change_level.yaml
+#       vars:
+#         required_change_level: -1   # foundation (incus / networking)
+#
+# The play proceeds only when the environment is permitted to reach at least as
+# deep as this playbook mutates:
+#
+#     env_allow_change_level <= required_change_level
+#
+# Otherwise the play is ended gracefully (meta: end_play) so multi-play runs and
+# subsequent playbooks are not aborted — the skip is logged with a clear reason.
+
+- name: Guard -- validate required_change_level was provided
+  ansible.builtin.assert:
+    that:
+      - required_change_level is defined
+      - required_change_level | int(-999) != -999
+    fail_msg: >-
+      required_change_level was not provided to validate_change_level.yaml.
+      The including playbook must pass it (e.g. vars: {{ '{' }} required_change_level: -1 {{ '}' }}).
+    quiet: true
+
+- name: Guard -- evaluate environment change-level authorization
+  ansible.builtin.set_fact:
+    _change_level_allowed: "{{ (env_allow_change_level | default(99) | int) <= (required_change_level | int) }}"
+
+- name: Guard -- report skip when the environment may not change this ring level
+  ansible.builtin.debug:
+    msg: >-
+      SKIPPING '{{ ansible_play_name | default('play') }}': this environment
+      (env_allow_change_level={{ env_allow_change_level | default(99) }}) is not
+      permitted to change ring level {{ required_change_level }}. A playbook may
+      run only when env_allow_change_level <= required_change_level.
+  when: not (_change_level_allowed | bool)
+
+- name: Guard -- end play when the environment may not change this ring level
+  ansible.builtin.meta: end_play
+  when: not (_change_level_allowed | bool)

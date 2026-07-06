@@ -71,6 +71,12 @@
     _stepca_ctn_jwk_pwd: "{{ _stepca_ctn_tmp_dir }}/jwk.pwd"
 
   pre_tasks:
+    - name: Enforce environment change-level guardrail
+      ansible.builtin.include_tasks:
+        file: ../tasks/validate_change_level.yaml
+      vars:
+        required_change_level: 0
+
     - name: Validate 1Password connectivity
       ansible.builtin.include_tasks:
         file: ../tasks/validate_onepassword.yaml
