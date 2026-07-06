@@ -77,7 +77,7 @@ module "vm" {
 
   instance_name           = each.key
   target_remote           = each.value.target_remote
-  incus_project           = var.incus_project
+  incus_project           = local.incus_project
   incus_profile           = each.value.incus_profile
   storage_pool            = each.value.storage_pool
   type                    = each.value.type
@@ -165,7 +165,7 @@ check "mac_address_ring_prefix" {
       for id, mac in local.all_mac_addresses :
       startswith(lower(mac), lower(local.expected_mac_prefix))
     ])
-    error_message = "MAC addresses must use prefix '${local.expected_mac_prefix}' for project '${var.incus_project}'. Offending entries: ${join(", ", [
+    error_message = "MAC addresses must use prefix '${local.expected_mac_prefix}' for project '${local.incus_project}'. Offending entries: ${join(", ", [
       for id, mac in local.all_mac_addresses :
       "${id}=${mac}" if local.expected_mac_prefix != "" && !startswith(lower(mac), lower(local.expected_mac_prefix))
     ])}. See docs/terraform/MAC_ADDRESS_CONVENTION.md."
@@ -196,7 +196,7 @@ module "docker_container" {
 
   instance_name         = each.key
   target_remote         = each.value.target_remote
-  incus_project         = var.incus_project
+  incus_project         = local.incus_project
   incus_profile         = each.value.incus_profile
   storage_pool          = each.value.storage_pool
   image                 = each.value.image
@@ -232,7 +232,7 @@ module "docker_container_with_deps" {
 
   instance_name         = each.key
   target_remote         = each.value.target_remote
-  incus_project         = var.incus_project
+  incus_project         = local.incus_project
   incus_profile         = each.value.incus_profile
   storage_pool          = each.value.storage_pool
   image                 = each.value.image

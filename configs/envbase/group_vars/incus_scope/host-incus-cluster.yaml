@@ -135,6 +135,12 @@ incus_trusted_clients:
     projects:
       - "default"
       - "prodlayer1"
+  - name: "dev-default-only"
+    description: "Development identity restricted to the default project only"
+    certificate_file: "{{ incus_cert_dev_default_only }}"
+    restricted: true
+    projects:
+      - "default"
 
 # ---------- Operator home directory ----------
 # Resolves the real invoking user's home directory, even when run under sudo.
@@ -145,16 +151,16 @@ operator_home_dir: "{{ lookup('pipe', 'getent passwd ' + (lookup('env', 'SUDO_US
 # ---------- ISO images ----------
 # Shared across environments. Override with [] or different list per-env if needed.
 iso_images:
-  - name: "truenas-scale-25.10.1"
-    project: "prodlayer0"
+  - name: "truenas-scale-25.10.4"
+    project: "{{ ring_standard_incus_projects.ring0 }}"
     storage_pool: "incus-instances"
-    iso_path: "/srv/iso/truenas-25.04.2.5.iso"
-    iso_source_local: "{{ operator_home_dir }}/iso/TrueNAS-SCALE-25.10.1.iso"
-  - name: "ubuntu-desktop-24.04.3"
-    project: "prodlayer1"
+    iso_path: "/srv/iso/truenas-25.10.4.iso"
+    iso_source_local: "{{ operator_home_dir }}/iso/TrueNAS-SCALE-25.10.4.iso"
+  - name: "ubuntu-desktop-26.04"
+    project: "{{ ring_standard_incus_projects.ring1 }}"
     storage_pool: "incus-instances"
-    iso_path: "/srv/iso/ubuntu-24.04.3-desktop-amd64.iso"
-    iso_source_local: "{{ operator_home_dir }}/iso/ubuntu-24.04.3-desktop-amd64.iso"
+    iso_path: "/srv/iso/ubuntu-26.04-desktop-amd64.iso"
+    iso_source_local: "{{ operator_home_dir }}/iso/ubuntu-26.04-desktop-amd64.iso"
 
 # ---------- QCOW2 VM images ----------
 # Appliance disk images imported via `incus image import`.
@@ -162,7 +168,7 @@ iso_images:
 #   ansible-playbook playbooks/ring0a/host-incus-import-qcow2.yaml \
 #     -i configs/envbase/ -i configs.private/envlocaldev/inventory/
 qcow2_images:
-  - name: "haos-17.1"
-    project: "prodlayer1"
-    source_local: "{{ operator_home_dir }}/iso/haos_ova-17.1.qcow2"
-    source_url: "https://github.com/home-assistant/operating-system/releases/download/17.1/haos_ova-17.1.qcow2.xz"
+  - name: "haos-18.1"
+    project: "{{ ring_standard_incus_projects.ring1 }}"
+    source_local: "{{ operator_home_dir }}/iso/haos_ova-18.1.qcow2.xz"
+    source_url: "https://github.com/home-assistant/operating-system/releases/download/18.1/haos_ova-18.1.qcow2.xz"

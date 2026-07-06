@@ -34,8 +34,12 @@ locals {
     { for name, dc in var.docker_containers : "docker/${name}" => dc.mac_address if dc.mac_address != "" }
   )
 
-  # Expected MAC prefix for the current ring (based on incus_project)
-  expected_mac_prefix = lookup(var.mac_prefix_by_project, var.incus_project, "")
+  # Resolved target Incus project: an explicit incus_project override wins,
+  # otherwise it is derived from the ring via ring_standard_incus_projects.
+  incus_project = var.incus_project != "" ? var.incus_project : var.ring_standard_incus_projects[var.ring]
+
+  # Expected MAC prefix for the current ring (based on the resolved project)
+  expected_mac_prefix = lookup(var.mac_prefix_by_project, local.incus_project, "")
 
   # Detect duplicate MAC addresses
   mac_values       = values(local.all_mac_addresses)

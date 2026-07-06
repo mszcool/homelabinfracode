@@ -5,9 +5,11 @@
 # imported via `incus image import` and become first-class Incus images that
 # can be referenced by alias in Terraform's `image` field.
 #
-# Incus requires a metadata tarball (containing metadata.yaml) alongside the
-# QCOW2 file.  This task file generates the metadata automatically in a
-# temporary directory before importing.
+# Incus decides the image TYPE from the root file system entry inside the image
+# tarball: a `rootfs.img` (qcow2 disk) => virtual-machine, a `rootfs/` tree =>
+# container. This task builds a UNIFIED tarball with the qcow2 as rootfs.img so
+# the result is always a VM image.  This task file generates the metadata
+# automatically in a temporary directory before importing.
 #
 # Expected variables:
 #   qcow2.name           - Image alias in Incus (e.g., "haos-17.1")
@@ -98,11 +100,52 @@
       release: {{ qcow2.name }}
     EOF
 
-    # Package it into a tarball
-    tar -czf "$TMPDIR/metadata.tar.gz" -C "$TMPDIR" metadata.yaml
+    # Build a UNIFIED image tarball. Incus decides the image TYPE from the root
+    # file system entry: a `rootfs.img` => virtual-machine, whereas a `rootfs/`
+    # dir/tarball => container. A split import of a bare disk is ambiguous and
+    # Incus registers it as a CONTAINER. Incus ALSO requires rootfs.img to be
+    # qcow2-formatted.
+    SRC="{{ qcow2.source_local }}"
+    command -v qemu-img >/dev/null 2>&1 || { echo "ERROR: qemu-img (qemu-utils) is required on the control host. Run playbooks/prepare-localhost.yaml."; exit 1; }
 
-    # Import with metadata + QCOW2 disk image
-    incus image import "$TMPDIR/metadata.tar.gz" {{ qcow2.source_local }} {{ incus_remote_name }}: \
+    # Auto-decompress a compressed source. Detected by CONTENT (magic bytes), not
+    # by filename, so a compressed disk still works even if it is misnamed .qcow2.
+    # This matters because qemu-img does NOT understand .xz/.gz and silently
+    # mislabels such a file as a bogus 'raw' disk (e.g. a 510 MiB .xz shows up as a
+    # 510 MiB raw disk), which then imports as an unbootable VM. The decompressed
+    # disk is written into the temp dir and used from there.
+    HDR=$(dd if="$SRC" bs=1 count=6 2>/dev/null | od -An -tx1 | tr -d ' \n')
+    case "$HDR" in
+      fd377a585a00*)  # xz
+        command -v xz >/dev/null 2>&1 || { echo "ERROR: source is xz-compressed but 'xz' (xz-utils) is not installed on the control host."; exit 1; }
+        echo "Source is xz-compressed; decompressing..."; xz -dc "$SRC" > "$TMPDIR/source.disk"; SRC="$TMPDIR/source.disk" ;;
+      1f8b*)          # gzip
+        command -v gzip >/dev/null 2>&1 || { echo "ERROR: source is gzip-compressed but 'gzip' is not installed on the control host."; exit 1; }
+        echo "Source is gzip-compressed; decompressing..."; gzip -dc "$SRC" > "$TMPDIR/source.disk"; SRC="$TMPDIR/source.disk" ;;
+      425a68*)        # bzip2
+        command -v bzip2 >/dev/null 2>&1 || { echo "ERROR: source is bzip2-compressed but 'bzip2' is not installed on the control host."; exit 1; }
+        echo "Source is bzip2-compressed; decompressing..."; bzip2 -dc "$SRC" > "$TMPDIR/source.disk"; SRC="$TMPDIR/source.disk" ;;
+      504b0304*)      # zip
+        echo "ERROR: '$SRC' is a .zip archive; extract the disk image and point source_local at the extracted file."; exit 1 ;;
+    esac
+
+    # Detect the real disk format and ensure rootfs.img is qcow2. If already qcow2,
+    # package by reference (tar -h derefs the symlink, no multi-GB copy); otherwise
+    # convert to qcow2 forcing the detected source format so it is never mis-probed.
+    FMT=$(qemu-img info "$SRC" 2>/dev/null | awk -F': ' '/^file format:/{print $2; exit}')
+    if [ -z "$FMT" ]; then
+      echo "ERROR: qemu-img cannot read '$SRC' as a disk image. Make sure it is a real disk image (e.g. the official haos_ova-*.qcow2)."; exit 1
+    fi
+    if [ "$FMT" = "qcow2" ]; then
+      ln -s "$SRC" "$TMPDIR/rootfs.img"
+      tar -chf "$TMPDIR/unified.tar" -C "$TMPDIR" metadata.yaml rootfs.img
+    else
+      qemu-img convert -f "$FMT" -O qcow2 "$SRC" "$TMPDIR/rootfs.img"
+      tar -cf "$TMPDIR/unified.tar" -C "$TMPDIR" metadata.yaml rootfs.img
+    fi
+
+    # Import the unified VM image
+    incus image import "$TMPDIR/unified.tar" {{ incus_remote_name }}: \
       --alias {{ qcow2.name }} --project={{ qcow2_target_project }}
   delegate_to: localhost
   become: false

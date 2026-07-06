@@ -1,18 +1,47 @@
-variable "incus_project" {
+variable "ring" {
   description = <<-EOT
-    The Incus project used for ALL instances (VMs and Docker containers) managed
-    by this Terraform state.
-    
-    This is a centralized, single-source-of-truth variable. No per-instance
-    override is possible — every resource in this state file lands in this project.
-    
-    This enforces ring isolation:
-      ring0.tfvars -> incus_project = "prodlayer0"
-      ring1.tfvars -> incus_project = "prodlayer1"
-    
-    For test environments, use "default".
+    Which ring this Terraform state represents: "ring0", "ring1" or "ring2".
+
+    The target Incus project is derived from this via ring_standard_incus_projects
+    (mirrors the Ansible ring_standard_incus_projects map), unless incus_project is
+    set to a non-empty explicit override.
+
+      ring0 -> prodlayer0, ring1 -> prodlayer1, ring2 -> prodlayer2  (base default)
   EOT
   type        = string
+  validation {
+    condition     = contains(["ring0", "ring1", "ring2"], var.ring)
+    error_message = "ring must be one of: ring0, ring1, ring2."
+  }
+}
+
+variable "ring_standard_incus_projects" {
+  description = <<-EOT
+    Central ring -> Incus project map (mirror of the Ansible
+    ring_standard_incus_projects). Base default targets the production projects;
+    override the WHOLE map per environment (e.g. envlocaldev collapses every ring
+    onto the single "default" project).
+  EOT
+  type        = map(string)
+  default = {
+    ring0 = "prodlayer0"
+    ring1 = "prodlayer1"
+    ring2 = "prodlayer2"
+  }
+}
+
+variable "incus_project" {
+  description = <<-EOT
+    Optional explicit override for the target Incus project used for ALL instances
+    (VMs and Docker containers) managed by this Terraform state.
+
+    Normally leave unset ("") and let it derive from `ring` via
+    ring_standard_incus_projects. When set to a non-empty value it takes
+    precedence. Either way it is a single-source-of-truth per state file — no
+    per-instance override is possible.
+  EOT
+  type        = string
+  default     = ""
 }
 
 variable "incus_remotes" {

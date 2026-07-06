@@ -6,15 +6,6 @@
   delegate_to: localhost
   become: false
 
-- name: Switch to target Incus project
-  ansible.builtin.shell: |
-    incus project switch {{ incus_remote_name }}:{{ iso_target_project }}
-  register: project_switch
-  failed_when: project_switch.rc != 0
-  changed_when: false
-  delegate_to: localhost
-  become: false
-
 - name: Validate local ISO source is provided
   ansible.builtin.fail:
     msg: |
@@ -90,7 +81,7 @@
 - name: Import ISO file into Incus storage volume (creates and imports in one step)
   ansible.builtin.shell: |
     incus storage volume import {{ incus_remote_name }}:{{ iso_target_storage_pool }} {{ iso.iso_source_local }} {{ iso_volume_name }} \
-      --project={{ iso_target_project }}
+      --type=iso --project={{ iso_target_project }}
   delegate_to: localhost
   become: false
   register: iso_import_result

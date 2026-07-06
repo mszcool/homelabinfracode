@@ -1,0 +1,32 @@
+---
+# Standard Incus project per ring (environment-agnostic default)
+#
+# Central mapping of "ring" -> Incus project name. Reference this map wherever a
+# project is tied to a ring instead of hard-coding the project name, e.g.:
+#   iso_images[*].project:            "{{ ring_standard_incus_projects.ring0 }}"
+#   <app>_incus_project:              "{{ ring_standard_incus_projects.ring1 }}"
+#
+# This is the BASE (production-shaped) default. Override the whole map in an
+# environment overlay's group_vars/all/ to retarget every ring at once — e.g.
+# envlocaldev collapses all rings onto the 'default' project so a single, minimal
+# dev identity (scoped to 'default' only) can manage everything.
+#
+# NOTE: this lives in group_vars/all (not incus_scope) on purpose. It must be
+# overridable by an environment overlay at the same (all) scope; defining it in a
+# more specific group (e.g. incus_scope) in the base would let the base value win
+# over an all-scope override. Keep base + overrides both at 'all' scope.
+#
+# Projects are created on the Incus hosts from playbooks/ring0/projects/*.yaml via
+# the preseed generator (default is added by the preseed template itself).
+ring_standard_incus_projects:
+  ring0: "prodlayer0"
+  ring1: "prodlayer1"
+  ring2: "prodlayer2"
+
+# Standard Incus remote (target host) for playbooks/config that address a single
+# Incus host by name — primarily the ring1 app configure playbooks, via each
+# app's <app>_incus_remote. Define this ONCE per environment and reference it
+# ({{ standard_incus_remote }}) instead of hard-coding a hostname. This base
+# default targets the production primary; override it per environment (e.g.
+# envlocaldev points every app at peladin's isolated dev host).
+standard_incus_remote: "incus.aoostar.mszlocal"

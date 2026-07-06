@@ -162,6 +162,58 @@
     - "'already in trust store' not in add_cert_result.stderr | lower"
   when: has_client_certificates
 
+# ============================================================================
+# RECONCILE: Re-apply restricted/projects scope for already-trusted certs
+# ============================================================================
+# `add-certificate` above is a no-op when a certificate is already in the trust
+# store, so a change to `restricted`/`projects` in inventory would otherwise never
+# be applied to an existing entry. Detect drift and re-apply it (remove + re-add
+# with the desired scope). The cert files are still present in cert_temp_dir here.
+
+- name: Reconcile -- build name to fingerprint map of currently trusted certs.
+  ansible.builtin.set_fact:
+    trusted_name_to_fp: "{{ current_trusted_certs.stdout | from_json | items2dict(key_name='name', value_name='fingerprint') }}"
+  when: has_client_certificates
+
+- name: Reconcile -- read current trust config for already-trusted configured certs.
+  ansible.builtin.command:
+    cmd: "incus config trust show {{ trusted_name_to_fp[item.name] }}"
+  loop: "{{ incus_trusted_clients }}"
+  loop_control:
+    label: "{{ item.name }}"
+  register: reconcile_show
+  changed_when: false
+  when:
+    - has_client_certificates
+    - item.name in (trusted_name_to_fp | default({}))
+
+- name: Reconcile -- re-apply restricted/projects when they drift from inventory.
+  ansible.builtin.shell:
+    cmd: |
+      set -e
+      incus config trust remove {{ trusted_name_to_fp[item.item.name] }}
+      incus config trust add-certificate {{ cert_temp_dir.path }}/{{ item.item.name }}.crt \
+        --name "{{ item.item.name }}"{% if item.item.restricted | default(false) %} \
+        --restricted{% endif %}{% if item.item.projects | default([]) | length > 0 %} \
+        --projects "{{ item.item.projects | join(',') }}"{% endif %}
+  loop: "{{ reconcile_show.results }}"
+  loop_control:
+    label: "{{ item.item.name }}"
+  when:
+    - has_client_certificates
+    - not (item.skipped | default(false))
+    - ((item.stdout | default('{}') | from_yaml).restricted | default(false)) != (item.item.restricted | default(false))
+      or ((item.stdout | default('{}') | from_yaml).projects | default([]) | sort) != (item.item.projects | default([]) | sort)
+  register: reconcile_result
+
+- name: Reconcile -- report re-applied certificate scopes.
+  ansible.builtin.debug:
+    msg: "Re-applied scope for {{ reconcile_result.results | selectattr('changed', 'defined') | selectattr('changed') | map(attribute='item.item.name') | list }}"
+  when:
+    - has_client_certificates
+    - reconcile_result is defined
+    - reconcile_result.results | selectattr('changed', 'defined') | selectattr('changed') | list | length > 0
+
 - name: Remove temporary certificate directory.
   ansible.builtin.file:
     path: "{{ cert_temp_dir.path }}"
