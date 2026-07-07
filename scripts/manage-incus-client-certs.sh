@@ -11,7 +11,23 @@
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# ----------------------------------------------------------------------------
+# Environment conventions
+# ----------------------------------------------------------------------------
+# Incus client configuration environment. Selects where the client key pair
+# (client.crt/client.key) and configured remotes live. Overridable via -e/--env:
+#   default  -> $HOME/.config/incus (the incus CLI default)
+#   <name>   -> $HOME/incus/<name>  (matches the INCUS_CONF convention)
+INCUS_ENV="default"
 CLIENT_CERT_DIR="$HOME/.config/incus"
+
+# Environment repo root for storing PUBLIC client certificates consumed by the
+# playbooks/ring0a/host-incus-update.yaml playbook (e.g. configs.private/incus or
+# configs/incus). Public certs are written under <repo-root>/trusted-client-certs/
+# where the playbook looks for them based on the inventory. Set via -r/--repo-root.
+REPO_ROOT=""
+TRUSTED_CERTS_SUBDIR="trusted-client-certs"
 
 # Colors for output
 RED='\033[0;31m'
@@ -81,20 +97,55 @@ generate_client_certificate() {
 }
 
 extract_public_certificate() {
+    local client_name="$1"
+
     print_header "Extract Public Certificate"
-    
+
     if [ ! -f "$CLIENT_CERT_DIR/client.crt" ]; then
         print_error "No certificate found at $CLIENT_CERT_DIR/client.crt"
         print_warning "Run: $0 generate <client-name> first"
         exit 1
     fi
-    
-    print_success "Public certificate content:"
-    echo "---"
-    cat "$CLIENT_CERT_DIR/client.crt"
-    echo "---"
+
+    # When no repo root is given, keep the original behavior (print to stdout so it
+    # can be redirected or copied manually).
+    if [ -z "$REPO_ROOT" ]; then
+        print_success "Public certificate content:"
+        echo "---"
+        cat "$CLIENT_CERT_DIR/client.crt"
+        echo "---"
+        echo
+        print_warning "No --repo-root given: copy the certificate content into"
+        print_warning "  <env-root>/$TRUSTED_CERTS_SUBDIR/<client-name>.crt (e.g. configs.private/incus/...)"
+        return 0
+    fi
+
+    # Derive the client name from the certificate CN when not supplied explicitly.
+    if [ -z "$client_name" ]; then
+        client_name="$(openssl x509 -in "$CLIENT_CERT_DIR/client.crt" -noout -subject -nameopt multiline 2>/dev/null \
+            | awk -F' = ' '/commonName/ {print $2; exit}')"
+    fi
+
+    if [ -z "$client_name" ]; then
+        print_error "Could not determine client name (no argument and no CN in certificate)"
+        print_warning "Usage: $0 --repo-root <path> extract <client-name>"
+        exit 1
+    fi
+
+    local dest_dir="$REPO_ROOT/$TRUSTED_CERTS_SUBDIR"
+    local dest_file="$dest_dir/$client_name.crt"
+
+    mkdir -p "$dest_dir"
+    cp "$CLIENT_CERT_DIR/client.crt" "$dest_file"
+    chmod 644 "$dest_file"
+
+    print_success "Public certificate saved for the host-incus-update.yaml playbook:"
+    echo "  $dest_file"
     echo
-    print_warning "Copy this certificate content to your incus-trusted-clients.yaml file"
+    print_warning "Next steps:"
+    echo "  1. Reference it under incus_trusted_clients in the inventory group_vars, e.g.:"
+    echo "       certificate_file: \"incus/$TRUSTED_CERTS_SUBDIR/$client_name.crt\""
+    echo "  2. Deploy with: ansible-playbook -i <envbase> -i <env> playbooks/ring0a/host-incus-update.yaml"
 }
 
 add_incus_remote() {
@@ -125,8 +176,8 @@ add_incus_remote() {
     print_success "Remote added successfully!"
     echo
     print_warning "Make sure the server admin has added your certificate to the trust store:"
-    echo "  ansible-playbook -i configs.private/infra-bootstrap/host-incus-cluster.yaml \\"
-    echo "    playbooks/ring0a/host-incus-manage-trusted-clients.yaml"
+    echo "  ansible-playbook -i configs/envbase/ -i <env>/inventory/ \\"
+    echo "    playbooks/ring0a/host-incus-update.yaml"
     echo
     
     # Test the connection
@@ -145,6 +196,72 @@ add_incus_remote() {
 list_remotes() {
     print_header "Configured Incus Remotes"
     incus remote list
+}
+
+list_environments() {
+    local base="$HOME/incus"
+
+    print_header "Available Incus Environments"
+    echo "Base directory: $base"
+    echo "Default (incus CLI): $HOME/.config/incus"
+    echo
+
+    if [ ! -d "$base" ]; then
+        print_warning "No environment directory found at $base"
+        print_warning "Create one with: $0 --env <name> generate <client-name>"
+        return 0
+    fi
+
+    local found=0
+    local dir name marker
+    for dir in "$base"/*/; do
+        [ -d "$dir" ] || continue
+        found=1
+        name="$(basename "$dir")"
+        marker=""
+        if [ "${INCUS_CONF:-}" = "${dir%/}" ]; then
+            marker=" (active)"
+        fi
+        if [ -f "${dir}client.crt" ]; then
+            echo -e "  ${GREEN}\u25cf${NC} ${name}${marker}"
+        else
+            echo -e "  ${YELLOW}\u25cb${NC} ${name}${marker}  (no client.crt yet)"
+        fi
+    done
+
+    if [ "$found" -eq 0 ]; then
+        print_warning "No environments found under $base"
+    fi
+}
+
+activate_environment() {
+    local env_name="$1"
+
+    if [ -z "$env_name" ]; then
+        print_error "Environment name is required" >&2
+        echo "Usage: $0 activate <envname|default>" >&2
+        exit 1
+    fi
+
+    local env_dir
+    if [ "$env_name" = "default" ]; then
+        env_dir="$HOME/.config/incus"
+    else
+        env_dir="$HOME/incus/$env_name"
+    fi
+
+    if [ ! -d "$env_dir" ]; then
+        print_error "Environment directory not found: $env_dir" >&2
+        list_environments >&2
+        exit 1
+    fi
+
+    # Emit an eval-friendly export on stdout; all guidance goes to stderr so that
+    # `eval "$($0 activate <env>)"` only captures the export statement.
+    echo "export INCUS_CONF=\"$env_dir\""
+    print_success "Incus environment '$env_name' -> $env_dir" >&2
+    print_warning "Apply it to your current shell with:" >&2
+    echo "  eval \"\$($0 activate $env_name)\"" >&2
 }
 
 show_certificate_info() {
@@ -197,40 +314,96 @@ show_usage() {
 Incus Client Certificate Management Helper
 
 Usage:
-  $0 <command> [options]
+  $0 [global-options] <command> [options]
+
+Global options (may appear before or after the command):
+  -e, --env <name>          Select the incus client config directory:
+                              default  -> \$HOME/.config/incus (incus CLI default)
+                              <name>   -> \$HOME/incus/<name>  (INCUS_CONF convention)
+  -r, --repo-root <path>    Environment repo root used to store PUBLIC certs for
+                            the host-incus-update.yaml playbook. Certs are written
+                            to <path>/$TRUSTED_CERTS_SUBDIR/<client-name>.crt
+                            (e.g. configs.private/incus or configs/incus).
 
 Commands:
   generate <client-name>              Generate new client certificate pair
-  extract                             Extract public certificate for Git storage
-  add-remote <name> <ip/dns> [port]       Add Incus remote with authentication
+  extract [client-name]               Save/print the public certificate. With
+                                      --repo-root it is written to the playbook's
+                                      $TRUSTED_CERTS_SUBDIR directory; otherwise
+                                      printed to stdout.
+  add-remote <name> <ip/dns> [port]   Add Incus remote with authentication
   list-remotes                        List configured remotes
+  list-envs                           List incus environments under \$HOME/incus
+  activate <envname|default>          Print an eval-able INCUS_CONF export for an
+                                      environment (\$HOME/incus/<envname>)
   info                                Show current certificate information
   backup                              Backup certificate for password manager
   help                                Show this help message
 
 Examples:
-  # Generate a new certificate
+  # Generate a certificate in the default (\$HOME/.config/incus) config dir
   $0 generate workstation-admin-mszcool
 
-  # Extract public cert to add to incus-trusted-clients.yaml
-  $0 extract
+  # Generate a certificate in the ring1 environment (\$HOME/incus/ring1)
+  $0 --env ring1 generate workstation-admin-mszcool
 
-  # Add remote server
-  $0 add-remote incus-aoostar 10.10.0.20 8443
+  # Save the public cert into the prod repo env for the playbook
+  $0 --repo-root configs.private/incus extract workstation-admin-mszcool
 
-  # Backup certificate for password manager
-  $0 backup
+  # Save the public cert for the test/base env
+  $0 --repo-root configs/incus extract dev-workstation1
+
+  # Add a remote using the ring1 client config
+  $0 --env ring1 add-remote incus-aoostar 10.10.0.20 8443
+
+  # List the environments available under \$HOME/incus
+  $0 list-envs
+
+  # Activate the ring1 environment in the current shell
+  eval "\$($0 activate ring1)"
 
 Workflow:
-  1. Generate certificate: $0 generate <client-name>
-  2. Backup to password manager: $0 backup
-  3. Extract public cert: $0 extract
-  4. Add public cert to configs.private/infra-bootstrap/incus-trusted-clients.yaml
-  5. Run Ansible playbook to deploy to servers
-  6. Add remote: $0 add-remote <name> <ip> [port]
+  1. Generate certificate:        $0 [--env <name>] generate <client-name>
+  2. Backup to password manager:  $0 [--env <name>] backup
+  3. Store public cert for the playbook:
+       $0 [--env <name>] --repo-root <configs[.private]/incus> extract <client-name>
+  4. Add cert reference under incus_trusted_clients in the inventory group_vars
+  5. Run the playbook: playbooks/ring0a/host-incus-update.yaml
+  6. Add remote: $0 [--env <name>] add-remote <name> <ip> [port]
 
 EOF
 }
+
+# ----------------------------------------------------------------------------
+# Parse global options (may appear anywhere) and collect positional arguments
+# ----------------------------------------------------------------------------
+POSITIONAL=()
+while [ $# -gt 0 ]; do
+    case "$1" in
+        -e|--env)
+            [ -z "${2:-}" ] && { print_error "Option $1 requires a value"; exit 1; }
+            INCUS_ENV="$2"
+            shift 2
+            ;;
+        -r|--repo-root)
+            [ -z "${2:-}" ] && { print_error "Option $1 requires a value"; exit 1; }
+            REPO_ROOT="${2%/}"
+            shift 2
+            ;;
+        *)
+            POSITIONAL+=("$1")
+            shift
+            ;;
+    esac
+done
+set -- "${POSITIONAL[@]}"
+
+# Resolve the incus client config directory from the environment convention and
+# make the incus CLI read/write it (remotes and the client key pair live here).
+if [ "$INCUS_ENV" != "default" ]; then
+    CLIENT_CERT_DIR="$HOME/incus/$INCUS_ENV"
+fi
+export INCUS_CONF="$CLIENT_CERT_DIR"
 
 # Main script logic
 case "${1:-help}" in
@@ -238,13 +411,19 @@ case "${1:-help}" in
         generate_client_certificate "$2"
         ;;
     extract)
-        extract_public_certificate
+        extract_public_certificate "$2"
         ;;
     add-remote)
         add_incus_remote "$2" "$3" "${4:-8443}"
         ;;
     list-remotes)
         list_remotes
+        ;;
+    list-envs|list)
+        list_environments
+        ;;
+    activate)
+        activate_environment "$2"
         ;;
     info)
         show_certificate_info
