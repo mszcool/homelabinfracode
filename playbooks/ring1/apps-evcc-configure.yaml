@@ -47,9 +47,6 @@
           - evcc_interval is defined
           - evcc_meters is defined
           - evcc_meters | length > 0
-          - evcc_inverter1_host is defined
-          - evcc_inverter2_host is defined
-          - evcc_inverter1_battery_maxchargepower is defined
           # When evcc_mqtt is provided it must include host + topic.
           - (evcc_mqtt is not defined) or
             (evcc_mqtt.host is defined and evcc_mqtt.host | length > 0
@@ -57,9 +54,24 @@
         fail_msg: >
           Missing EVCC configuration variables. Ensure
           group_vars/incus_scope/apps-evcc-configuration.yaml is present in
-          both envbase and your environment inventory (the environment
-          layer must provide evcc_inverter1_host / _inverter2_host and
-          friends).
+          both envbase and your environment inventory.
+
+    # Real Huawei meters connect over Modbus/TCP and therefore need the
+    # inverter endpoints from the environment layer. Demo setups (e.g.
+    # envlocaldev overriding evcc_meters with demo-meter / demo-battery)
+    # carry no Modbus fields, so these variables are not required there.
+    - name: Validate Modbus inverter endpoints when real meters are used
+      ansible.builtin.assert:
+        that:
+          - evcc_inverter1_host is defined
+          - evcc_inverter2_host is defined
+          - evcc_inverter1_battery_maxchargepower is defined
+        fail_msg: >
+          Missing EVCC Modbus configuration variables. At least one meter in
+          evcc_meters uses Modbus, so the environment layer must provide
+          evcc_inverter1_host / _inverter2_host and
+          evcc_inverter1_battery_maxchargepower.
+      when: evcc_meters | selectattr('modbus', 'defined') | list | length > 0
 
     - name: Set Incus remote prefix for instance addressing
       ansible.builtin.set_fact:

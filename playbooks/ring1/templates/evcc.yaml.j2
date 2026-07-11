@@ -29,10 +29,18 @@ interval: {{ evcc_interval }}
 #   modbus: trace
 
 # ---------------------------------------------------------------------------
-# Meters (Huawei SUN2000 hybrid + PV-only inverter)
+# Meters
 #
-# Connect directly to each Huawei SUN2000 SDongleA — the dongle does not
-# tolerate Modbus/TCP requests forwarded through a proxy.
+# Production (envprod): Huawei SUN2000 hybrid + PV-only inverter connecting
+# directly to each SDongleA over Modbus/TCP — the dongle does not tolerate
+# requests forwarded through a proxy.
+#
+# Demo (envlocaldev): evcc `demo-meter` / `demo-battery` templates with fixed
+# `power` / `soc` values and no Modbus connection.
+#
+# Each meter dict is rendered generically: connection fields
+# (modbus/host/port/id) and value fields (power/soc/…) are only emitted when
+# present, so a single template serves both the real and the demo setups.
 # ---------------------------------------------------------------------------
 meters:
 {% for meter in evcc_meters %}
@@ -40,12 +48,29 @@ meters:
     type: {{ meter.type }}
     template: {{ meter.template }}
     usage: {{ meter.usage }}
+{%   if meter.modbus is defined %}
     modbus: {{ meter.modbus }}
+{%   endif %}
+{%   if meter.host is defined %}
     host: {{ meter.host }}
+{%   endif %}
+{%   if meter.port is defined %}
     port: {{ meter.port }}
+{%   endif %}
+{%   if meter.id is defined %}
     id: {{ meter.id }}
+{%   endif %}
 {%   if meter.timeout is defined %}
     timeout: {{ meter.timeout }}
+{%   endif %}
+{%   if meter.power is defined %}
+    power: {{ meter.power }}
+{%   endif %}
+{%   if meter.soc is defined %}
+    soc: {{ meter.soc }}
+{%   endif %}
+{%   if meter.minsoc is defined %}
+    minsoc: {{ meter.minsoc }}
 {%   endif %}
 {%   if meter.maxchargepower is defined %}
     maxchargepower: {{ meter.maxchargepower }}
