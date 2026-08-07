@@ -39,6 +39,8 @@
 #   evcc_sponsortoken:  Sponsor token for sponsor-only device templates
 #                       and the Modbus proxy.
 #   evcc_modbusproxy:   List of proxy listeners (port, uri, readonly).
+#   evcc_inverter1_proxy_port / evcc_inverter2_proxy_port:
+#                       Listener ports for the proxy (default 1502 / 1503).
 #   evcc_vehicles:      List of vehicle dicts (name/type/template plus optional
 #                       title/user/password/vin/capacity/phases/mode).
 #   evcc_chargers:      List of charger dicts (name/type/template plus optional
@@ -75,6 +77,12 @@ evcc_interval: 60s
 # Per-meter Modbus timeout. The default in the SUN2000 templates is 15s;
 # we bump it so a momentarily busy dongle does not surface an error.
 evcc_meter_timeout: 30s
+
+# Default listener ports for the optional Modbus proxy (evcc_modbusproxy in the
+# environment layer re-exposes EVCC's shared inverter connections). Override per
+# environment if these clash with other services on the EVCC container's LAN IP.
+evcc_inverter1_proxy_port: 502
+evcc_inverter2_proxy_port: 503
 
 # ---------- MQTT integration ----------
 # When evcc_mqtt is defined the template renders an `mqtt:` block so EVCC
