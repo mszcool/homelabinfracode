@@ -13,14 +13,13 @@
 # as the inverter DNS names / IPs / Modbus unit ids are intentionally NOT
 # set here — they must be provided by the environment layer.
 #
-# DESIGN NOTE — no Modbus proxy:
-# The Huawei SUN2000 SDongleA does not respond to Modbus/TCP requests when
-# they are relayed by an intermediate proxy (verified empirically with both
-# EVCC's built-in modbusproxy and tiagocoutinho/modbus-proxy). EVCC's
-# meters therefore connect to the dongles directly using the connect-read-
-# close pattern of the huawei-sun2000-hybrid template. Each dongle's
-# single Modbus/TCP slot is owned by EVCC; data sharing with other systems
-# (Home Assistant, …) must go through MQTT.
+# DESIGN NOTE — Modbus proxy:
+# EVCC's meters connect to the dongles directly using the connect-read-close
+# pattern of the huawei-sun2000-hybrid template. Environments may additionally
+# expose those shared connections through EVCC's built-in modbusproxy. Earlier
+# EVCC releases could not proxy the Huawei SUN2000 SDongleA at all; this started
+# working with EVCC 0.313.2. Enable it per environment and keep external polling
+# conservative, since the SDongleA still has a very small Modbus budget.
 #
 # Required seed variables from the environment layer:
 #   evcc_incus_remote:      Incus remote name (e.g., "incus.peladin.mszlocal")
@@ -33,6 +32,21 @@
 #   evcc_inverter2_id:      Modbus unit id (typically 1)
 #   evcc_inverter1_battery_maxchargepower: Max battery charge power in W
 #                          (required by huawei-sun2000-hybrid for usage=battery)
+#   evcc_inverter1_battery_maxdischargepower: Max battery discharge power in W
+#                          (required by huawei-sun2000-hybrid for usage=battery)
+#
+# Optional variables (environment layer, rendered only when defined):
+#   evcc_sponsortoken:  Sponsor token for sponsor-only device templates
+#                       and the Modbus proxy.
+#   evcc_modbusproxy:   List of proxy listeners (port, uri, readonly).
+#   evcc_inverter1_proxy_port / evcc_inverter2_proxy_port:
+#                       Listener ports for the proxy (default 1502 / 1503).
+#   evcc_vehicles:      List of vehicle dicts (name/type/template plus optional
+#                       title/user/password/vin/capacity/phases/mode).
+#   evcc_chargers:      List of charger dicts (name/type/template plus optional
+#                       stationid/connector/status/power/enabled/maxcurrent).
+#   evcc_loadpoints:    List of loadpoint dicts (title/charger plus optional
+#                       vehicle/meter/mode/phases/priority).
 #
 # References:
 #   - https://docs.evcc.io/en/docs/installation/configuration
@@ -63,6 +77,12 @@ evcc_interval: 60s
 # Per-meter Modbus timeout. The default in the SUN2000 templates is 15s;
 # we bump it so a momentarily busy dongle does not surface an error.
 evcc_meter_timeout: 30s
+
+# Default listener ports for the optional Modbus proxy (evcc_modbusproxy in the
+# environment layer re-exposes EVCC's shared inverter connections). Override per
+# environment if these clash with other services on the EVCC container's LAN IP.
+evcc_inverter1_proxy_port: 502
+evcc_inverter2_proxy_port: 503
 
 # ---------- MQTT integration ----------
 # When evcc_mqtt is defined the template renders an `mqtt:` block so EVCC
@@ -137,6 +157,7 @@ evcc_meters:
     id: "{{ evcc_inverter1_id }}"
     timeout: "{{ evcc_meter_timeout }}"
     maxchargepower: "{{ evcc_inverter1_battery_maxchargepower }}"
+    maxdischargepower: "{{ evcc_inverter1_battery_maxdischargepower }}"
   - name: huawei_inv2_pv
     type: template
     template: huawei-sun2000-inverter

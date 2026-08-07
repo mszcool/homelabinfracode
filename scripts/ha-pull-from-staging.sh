@@ -53,6 +53,11 @@
 #   scripts/ha-pull-from-staging.sh root@homeassistant-staging envprod
 #   scripts/ha-pull-from-staging.sh -i ~/.ssh/ha root@10.0.0.50 envprod --dry-run
 #
+#   # Isolated envlocaldev HAOS on peladin's iso-nat bridge (jump through peladin,
+#   # ephemeral host key). Mirrors dev_ssh_common_args in the envlocaldev inventory:
+#   scripts/ha-pull-from-staging.sh -J mszmaster@incus.peladin.mszlocal \
+#       --insecure-host-key -p 8222 root@10.100.0.27 envlocaldev
+#
 # Requirements on the staging side: the SSH/community add-on with key auth.
 # The remote .storage path is auto-detected (/homeassistant or /config).
 
@@ -65,6 +70,12 @@ Usage: ha-pull-from-staging.sh [<ssh opts...>] <ssh-target> <env-name> [--dry-ru
   <ssh-target>  scp/ssh-style target (user@host)
   <env-name>    name of the env overlay under configs.private/<env>/inventory/
                 e.g. envprod, envlocaldev
+  -J, --proxy-jump <target>
+                SSH-jump through <target> (e.g. mszmaster@incus.peladin.mszlocal)
+                to reach a NAT-isolated dev instance. Applied to ssh and scp.
+  --insecure-host-key
+                do not verify/persist the target host key (for iso-nat dev VMs
+                that are recreated often and thus change keys).
   --dry-run     show what would be copied/diffed; do not modify any files
 
 The repo root is auto-detected from the script location.
@@ -93,6 +104,16 @@ while [ $# -gt 0 ]; do
       SSH_EXTRA_OPTS+=("$1" "$2")
       SCP_EXTRA_OPTS+=("$1" "$2")
       shift ;;
+    -J|--proxy-jump)
+      # SSH-jump through a bastion (e.g. peladin) to reach a NAT-isolated dev host
+      SSH_EXTRA_OPTS+=("-o" "ProxyJump=$2")
+      SCP_EXTRA_OPTS+=("-o" "ProxyJump=$2")
+      shift ;;
+    --insecure-host-key)
+      # iso-nat dev VMs are recreated often -> their host keys change
+      SSH_EXTRA_OPTS+=("-o" "StrictHostKeyChecking=no" "-o" "UserKnownHostsFile=/dev/null")
+      SCP_EXTRA_OPTS+=("-o" "StrictHostKeyChecking=no" "-o" "UserKnownHostsFile=/dev/null")
+      ;;
     *)
       if [ -z "$SSH_TARGET" ]; then
         SSH_TARGET="$1"

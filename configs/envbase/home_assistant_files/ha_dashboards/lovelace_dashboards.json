@@ -30,6 +30,15 @@
         "require_admin": false,
         "mode": "storage",
         "url_path": "pool-status-and-tech"
+      },
+      {
+        "id": "vehicle_charging_control",
+        "show_in_sidebar": true,
+        "title": "Vehicle Charging Control",
+        "require_admin": false,
+        "mode": "storage",
+        "url_path": "vehicle-charging-control",
+        "icon": "mdi:car-electric"
       }
     ]
   }

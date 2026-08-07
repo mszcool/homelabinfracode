@@ -1,0 +1,73 @@
+{
+  "version": 1,
+  "minor_version": 1,
+  "key": "lovelace.vehicle_charging_control",
+  "data": {
+    "config": {
+      "views": [
+        {
+          "type": "sections",
+          "sections": [
+            {
+              "type": "grid",
+              "cards": [
+                {
+                  "type": "heading",
+                  "heading": "Charge Control",
+                  "heading_style": "title"
+                },
+                {
+                  "type": "custom:evcc-card",
+                  "mode": "compact",
+                  "size": "large"
+                }
+              ]
+            },
+            {
+              "type": "grid",
+              "cards": [
+                {
+                  "type": "heading",
+                  "heading_style": "title",
+                  "heading": "House Battery Lock"
+                },
+                {
+                  "type": "custom:evcc-card",
+                  "mode": "flow",
+                  "stats_period": "month",
+                  "size": "large"
+                }
+              ]
+            },
+            {
+              "type": "grid",
+              "cards": [
+                {
+                  "type": "heading",
+                  "heading": "Energy Flow (takes a few seconds to update)",
+                  "heading_style": "title"
+                },
+                {
+                  "type": "custom:evcc-card",
+                  "mode": "battery",
+                  "charge_current_settings": "collapsed",
+                  "size": "large"
+                }
+              ]
+            }
+          ],
+          "max_columns": 4,
+          "title": "Car Charging",
+          "cards": [],
+          "header": {
+            "card": {
+              "type": "markdown",
+              "text_only": true,
+              "content": "# Vehicle / Car Charging "
+            }
+          }
+        }
+      ]
+    }
+  }
+}

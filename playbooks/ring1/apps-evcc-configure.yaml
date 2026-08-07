@@ -47,9 +47,6 @@
           - evcc_interval is defined
           - evcc_meters is defined
           - evcc_meters | length > 0
-          - evcc_inverter1_host is defined
-          - evcc_inverter2_host is defined
-          - evcc_inverter1_battery_maxchargepower is defined
           # When evcc_mqtt is provided it must include host + topic.
           - (evcc_mqtt is not defined) or
             (evcc_mqtt.host is defined and evcc_mqtt.host | length > 0
@@ -57,9 +54,80 @@
         fail_msg: >
           Missing EVCC configuration variables. Ensure
           group_vars/incus_scope/apps-evcc-configuration.yaml is present in
-          both envbase and your environment inventory (the environment
-          layer must provide evcc_inverter1_host / _inverter2_host and
-          friends).
+          both envbase and your environment inventory.
+
+    # Real Huawei meters connect over Modbus/TCP and therefore need the
+    # inverter endpoints from the environment layer. Demo setups (e.g.
+    # envlocaldev overriding evcc_meters with demo-meter / demo-battery)
+    # carry no Modbus fields, so these variables are not required there.
+    - name: Validate Modbus inverter endpoints when real meters are used
+      ansible.builtin.assert:
+        that:
+          - evcc_inverter1_host is defined
+          - evcc_inverter2_host is defined
+          - evcc_inverter1_battery_maxchargepower is defined
+          - evcc_inverter1_battery_maxdischargepower is defined
+        fail_msg: >
+          Missing EVCC Modbus configuration variables. At least one meter in
+          evcc_meters uses Modbus, so the environment layer must provide
+          evcc_inverter1_host / _inverter2_host and
+          evcc_inverter1_battery_maxchargepower / _maxdischargepower.
+      when: evcc_meters | selectattr('modbus', 'defined') | list | length > 0
+
+    - name: Validate loadpoints reference defined chargers (and vehicles)
+      ansible.builtin.assert:
+        that:
+          - item.charger is defined
+          - (evcc_chargers | default([]) | map(attribute='name') | list) is contains(item.charger)
+          - (item.vehicle is not defined) or
+            ((evcc_vehicles | default([]) | map(attribute='name') | list) is contains(item.vehicle))
+        fail_msg: >
+          Loadpoint '{{ item.title | default(item.charger | default('?')) }}'
+          references a charger/vehicle that is not declared in evcc_chargers /
+          evcc_vehicles.
+      loop: "{{ evcc_loadpoints | default([]) }}"
+      loop_control:
+        label: "{{ item.title | default(item.charger | default('loadpoint')) }}"
+      when: evcc_loadpoints is defined
+
+    - name: Validate sponsor token is present when a sponsor-only charger is used
+      ansible.builtin.assert:
+        that:
+          - evcc_sponsortoken is defined
+          - evcc_sponsortoken | length > 0
+        fail_msg: >
+          At least one charger uses a sponsor-only template (ocpp-*), so
+          evcc_sponsortoken must be provided by the environment layer. See
+          https://docs.evcc.io/en/sponsorship
+      when: >
+        (evcc_chargers | default([]) | selectattr('template', 'defined')
+         | selectattr('template', 'match', '^ocpp-') | list | length) > 0
+
+    - name: Validate Modbus proxy configuration
+      ansible.builtin.assert:
+        that:
+          - item.port is defined
+          - item.uri is defined
+          - item.uri | length > 0
+          - item.readonly | default('deny') in ['false', 'true', 'deny']
+        fail_msg: >
+          Each evcc_modbusproxy entry must define a listener port, an upstream
+          uri, and optionally readonly as false, true, or deny.
+      loop: "{{ evcc_modbusproxy | default([]) }}"
+      loop_control:
+        label: "{{ item.port | default('missing port') }}"
+
+    - name: Validate Modbus proxy prerequisites
+      ansible.builtin.assert:
+        that:
+          - evcc_sponsortoken is defined
+          - evcc_sponsortoken | length > 0
+          - (evcc_modbusproxy | map(attribute='port') | list | unique | length) ==
+            (evcc_modbusproxy | length)
+        fail_msg: >
+          EVCC's Modbus proxy requires a sponsor token and a unique listener
+          port for each upstream connection.
+      when: evcc_modbusproxy is defined and evcc_modbusproxy | length > 0
 
     - name: Set Incus remote prefix for instance addressing
       ansible.builtin.set_fact:
