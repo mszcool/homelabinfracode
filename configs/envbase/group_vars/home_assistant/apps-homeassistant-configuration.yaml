@@ -425,6 +425,7 @@ ha_dashboard_files:
   - lovelace.energy_custom.json
   - lovelace.garden_and_pool.json
   - lovelace.pool_status_and_tech.json
+  - lovelace.vehicle_charging_control.json
 
 # ---------- Built-in HA integrations requiring manual configuration ----------
 # Use this list for integrations that ship inside HA Core (no install step
