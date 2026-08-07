@@ -66,6 +66,18 @@ meters:
 {%   if meter.power is defined %}
     power: {{ meter.power }}
 {%   endif %}
+{%   if meter.energy is defined %}
+    energy: {{ meter.energy }}
+{%   endif %}
+{%   if meter.currentL1 is defined %}
+    currentL1: {{ meter.currentL1 }}
+{%   endif %}
+{%   if meter.currentL2 is defined %}
+    currentL2: {{ meter.currentL2 }}
+{%   endif %}
+{%   if meter.currentL3 is defined %}
+    currentL3: {{ meter.currentL3 }}
+{%   endif %}
 {%   if meter.soc is defined %}
     soc: {{ meter.soc }}
 {%   endif %}
@@ -127,10 +139,131 @@ mqtt:
 {%   endif %}
 {% endif %}
 
+# ---------------------------------------------------------------------------
+# Sponsor token
+# Required by sponsor-only device templates (e.g. the Huawei ocpp-huawei
+# charger). See https://docs.evcc.io/en/sponsorship
+# ---------------------------------------------------------------------------
+{% if evcc_sponsortoken is defined and evcc_sponsortoken | length > 0 %}
+sponsortoken: {{ evcc_sponsortoken }}
+{% endif %}
+
+# ---------------------------------------------------------------------------
+# Vehicles
 #
-# loadpoints: []
-# chargers: []
-# vehicles: []
+# Production (envprod): real vehicle bound to its manufacturer cloud API
+# (e.g. Polestar) for live SoC. Demo (envlocaldev): the `offline` template
+# with no API, only title / capacity.
+#
+# Rendered generically like the meters above: connection / credential fields
+# are only emitted when present, so a single template serves both setups.
+# See https://docs.evcc.io/en/reference/configuration/vehicles
+# ---------------------------------------------------------------------------
+{% if evcc_vehicles is defined and evcc_vehicles | length > 0 %}
+vehicles:
+{% for vehicle in evcc_vehicles %}
+  - name: {{ vehicle.name }}
+    type: {{ vehicle.type }}
+    template: {{ vehicle.template }}
+{%   if vehicle.title is defined %}
+    title: {{ vehicle.title }}
+{%   endif %}
+{%   if vehicle.user is defined %}
+    user: {{ vehicle.user }}
+{%   endif %}
+{%   if vehicle.password is defined %}
+    password: {{ vehicle.password }}
+{%   endif %}
+{%   if vehicle.vin is defined %}
+    vin: {{ vehicle.vin }}
+{%   endif %}
+{%   if vehicle.capacity is defined %}
+    capacity: {{ vehicle.capacity }}
+{%   endif %}
+{%   if vehicle.phases is defined %}
+    phases: {{ vehicle.phases }}
+{%   endif %}
+{%   if vehicle.mode is defined %}
+    mode: {{ vehicle.mode }}
+{%   endif %}
+{% endfor %}
+{% endif %}
+
+# ---------------------------------------------------------------------------
+# Chargers
+#
+# Production (envprod): Huawei SCharger-22KT-S0 via the sponsor-only
+# `ocpp-huawei` template. The charger dials into evcc's built-in OCPP server
+# (default port 8887) over the LAN — the evcc container is bridged with its
+# own IP, so no port mapping is required.
+#
+# Demo (envlocaldev): the `demo-charger` template with fixed status / power.
+#
+# Rendered generically: fields are only emitted when present.
+# See https://docs.evcc.io/en/reference/configuration/chargers
+# ---------------------------------------------------------------------------
+{% if evcc_chargers is defined and evcc_chargers | length > 0 %}
+chargers:
+{% for charger in evcc_chargers %}
+  - name: {{ charger.name }}
+    type: {{ charger.type }}
+    template: {{ charger.template }}
+{%   if charger.stationid is defined %}
+    stationid: {{ charger.stationid }}
+{%   endif %}
+{%   if charger.connector is defined %}
+    connector: {{ charger.connector }}
+{%   endif %}
+{%   if charger.status is defined %}
+    status: {{ charger.status }}
+{%   endif %}
+{%   if charger.power is defined %}
+    power: {{ charger.power }}
+{%   endif %}
+{%   if charger.enabled is defined %}
+    enabled: {{ charger.enabled | string | lower }}
+{%   endif %}
+{%   if charger.maxcurrent is defined %}
+    maxcurrent: {{ charger.maxcurrent }}
+{%   endif %}
+{% endfor %}
+{% endif %}
+
+# ---------------------------------------------------------------------------
+# Loadpoints (bind a charger — and optionally a vehicle — into a charging
+# point that appears in the evcc dashboard)
+# See https://docs.evcc.io/en/reference/configuration/loadpoints
+# ---------------------------------------------------------------------------
+{% if evcc_loadpoints is defined and evcc_loadpoints | length > 0 %}
+loadpoints:
+{% for lp in evcc_loadpoints %}
+  - title: {{ lp.title }}
+    charger: {{ lp.charger }}
+{%   if lp.vehicle is defined %}
+    vehicle: {{ lp.vehicle }}
+{%   endif %}
+{%   if lp.meter is defined %}
+    meter: {{ lp.meter }}
+{%   endif %}
+{%   if lp.mode is defined %}
+    mode: {{ lp.mode }}
+{%   endif %}
+{%   if lp.phases is defined %}
+    phases: {{ lp.phases }}
+{%   endif %}
+{%   if lp.minCurrent is defined %}
+    minCurrent: {{ lp.minCurrent }}
+{%   endif %}
+{%   if lp.maxCurrent is defined %}
+    maxCurrent: {{ lp.maxCurrent }}
+{%   endif %}
+{%   if lp.priority is defined %}
+    priority: {{ lp.priority }}
+{%   endif %}
+{% endfor %}
+{% endif %}
+
+#
 # tariffs: {}
 # influx: {}
 # hems: {}

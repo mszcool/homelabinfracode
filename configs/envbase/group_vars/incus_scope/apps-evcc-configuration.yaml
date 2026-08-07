@@ -34,6 +34,16 @@
 #   evcc_inverter1_battery_maxchargepower: Max battery charge power in W
 #                          (required by huawei-sun2000-hybrid for usage=battery)
 #
+# Optional variables (environment layer, rendered only when defined):
+#   evcc_sponsortoken:  Sponsor token for sponsor-only device templates
+#                       (e.g. the Huawei ocpp-huawei charger).
+#   evcc_vehicles:      List of vehicle dicts (name/type/template plus optional
+#                       title/user/password/vin/capacity/phases/mode).
+#   evcc_chargers:      List of charger dicts (name/type/template plus optional
+#                       stationid/connector/status/power/enabled/maxcurrent).
+#   evcc_loadpoints:    List of loadpoint dicts (title/charger plus optional
+#                       vehicle/meter/mode/phases/priority).
+#
 # References:
 #   - https://docs.evcc.io/en/docs/installation/configuration
 #   - https://docs.evcc.io/en/docs/devices/meters#sun2000-hybrid-inverter
