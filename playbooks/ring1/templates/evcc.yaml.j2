@@ -29,11 +29,24 @@ interval: {{ evcc_interval }}
 #   modbus: trace
 
 # ---------------------------------------------------------------------------
+# Modbus proxy (optional)
+# Exposes EVCC's shared upstream connections to external Modbus/TCP clients.
+# ---------------------------------------------------------------------------
+{% if evcc_modbusproxy is defined and evcc_modbusproxy | length > 0 %}
+modbusproxy:
+{% for proxy in evcc_modbusproxy %}
+  - port: {{ proxy.port }}
+    uri: "{{ proxy.uri }}"
+    readonly: {{ proxy.readonly | default('deny') }}
+{% endfor %}
+{% endif %}
+
+# ---------------------------------------------------------------------------
 # Meters
 #
 # Production (envprod): Huawei SUN2000 hybrid + PV-only inverter connecting
-# directly to each SDongleA over Modbus/TCP — the dongle does not tolerate
-# requests forwarded through a proxy.
+# directly to each SDongleA over Modbus/TCP. EVCC's built-in modbusproxy
+# (above) re-exposes those shared connections and works since EVCC 0.313.2.
 #
 # Demo (envlocaldev): evcc `demo-meter` / `demo-battery` templates with fixed
 # `power` / `soc` values and no Modbus connection.
