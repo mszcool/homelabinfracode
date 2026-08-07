@@ -66,11 +66,12 @@
           - evcc_inverter1_host is defined
           - evcc_inverter2_host is defined
           - evcc_inverter1_battery_maxchargepower is defined
+          - evcc_inverter1_battery_maxdischargepower is defined
         fail_msg: >
           Missing EVCC Modbus configuration variables. At least one meter in
           evcc_meters uses Modbus, so the environment layer must provide
           evcc_inverter1_host / _inverter2_host and
-          evcc_inverter1_battery_maxchargepower.
+          evcc_inverter1_battery_maxchargepower / _maxdischargepower.
       when: evcc_meters | selectattr('modbus', 'defined') | list | length > 0
 
     - name: Validate loadpoints reference defined chargers (and vehicles)

@@ -33,6 +33,8 @@
 #   evcc_inverter2_id:      Modbus unit id (typically 1)
 #   evcc_inverter1_battery_maxchargepower: Max battery charge power in W
 #                          (required by huawei-sun2000-hybrid for usage=battery)
+#   evcc_inverter1_battery_maxdischargepower: Max battery discharge power in W
+#                          (required by huawei-sun2000-hybrid for usage=battery)
 #
 # Optional variables (environment layer, rendered only when defined):
 #   evcc_sponsortoken:  Sponsor token for sponsor-only device templates
@@ -147,6 +149,7 @@ evcc_meters:
     id: "{{ evcc_inverter1_id }}"
     timeout: "{{ evcc_meter_timeout }}"
     maxchargepower: "{{ evcc_inverter1_battery_maxchargepower }}"
+    maxdischargepower: "{{ evcc_inverter1_battery_maxdischargepower }}"
   - name: huawei_inv2_pv
     type: template
     template: huawei-sun2000-inverter

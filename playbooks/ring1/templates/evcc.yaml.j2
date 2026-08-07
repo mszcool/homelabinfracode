@@ -87,6 +87,9 @@ meters:
 {%   if meter.maxchargepower is defined %}
     maxchargepower: {{ meter.maxchargepower }}
 {%   endif %}
+{%   if meter.maxdischargepower is defined %}
+    maxdischargepower: {{ meter.maxdischargepower }}
+{%   endif %}
 {%   if meter.capacity is defined %}
     capacity: {{ meter.capacity }}
 {%   endif %}
