@@ -247,6 +247,7 @@ ha_hacs_components:
       - "Settings > Devices & Services > Add Integration > evcc."
       - "Enter EVCC configuration details."
       - "IMPORTANT: Huawei Solar and EVCC cannot be used at the same time!"
+      - "IMPORTANT: Call the integration evccDirect to avoid naming conflicts with MQTT EVCC sensors!"
 
   - full_name: "RomRider/apexcharts-card"
     repo_id: "331701152"
@@ -297,6 +298,8 @@ ha_hacs_components:
       - "manual entity mapping required."
       - "Lovelace YAML mode users only: register the resource manually at"
       - "/hacsfiles/hass-evcc-card/evcc-card.js (type: module)."
+      - "IMPORTANT: The EVCC HACS integration must be enabled first!"
+      - "IMPORTANT: Call the integration evccDirect to avoid naming conflicts with MQTT EVCC sensors!"
 
 # ---------- MQTT broker defaults ----------
 ha_mqtt_broker: mosquitto-broker
@@ -444,3 +447,4 @@ ha_integrations:
       - "Settings > Devices & Services > Add Integration > Ondilo ICO."
       - "When prompted, add Application Credentials (client_id / client_secret)"
       - "and complete the OAuth login in the browser. OAuth cannot be automated."
+      - "IMPORTANT: Use 'Pool Water Manager' as device name to ensure all code dashboards work properly!"
