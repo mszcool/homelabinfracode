@@ -69,57 +69,23 @@
         {{ [p, 0] | max | round(0) }}
 
     # ------------------------------------------------------------------
-    # Guarded PV production energy -- calculated from per-inverter
-    # lifetime counters (kWh, lifetime cumulative).
+    # PV production energy for the Energy Dashboard (kWh, lifetime
+    # cumulative) = sum of the two guarded per-inverter counters
+    # (sensor.evcc_pv_inverter_1_energy_guarded and
+    # sensor.evcc_pv_inverter_2_energy_guarded, defined as trigger-based
+    # sensors further below).
     #
-    # Computes the raw value locally as
-    #   inverter_1.energy + inverter_2.energy
-    # instead of trusting EVCC's `pvEnergy` per-cycle sum. This is
-    # robust against EVCC sum dropouts because each inverter's lifetime
-    # counter is read directly from the inverter's Modbus register and
-    # only one inverter going stale doesn't pull the sum down -- the
-    # other inverter's contribution still increases monotonically.
+    # Both inputs are already monotonically clamped, so their sum is
+    # monotonic and needs no additional guard here. Holds its previous
+    # value whenever either guarded input is momentarily non-numeric so
+    # it never falls back to a single inverter's value, which HA's
+    # total_increasing statistics engine would otherwise record as a
+    # phantom meter reset.
     #
-    # Two guards are applied to the raw sum:
-    #
-    #   1) Monotonic clamp: reject samples lower than the previously
-    #      held state. Without this, a momentary dip (one inverter
-    #      reporting 0 for a single poll cycle on a Modbus timeout, the
-    #      dawn wake-up window, ...) is treated by HA's
-    #      `total_increasing` statistics engine as a meter reset, and
-    #      the climb back to the real value is added as new energy --
-    #      producing huge phantom spikes in the Energy dashboard
-    #      (incident: 11 kWh -> 5 kWh -> 11 kWh dip between 05:50 and
-    #      05:55 inflated the daily total to ~11 MWh).
-    #
-    #   2) Max-step clamp: reject samples that jump UP by more than
-    #      `max_step` (10 kWh) in one update. Without this, a single
-    #      bogus high value (e.g. unit-mismatch Wh-vs-kWh) would lock
-    #      the wrapper at that value forever because every subsequent
-    #      real reading would fail the monotonic clamp. Sized for an
-    #      8 kW peak PV system: 10 kWh represents ~75 min of unbroken
-    #      peak production between two samples, comfortably above the
-    #      normal sub-kWh per-cycle delta but well below any plausibly
-    #      bogus jump. Trade-off: after a long HA outage (> ~1 h of
-    #      peak production missed), the first recovery sample is
-    #      rejected and the wrapper stays flat for that day -- accepted
-    #      by design; outages are rare, inverter hiccups are not.
-    #
-    # Cold start: when no previous state exists (`this.state` not
-    # numeric) the first numeric raw sample is accepted unconditionally.
-    # Input dropout: when an inverter entity is non-numeric the wrapper
-    # holds its previous value (so the Energy dashboard keeps a stable
-    # baseline; statistics simply don't tick during the dropout).
-    #
-    # Recovery procedure (legitimate counter reset, e.g. EVCC
-    # reinstall, inverter swap): clear the retained MQTT messages via
-    #   mosquitto_pub -h <broker> -t evcc/site/pv/1/energy -r -n
-    #   mosquitto_pub -h <broker> -t evcc/site/pv/2/energy -r -n
-    # then restart Home Assistant so the wrapper goes `unknown` and
-    # re-initialises from the next sample.
-    #
-    # Add a third inverter input here (and in availability) if the PV
-    # array is extended.
+    # Keeps the original unique_id so the Energy Dashboard binding and
+    # the long-term statistics history are preserved. Add a third
+    # guarded inverter sensor below and include it here if the PV array
+    # is extended.
     # ------------------------------------------------------------------
     - name: EVCC PV Production Energy Calculated
       unique_id: evcc_pv_production_energy_calculated
@@ -127,125 +93,243 @@
       state_class: total_increasing
       unit_of_measurement: kWh
       availability: >
-        {% set inv1 = states('sensor.evcc_evcc_pv_inverter_1_energy') | float(none) %}
-        {% set inv2 = states('sensor.evcc_evcc_pv_inverter_2_energy') | float(none) %}
-        {% set prev = this.state | float(none) %}
-        {{ (inv1 is not none and inv2 is not none) or prev is not none }}
+        {% set g1 = states('sensor.evcc_pv_inverter_1_energy_guarded') | float(none) %}
+        {% set g2 = states('sensor.evcc_pv_inverter_2_energy_guarded') | float(none) %}
+        {{ (g1 is not none and g2 is not none) or (this.state | float(none)) is not none }}
       state: >
-        {% set inv1     = states('sensor.evcc_evcc_pv_inverter_1_energy') | float(none) %}
-        {% set inv2     = states('sensor.evcc_evcc_pv_inverter_2_energy') | float(none) %}
-        {% set prev     = this.state | float(none) %}
-        {% set max_step = 10.0 %}
-        {% if inv1 is none or inv2 is none %}
-          {{ prev | round(3) }}
+        {% set g1   = states('sensor.evcc_pv_inverter_1_energy_guarded') | float(none) %}
+        {% set g2   = states('sensor.evcc_pv_inverter_2_energy_guarded') | float(none) %}
+        {% set prev = this.state | float(none) %}
+        {% if g1 is none or g2 is none %}
+          {{ prev if prev is not none else 'unknown' }}
         {% else %}
-          {% set raw = inv1 + inv2 %}
-          {% if prev is none %}
-            {{ raw | round(3) }}
-          {% elif raw < prev %}
-            {{ prev | round(3) }}
-          {% elif (raw - prev) > max_step %}
-            {{ prev | round(3) }}
-          {% else %}
-            {{ raw | round(3) }}
-          {% endif %}
+          {{ (g1 + g2) | round(3) }}
         {% endif %}
 
-    # ------------------------------------------------------------------
-    # Guarded grid consumption (import) energy (kWh, lifetime cumulative).
-    #
-    # Wraps the EVCC site-level grid energy MQTT counter
-    # (`sensor.evcc_evcc_grid_energy`, topic `evcc/site/grid/energy`)
-    # with the same monotonic + max-step guards as the PV wrapper. EVCC
-    # publishes one cumulative grid counter that tracks IMPORT only;
-    # grid export still has to be Riemann-integrated from
-    # `evcc_grid_export_power` (see sensors_evcc_riemann.yaml).
-    #
-    # The smart meter behind this counter is read on the same Modbus
-    # poll cycle as the inverters, so the same dropout failure mode
-    # applies: a single poll where the meter reports 0 would otherwise
-    # be locked into HA's long-term statistics as a phantom meter
-    # reset.
-    #
-    # max_step = 10 kWh: at a 20 kW peak draw (well above this house's
-    # main-fuse rating) that's ~30 min of unbroken peak import between
-    # two samples -- comfortably above any normal per-cycle delta but
-    # well below any plausibly-bogus jump.
-    #
-    # Recovery procedure (legitimate counter reset): clear the retained
-    # MQTT message via
-    #   mosquitto_pub -h <broker> -t evcc/site/grid/energy -r -n
-    # then restart Home Assistant.
-    # ------------------------------------------------------------------
+# ======================================================================
+# Guarded per-inverter PV lifetime energy counters (trigger-based).
+#
+# Each wraps one inverter's lifetime kWh Modbus counter. Trigger-based
+# so the guard can tell a Home Assistant restart apart from an ordinary
+# source update. Two guards:
+#
+#   1) Monotonic clamp (always on): reject any sample below the held
+#      value, so a single-poll Modbus zero/dropout can never be recorded
+#      by HA's total_increasing statistics as a phantom meter reset.
+#
+#   2) Max-step clamp (steady state only, 10 kWh): reject an upward jump
+#      larger than max_step, so a bogus high reading (e.g. a Wh-vs-kWh
+#      unit mismatch) cannot be latched in and freeze the counter.
+#
+# Startup bootstrap: for 10 minutes after the `homeassistant` start
+# event the max-step clamp is bypassed (the monotonic clamp stays on),
+# letting the counter re-sync to the true lifetime value after an HA
+# outage even when the accumulated gap exceeds max_step. The window is
+# tracked in the `boot_time` attribute -- keyed on elapsed time rather
+# than the start trigger alone, because the retained MQTT counter is
+# redelivered a few seconds AFTER the start event fires. A plain
+# template reload (no restart) self-heals instead via the cold-start
+# branch, which accepts the first raw sample unconditionally.
+#
+# The summed dashboard sensor (EVCC PV Production Energy Calculated)
+# lives in the state-based block above.
+# ======================================================================
+- trigger:
+    - platform: homeassistant
+      event: start
+    - platform: state
+      entity_id: sensor.evcc_evcc_pv_inverter_1_energy
+    - platform: time_pattern
+      minutes: "/5"
+  sensor:
+    - name: EVCC PV Inverter 1 Energy Guarded
+      unique_id: evcc_pv_inverter_1_energy_guarded
+      device_class: energy
+      state_class: total_increasing
+      unit_of_measurement: kWh
+      availability: >
+        {% set raw = states('sensor.evcc_evcc_pv_inverter_1_energy') | float(none) %}
+        {{ raw is not none or (this.state | float(none)) is not none }}
+      state: >
+        {% set raw      = states('sensor.evcc_evcc_pv_inverter_1_energy') | float(none) %}
+        {% set prev     = this.state | float(none) %}
+        {% set max_step = 10.0 %}
+        {% set bt       = this.attributes.get('boot_time') %}
+        {% set boot     = trigger.platform == 'homeassistant'
+                          or (bt and as_datetime(bt) is not none
+                              and (now() - as_datetime(bt)).total_seconds() < 600) %}
+        {% if raw is none %}
+          {{ prev if prev is not none else 'unknown' }}
+        {% elif prev is none %}
+          {{ raw | round(3) }}
+        {% elif raw < prev %}
+          {{ prev | round(3) }}
+        {% elif (raw - prev) > max_step and not boot %}
+          {{ prev | round(3) }}
+        {% else %}
+          {{ raw | round(3) }}
+        {% endif %}
+      attributes:
+        boot_time: >
+          {% if trigger.platform == 'homeassistant' %}
+            {{ now().isoformat() }}
+          {% else %}
+            {{ this.attributes.get('boot_time', '') }}
+          {% endif %}
+
+- trigger:
+    - platform: homeassistant
+      event: start
+    - platform: state
+      entity_id: sensor.evcc_evcc_pv_inverter_2_energy
+    - platform: time_pattern
+      minutes: "/5"
+  sensor:
+    - name: EVCC PV Inverter 2 Energy Guarded
+      unique_id: evcc_pv_inverter_2_energy_guarded
+      device_class: energy
+      state_class: total_increasing
+      unit_of_measurement: kWh
+      availability: >
+        {% set raw = states('sensor.evcc_evcc_pv_inverter_2_energy') | float(none) %}
+        {{ raw is not none or (this.state | float(none)) is not none }}
+      state: >
+        {% set raw      = states('sensor.evcc_evcc_pv_inverter_2_energy') | float(none) %}
+        {% set prev     = this.state | float(none) %}
+        {% set max_step = 10.0 %}
+        {% set bt       = this.attributes.get('boot_time') %}
+        {% set boot     = trigger.platform == 'homeassistant'
+                          or (bt and as_datetime(bt) is not none
+                              and (now() - as_datetime(bt)).total_seconds() < 600) %}
+        {% if raw is none %}
+          {{ prev if prev is not none else 'unknown' }}
+        {% elif prev is none %}
+          {{ raw | round(3) }}
+        {% elif raw < prev %}
+          {{ prev | round(3) }}
+        {% elif (raw - prev) > max_step and not boot %}
+          {{ prev | round(3) }}
+        {% else %}
+          {{ raw | round(3) }}
+        {% endif %}
+      attributes:
+        boot_time: >
+          {% if trigger.platform == 'homeassistant' %}
+            {{ now().isoformat() }}
+          {% else %}
+            {{ this.attributes.get('boot_time', '') }}
+          {% endif %}
+
+# ======================================================================
+# Guarded grid consumption (import) energy (kWh, lifetime cumulative).
+#
+# Wraps the EVCC site-level grid IMPORT counter
+# (sensor.evcc_evcc_grid_energy, topic evcc/site/grid/energy) with the
+# same monotonic + max-step + startup-bootstrap guards as the per-
+# inverter sensors. Grid EXPORT is Riemann-integrated separately (see
+# sensors_evcc_riemann.yaml). max_step = 10 kWh. Keeps the original
+# unique_id so the Energy Dashboard and statistics history are kept.
+#
+# Recovery (legitimate counter reset): clear the retained MQTT message
+#   mosquitto_pub -h <broker> -t evcc/site/grid/energy -r -n
+# then restart Home Assistant.
+# ======================================================================
+- trigger:
+    - platform: homeassistant
+      event: start
+    - platform: state
+      entity_id: sensor.evcc_evcc_grid_energy
+    - platform: time_pattern
+      minutes: "/5"
+  sensor:
     - name: EVCC Grid Consumption Energy
       unique_id: evcc_grid_consumption_energy
       device_class: energy
       state_class: total_increasing
       unit_of_measurement: kWh
       availability: >
-        {% set raw  = states('sensor.evcc_evcc_grid_energy') | float(none) %}
-        {% set prev = this.state | float(none) %}
-        {{ raw is not none or prev is not none }}
+        {% set raw = states('sensor.evcc_evcc_grid_energy') | float(none) %}
+        {{ raw is not none or (this.state | float(none)) is not none }}
       state: >
         {% set raw      = states('sensor.evcc_evcc_grid_energy') | float(none) %}
         {% set prev     = this.state | float(none) %}
         {% set max_step = 10.0 %}
+        {% set bt       = this.attributes.get('boot_time') %}
+        {% set boot     = trigger.platform == 'homeassistant'
+                          or (bt and as_datetime(bt) is not none
+                              and (now() - as_datetime(bt)).total_seconds() < 600) %}
         {% if raw is none %}
-          {{ prev | round(3) }}
+          {{ prev if prev is not none else 'unknown' }}
         {% elif prev is none %}
           {{ raw | round(3) }}
         {% elif raw < prev %}
           {{ prev | round(3) }}
-        {% elif (raw - prev) > max_step %}
+        {% elif (raw - prev) > max_step and not boot %}
           {{ prev | round(3) }}
         {% else %}
           {{ raw | round(3) }}
         {% endif %}
+      attributes:
+        boot_time: >
+          {% if trigger.platform == 'homeassistant' %}
+            {{ now().isoformat() }}
+          {% else %}
+            {{ this.attributes.get('boot_time', '') }}
+          {% endif %}
 
-    # ------------------------------------------------------------------
-    # Guarded battery charge energy (kWh, lifetime cumulative).
-    #
-    # Wraps the EVCC site-level battery energy MQTT counter
-    # (`sensor.evcc_evcc_battery_energy`, topic `evcc/site/battery/energy`)
-    # with the same monotonic + max-step guards. EVCC publishes one
-    # cumulative battery counter that tracks CHARGED energy only;
-    # battery discharge still has to be Riemann-integrated from
-    # `evcc_battery_discharge_power` (see sensors_evcc_riemann.yaml).
-    #
-    # Same dropout failure mode as the grid and PV wrappers: a single
-    # bad Modbus poll could otherwise pollute long-term statistics.
-    #
-    # max_step = 5 kWh: this house's hybrid inverters cannot push more
-    # than ~5 kW into the battery, so 5 kWh represents ~1 h of
-    # unbroken peak charging between two samples -- comfortably above
-    # any normal per-cycle delta but well below any plausibly-bogus
-    # jump.
-    #
-    # Recovery procedure (legitimate counter reset, e.g. battery swap):
-    #   mosquitto_pub -h <broker> -t evcc/site/battery/energy -r -n
-    # then restart Home Assistant.
-    # ------------------------------------------------------------------
+# ======================================================================
+# Guarded battery charge energy (kWh, lifetime cumulative).
+#
+# Wraps the EVCC site-level battery CHARGE counter
+# (sensor.evcc_evcc_battery_energy, topic evcc/site/battery/energy) with
+# the same guards. Battery DISCHARGE is Riemann-integrated separately
+# (see sensors_evcc_riemann.yaml). max_step = 5 kWh (hybrid inverters
+# cannot push more than ~5 kW into the battery). Keeps the original
+# unique_id so the Energy Dashboard and statistics history are kept.
+#
+# Recovery (legitimate counter reset, e.g. battery swap):
+#   mosquitto_pub -h <broker> -t evcc/site/battery/energy -r -n
+# then restart Home Assistant.
+# ======================================================================
+- trigger:
+    - platform: homeassistant
+      event: start
+    - platform: state
+      entity_id: sensor.evcc_evcc_battery_energy
+    - platform: time_pattern
+      minutes: "/5"
+  sensor:
     - name: EVCC Battery Charge Energy
       unique_id: evcc_battery_charge_energy
       device_class: energy
       state_class: total_increasing
       unit_of_measurement: kWh
       availability: >
-        {% set raw  = states('sensor.evcc_evcc_battery_energy') | float(none) %}
-        {% set prev = this.state | float(none) %}
-        {{ raw is not none or prev is not none }}
+        {% set raw = states('sensor.evcc_evcc_battery_energy') | float(none) %}
+        {{ raw is not none or (this.state | float(none)) is not none }}
       state: >
         {% set raw      = states('sensor.evcc_evcc_battery_energy') | float(none) %}
         {% set prev     = this.state | float(none) %}
         {% set max_step = 5.0 %}
+        {% set bt       = this.attributes.get('boot_time') %}
+        {% set boot     = trigger.platform == 'homeassistant'
+                          or (bt and as_datetime(bt) is not none
+                              and (now() - as_datetime(bt)).total_seconds() < 600) %}
         {% if raw is none %}
-          {{ prev | round(3) }}
+          {{ prev if prev is not none else 'unknown' }}
         {% elif prev is none %}
           {{ raw | round(3) }}
         {% elif raw < prev %}
           {{ prev | round(3) }}
-        {% elif (raw - prev) > max_step %}
+        {% elif (raw - prev) > max_step and not boot %}
           {{ prev | round(3) }}
         {% else %}
           {{ raw | round(3) }}
         {% endif %}
+      attributes:
+        boot_time: >
+          {% if trigger.platform == 'homeassistant' %}
+            {{ now().isoformat() }}
+          {% else %}
+            {{ this.attributes.get('boot_time', '') }}
+          {% endif %}

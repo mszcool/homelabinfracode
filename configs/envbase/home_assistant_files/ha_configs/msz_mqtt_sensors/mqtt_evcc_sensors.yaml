@@ -224,3 +224,19 @@
         - "mszcool:mqtt:evcc-site"
       manufacturer: evcc.io
       model: EVCC
+
+# EV charge power for loadpoint 1. evcc keeps this OUT of homePower, so the
+# Tesla/power-flow card needs it as a separate consumer to balance correctly.
+- sensor:
+    unique_id: "mqtt:evcc-loadpoint-1-charge-power"
+    name: EVCC Charge Power
+    state_topic: evcc/loadpoints/1/chargePower
+    unit_of_measurement: "W"
+    device_class: power
+    state_class: measurement
+    device:
+      name: EVCC
+      identifiers:
+        - "mszcool:mqtt:evcc-site"
+      manufacturer: evcc.io
+      model: EVCC

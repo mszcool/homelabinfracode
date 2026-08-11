@@ -21,26 +21,40 @@
                   }
                 },
                 {
-                  "type": "custom:tesla-style-solar-power-card",
-                  "name": "Energy Flows Now (by 1-2 min. precise)",
+                  "type": "custom:power-flow-card-plus",
+                  "title": "Energy Flows Now (1-2 min precise)",
                   "grid_options": {
                     "columns": 12,
                     "rows": "auto"
                   },
-                  "grid_to_house_entity": "sensor.evcc_grid_to_house",
-                  "grid_to_battery_entity": "sensor.evcc_grid_to_battery",
-                  "generation_to_grid_entity": "sensor.evcc_solar_to_grid",
-                  "generation_to_battery_entity": "sensor.evcc_solar_to_battery",
-                  "generation_to_house_entity": "sensor.evcc_solar_to_house",
-                  "battery_to_house_entity": "sensor.evcc_battery_to_house",
-                  "battery_to_grid_entity": "sensor.evcc_battery_to_grid",
-                  "grid_entity": "sensor.evcc_evcc_grid_power",
-                  "generation_entity": "sensor.evcc_evcc_pv_power_total",
-                  "house_entity": "sensor.evcc_evcc_home_power",
-                  "battery_entity": "sensor.evcc_evcc_battery_power",
-                  "battery_extra_entity": "sensor.evcc_evcc_battery_state_of_charge",
-                  "show_gap": true,
-                  "threshold_in_k": 1
+                  "entities": {
+                    "grid": {
+                      "entity": "sensor.evcc_evcc_grid_power",
+                      "display_zero_tolerance": 150
+                    },
+                    "solar": {
+                      "entity": "sensor.evcc_evcc_pv_power_total"
+                    },
+                    "battery": {
+                      "entity": "sensor.evcc_evcc_battery_power",
+                      "state_of_charge": "sensor.evcc_evcc_battery_state_of_charge",
+                      "display_zero_tolerance": 150
+                    },
+                    "home": {
+                      "entity": "sensor.evcc_evcc_home_power",
+                      "subtract_individual": true
+                    },
+                    "individual": [
+                      {
+                        "entity": "sensor.evcc_evcc_charge_power",
+                        "name": "Car",
+                        "icon": "mdi:car-electric",
+                        "display_zero": true
+                      }
+                    ]
+                  },
+                  "clickable_entities": true,
+                  "kilo_threshold": 1000
                 },
                 {
                   "type": "energy-distribution",

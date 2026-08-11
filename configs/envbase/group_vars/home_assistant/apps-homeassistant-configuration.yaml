@@ -272,6 +272,21 @@ ha_hacs_components:
     local_path: "www/community/tesla-style-solar-power-card"
     check_file: "www/community/tesla-style-solar-power-card/tesla-style-solar-power-card.js"
 
+  # Successor to the tesla-style card: computes flows itself from node
+  # entities and supports EV/individual consumers, so the car shows as its
+  # own bubble. Served at /hacsfiles/power-flow-card-plus/power-flow-card-plus.js
+  - full_name: "flixlix/power-flow-card-plus"
+    repo_id: "618081815"
+    category: plugin
+    version: "0.3.7"
+    tag: "v0.3.7"
+    domain: null
+    manifest_name: "Power Flow Card Plus"
+    source: direct
+    download_url: "https://github.com/flixlix/power-flow-card-plus/releases/download/v0.3.7/power-flow-card-plus.js"
+    local_path: "www/community/power-flow-card-plus"
+    check_file: "www/community/power-flow-card-plus/power-flow-card-plus.js"
+
   - full_name: "mkshb/hass-evcc-card"
     repo_id: "1174148822"
     category: plugin

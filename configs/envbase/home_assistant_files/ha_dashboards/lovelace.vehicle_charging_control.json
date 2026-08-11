@@ -20,6 +20,12 @@
                   "type": "custom:evcc-card",
                   "mode": "compact",
                   "size": "large"
+                },
+                {
+                  "type": "custom:evcc-card",
+                  "mode": "battery",
+                  "charge_current_settings": "collapsed",
+                  "size": "large"
                 }
               ]
             },
@@ -29,7 +35,7 @@
                 {
                   "type": "heading",
                   "heading_style": "title",
-                  "heading": "House Battery Lock"
+                  "heading": "Energy (takes a few seconds to refresh)"
                 },
                 {
                   "type": "custom:evcc-card",
@@ -44,13 +50,12 @@
               "cards": [
                 {
                   "type": "heading",
-                  "heading": "Energy Flow (takes a few seconds to update)",
+                  "heading": "Charge Statistics",
                   "heading_style": "title"
                 },
                 {
                   "type": "custom:evcc-card",
-                  "mode": "battery",
-                  "charge_current_settings": "collapsed",
+                  "mode": "stats",
                   "size": "large"
                 }
               ]
