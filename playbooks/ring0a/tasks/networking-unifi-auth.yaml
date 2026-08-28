@@ -1,0 +1,53 @@
+---
+# UniFi controller authentication + site discovery.
+#
+# Auth model: a console-local API key sent as the `X-API-KEY` header on every
+# request. The same key is used for the official integration API AND the internal
+# /proxy/network rest/* endpoints (the key forces the /proxy/network path with no
+# login/CSRF handshake). No admin username/password is required.
+#
+# Sets facts:
+#   unifi_headers   request headers (API key + JSON)
+#   unifi_site_id   the integration-API site id matching `unifi_site`
+
+- name: Auth -- assert API key is present
+  ansible.builtin.assert:
+    that:
+      - unifi_api_key is defined
+      - unifi_api_key | length > 0
+    fail_msg: >-
+      unifi_api_key is not set. Provide it via the environment's secrets
+      (vault_unifi_api_key -> unifi_api_key in the network_fabric overlay).
+    quiet: true
+
+- name: Auth -- build request headers
+  ansible.builtin.set_fact:
+    unifi_headers:
+      X-API-KEY: "{{ unifi_api_key }}"
+      Accept: "application/json"
+      Content-Type: "application/json"
+
+- name: Auth -- discover sites
+  ansible.builtin.uri:
+    url: "{{ unifi_console_base_url }}/v1/sites"
+    method: GET
+    headers: "{{ unifi_headers }}"
+    validate_certs: "{{ unifi_console_verify_ssl | default(false) }}"
+    status_code: [200]
+    return_content: true
+  register: unifi_sites
+
+- name: Auth -- select the target site id
+  ansible.builtin.set_fact:
+    # Match on the site's internal shortname first, then display name; fall back
+    # to the first site so single-site consoles just work.
+    unifi_site_id: >-
+      {{ ((unifi_sites.json.data | selectattr('internalReference', 'defined')
+            | selectattr('internalReference', 'equalto', unifi_site) | list)
+          + (unifi_sites.json.data | selectattr('name', 'equalto', unifi_site) | list)
+          + unifi_sites.json.data)
+         | map(attribute='id') | first }}
+
+- name: Auth -- report resolved site
+  ansible.builtin.debug:
+    msg: "UniFi site '{{ unifi_site }}' -> id {{ unifi_site_id }}"

@@ -1,0 +1,28 @@
+---
+# Wired port profiles (internal rest/portconf).
+#
+# Field names confirmed against a live UCG rest/portconf: forward
+# (all|native|customize|disabled), native_networkconf_id, tagged_networkconf_ids,
+# op_mode, poe_mode. Trunk-All uses 'customize' + tagged ids; access uses 'native'.
+
+- name: Port profiles -- upsert each profile
+  ansible.builtin.include_tasks: networking-unifi-upsert.yaml
+  vars:
+    uh_label: "portconf {{ pp_item.name }}"
+    uh_list_url: "{{ unifi_ep_portconf }}"
+    uh_match_value: "{{ pp_item.name }}"
+    uh_id_key: "_id"
+    uh_deprecated: "{{ pp_item.deprecated | default(false) }}"
+    uh_body: >-
+      {{ {
+           'name': pp_item.name,
+           'op_mode': 'switch',
+           'poe_mode': 'auto',
+           'forward': ('customize' if (pp_item.tagged_zones | length > 0) else 'native'),
+           'native_networkconf_id': unifi_internal_network_ids[pp_item.native_zone],
+           'tagged_networkconf_ids': (pp_item.tagged_zones | map('extract', unifi_internal_network_ids) | select('string') | list)
+         } }}
+  loop: "{{ port_profiles }}"
+  loop_control:
+    loop_var: pp_item
+    label: "{{ pp_item.name }}"

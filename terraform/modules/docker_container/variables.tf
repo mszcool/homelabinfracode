@@ -125,6 +125,9 @@ variable "volumes" {
     path    = string # Mount path inside the container
     size_gb = optional(number, 10)
     pool    = optional(string, "") # Empty = use container's storage_pool
+    # Root-dir mode of the volume at creation (Incus initial.mode). Needed when a
+    # non-root in-container user must read the mount (e.g. mongo's initdb.d).
+    initial_mode = optional(string, "")
     files = optional(list(object({
       content            = optional(string, "")
       source_path        = optional(string, "")

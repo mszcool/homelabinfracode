@@ -43,51 +43,118 @@ ip_plan_external_dns_servers:
   - "10.10.0.10"
   - "10.10.0.11"
 
-# LAN DHCP pool for dynamic clients
-ip_plan_dhcp_pool:
-  from: "10.10.0.100"
-  to: "10.10.0.254"
+# ---------- VLAN / network-fabric plan (UniFi migration) ----------
+# Single source of truth for the segmented network (test space 10.10.<vlan>.0/24).
+# Consumed by the vendor-neutral fabric schema (group_vars/network_fabric).
+# Servers (99) and IoT (100) gateways use .254 (mirrors prod, where .1/.2/.3 are
+# pinned to hosts); all other zones use .1.
+ip_plan_vlans:
+  mgmt:
+    vlan_id: 1
+    subnet: "10.10.1.0/24"
+    gateway: "10.10.1.1"
+    dhcp_from: "10.10.1.100"
+    dhcp_to: "10.10.1.200"
+  trusted:
+    vlan_id: 20
+    subnet: "10.10.20.0/24"
+    gateway: "10.10.20.1"
+    dhcp_from: "10.10.20.100"
+    dhcp_to: "10.10.20.240"
+  kids:
+    vlan_id: 30
+    subnet: "10.10.30.0/24"
+    gateway: "10.10.30.1"
+    dhcp_from: "10.10.30.100"
+    dhcp_to: "10.10.30.240"
+  guest:
+    vlan_id: 40
+    subnet: "10.10.40.0/24"
+    gateway: "10.10.40.1"
+    dhcp_from: "10.10.40.100"
+    dhcp_to: "10.10.40.240"
+  media:
+    vlan_id: 60
+    subnet: "10.10.60.0/24"
+    gateway: "10.10.60.1"
+    dhcp_from: "10.10.60.100"
+    dhcp_to: "10.10.60.240"
+  servers:
+    vlan_id: 99
+    subnet: "10.10.99.0/24"
+    gateway: "10.10.99.254"
+    dhcp_from: "10.10.99.100"
+    dhcp_to: "10.10.99.190"
+  iot:
+    vlan_id: 100
+    subnet: "10.10.100.0/24"
+    gateway: "10.10.100.254"
+    dhcp_from: "10.10.100.100"
+    dhcp_to: "10.10.100.190"
 
-# IP ranges per device group (matches devices_mapped group names)
+# LAN DHCP pool for dynamic clients (legacy alias -> Trusted zone pool)
+ip_plan_dhcp_pool:
+  from: "{{ ip_plan_vlans.trusted.dhcp_from }}"
+  to: "{{ ip_plan_vlans.trusted.dhcp_to }}"
+
+# IP ranges per device group (matches devices_mapped group names).
 ip_plan_ranges:
   core_infrastructure:
-    from: "10.10.0.1"
-    to: "10.10.0.29"
+    from: "10.10.1.2"
+    to: "10.10.1.29"
   virtualization_servers:
-    from: "10.10.0.30"
-    to: "10.10.0.40"
-  foundational_services:
-    from: "10.10.0.41"
-    to: "10.10.0.60"
-  unrestricted_devices:
-    from: "10.10.10.20"
-    to: "10.10.10.40"
-  restricted_devices:
-    from: "10.10.10.40"
-    to: "10.10.10.254"
-  kids_devices:
-    from: "10.10.10.40"
-    to: "10.10.10.80"
-  iot_servers:
     from: "10.10.99.1"
+    to: "10.10.99.29"
+  foundational_services:
+    from: "10.10.99.50"
+    to: "10.10.99.99"
+  iot_servers:
+    from: "10.10.99.200"
     to: "10.10.99.254"
+  trusted_devices:
+    from: "10.10.20.2"
+    to: "10.10.20.99"
+  kids_devices:
+    from: "10.10.30.2"
+    to: "10.10.30.99"
+  guest_devices:
+    from: "10.10.40.2"
+    to: "10.10.40.99"
+  media_devices:
+    from: "10.10.60.2"
+    to: "10.10.60.99"
   iot_devices:
     from: "10.10.100.1"
     to: "10.10.100.254"
+  # Legacy MikroTik-only keys (repurposed; overlay preserved for rollback)
+  unrestricted_devices:
+    from: "10.10.20.2"
+    to: "10.10.20.99"
+  restricted_devices:
+    from: "10.10.30.2"
+    to: "10.10.30.240"
 
-# Infrastructure host IPs (referenced across multiple files)
+# Infrastructure host IPs (referenced across multiple files).
+# Key names are STABLE; only values are re-IP'd for the segmented network.
 ip_plan_hosts:
-  router: "10.10.0.1"
-  # virtualization-servers
-  incus_singledisk: "10.10.0.31"
-  incus_dualdisk: "10.10.0.32"
-  # foundational-services
-  samba4_addc: "10.10.0.41"
-  truenas: "10.10.0.42"
-  # iot-servers
+  router: "10.10.1.1"
+  # virtualization-servers (Servers VLAN 99)
+  incus_singledisk: "10.10.99.1"
+  incus_dualdisk: "10.10.99.2"
+  # foundational-services (Servers VLAN 99)
+  samba4_addc: "10.10.99.50"
+  truenas: "10.10.99.51"
+  step_ca: "10.10.99.52"
+  # iot-servers (Servers VLAN 99)
   pool_remote_access: "10.10.99.217"
-  # iot-devices
-  edge_pool: "10.10.99.245"
+  mqtt_broker: "10.10.99.218"
+  mqtt_translator: "10.10.99.219"
+  evcc_container: "10.10.99.220"
+  home_assistant: "10.10.99.225"
+  # iot-devices (IoT VLAN 100)
+  huawei_scharger: "10.10.100.3"
+  edge_pool: "10.10.100.20"
+  mqtt_zigbee_gw_heatroom: "10.10.100.21"
 
 # ---------- Backward-compatible aliases ----------
 # These keep all existing variable references working without playbook changes.

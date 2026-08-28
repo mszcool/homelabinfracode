@@ -1,0 +1,45 @@
+---
+# Firewall zones — created BEFORE networks.
+#
+# With Zone-Based Firewall enabled, every network requires a `zoneId`, so the
+# custom zones must exist first. They are created empty; each network is then
+# placed into its zone via the network's own `zoneId` (which drives zone
+# membership — we do not set zone.networkIds ourselves).
+
+- name: Firewall zones -- map net_zone role -> firewall zone name
+  ansible.builtin.set_fact:
+    unifi_zone_of: >-
+      {{ dict(net_zones | map(attribute='name')
+              | zip(net_zones | map(attribute='firewall_zone'))) }}
+
+- name: Firewall zones -- upsert the custom zones (empty; networks join via zoneId)
+  ansible.builtin.include_tasks: networking-unifi-upsert.yaml
+  vars:
+    uh_label: "fw-zone {{ zone_item.name }}"
+    uh_list_url: "{{ unifi_ep_fw_zones }}"
+    uh_match_value: "{{ zone_item.name }}"
+    uh_merge: false
+    uh_deprecated: "{{ zone_item.deprecated | default(false) }}"
+    uh_body:
+      name: "{{ zone_item.name }}"
+      networkIds: []
+  loop: "{{ fabric_firewall_zones }}"
+  loop_control:
+    loop_var: zone_item
+    label: "{{ zone_item.name }}"
+
+- name: Firewall zones -- read back ids
+  ansible.builtin.uri:
+    url: "{{ unifi_ep_fw_zones }}"
+    method: GET
+    headers: "{{ unifi_headers }}"
+    validate_certs: "{{ unifi_console_verify_ssl | default(false) }}"
+    status_code: [200]
+    return_content: true
+  register: unifi_fw_zones_get
+
+- name: Firewall zones -- build firewall zone id map (name -> id)
+  ansible.builtin.set_fact:
+    unifi_fw_zone_ids: >-
+      {{ dict(unifi_fw_zones_get.json.data | map(attribute='name')
+              | zip(unifi_fw_zones_get.json.data | map(attribute='id'))) }}

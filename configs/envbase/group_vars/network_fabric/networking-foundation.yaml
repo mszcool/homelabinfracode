@@ -1,0 +1,355 @@
+---
+# Base (shared) vendor-neutral network-fabric schema
+#
+# This is the UniFi/pfSense counterpart to group_vars/mainrouter/networking-foundation.yaml
+# (which stays MikroTik-specific and is preserved unchanged for rollback/legacy).
+#
+# The schema is an INTENT model: zones, DHCP/DNS, reservations, firewall policy,
+# wired port profiles and WLANs. A per-vendor translator compiles it to concrete
+# API calls (UniFi now; pfSense later). Both derive their IPs from the SAME
+# common-seeds.yaml (ip_plan_*), so there is a single source of truth during and
+# after the migration.
+#
+# Required seed variables (from common-seeds.yaml):
+#   localdomain, ad_domain_short
+#   ip_plan_external_dns_servers          external forwarders
+#   ip_plan_vlans                         per-zone {vlan_id, subnet, gateway,
+#                                         dhcp_from, dhcp_to}
+#   ip_plan_hosts                         infrastructure host IPs (broker, evcc,
+#                                         samba4_addc, pool_remote_access, ...)
+#
+# Provided by the environment overlay (<env>/.../network_fabric/networking-foundation.yaml):
+#   devices_mapped                        MAC->IP reservations + DNS names
+#   wlans                                 concrete SSID names + PSK secret refs
+#   unifi_console_*                       controller connection details
+#
+# Consumed by playbooks (hosts: network_fabric / unifi):
+#   playbooks/ring0a/networking-unifi-continuous-configure-all.yaml
+
+# ---------- Shared constants ----------
+
+# UniFi site shortname (the default site is literally "default"; overlays may override).
+fabric_site_name: "default"
+
+# ---------- Zones (L3 networks / VLANs) ----------
+# Vendor-neutral replacement for the MikroTik `networks` list, minus RouterOS
+# interface plumbing. Subnets/gateways/pools come from ip_plan_vlans seeds.
+#
+# firewall_zone    UniFi firewall zone this network belongs to (kids+media share
+#                  "Filtered" so kids<->media print/music is intra-zone automatic)
+# isolated         client isolation within the network (guest)
+# internet         whether the zone may reach the internet at all
+# mdns             reflect mDNS/SSDP toward the Media zone (never into IoT)
+
+default_net_name: "mgmt"
+
+net_zones:
+  - name: "{{ default_net_name }}"
+    description: "Management (gateway, APs, switches, MoCA UIs)"
+    deprecated: false
+    firewall_zone: "Mgmt"
+    vlan_id: "{{ ip_plan_vlans.mgmt.vlan_id }}"
+    subnet: "{{ ip_plan_vlans.mgmt.subnet }}"
+    gateway: "{{ ip_plan_vlans.mgmt.gateway }}"
+    domain_name: "{{ localdomain }}"
+    isolated: false
+    internet: true
+    mdns: false
+    dhcp:
+      enabled: true
+      pool_from: "{{ ip_plan_vlans.mgmt.dhcp_from }}"
+      pool_to: "{{ ip_plan_vlans.mgmt.dhcp_to }}"
+      lease: 86400
+
+  - name: "trusted"
+    description: "Trusted user devices (unfiltered)"
+    deprecated: false
+    firewall_zone: "Trusted"
+    vlan_id: "{{ ip_plan_vlans.trusted.vlan_id }}"
+    subnet: "{{ ip_plan_vlans.trusted.subnet }}"
+    gateway: "{{ ip_plan_vlans.trusted.gateway }}"
+    domain_name: "{{ localdomain }}"
+    isolated: false
+    internet: true
+    mdns: false
+    dhcp:
+      enabled: true
+      pool_from: "{{ ip_plan_vlans.trusted.dhcp_from }}"
+      pool_to: "{{ ip_plan_vlans.trusted.dhcp_to }}"
+      lease: 86400
+
+  - name: "kids"
+    description: "Kids devices (content filtered + bedtime schedule)"
+    deprecated: false
+    firewall_zone: "Filtered"
+    vlan_id: "{{ ip_plan_vlans.kids.vlan_id }}"
+    subnet: "{{ ip_plan_vlans.kids.subnet }}"
+    gateway: "{{ ip_plan_vlans.kids.gateway }}"
+    domain_name: "{{ localdomain }}"
+    isolated: false
+    internet: true
+    mdns: false
+    dhcp:
+      enabled: true
+      pool_from: "{{ ip_plan_vlans.kids.dhcp_from }}"
+      pool_to: "{{ ip_plan_vlans.kids.dhcp_to }}"
+      lease: 86400
+
+  - name: "guest"
+    description: "Guest network (isolated, internet only)"
+    deprecated: false
+    firewall_zone: "Guest"
+    vlan_id: "{{ ip_plan_vlans.guest.vlan_id }}"
+    subnet: "{{ ip_plan_vlans.guest.subnet }}"
+    gateway: "{{ ip_plan_vlans.guest.gateway }}"
+    domain_name: "{{ localdomain }}"
+    isolated: true
+    internet: true
+    mdns: false
+    dhcp:
+      enabled: true
+      pool_from: "{{ ip_plan_vlans.guest.dhcp_from }}"
+      pool_to: "{{ ip_plan_vlans.guest.dhcp_to }}"
+      lease: 3600
+
+  - name: "media"
+    description: "Discoverable consumer devices (TVs, speakers, printers, casting)"
+    deprecated: false
+    firewall_zone: "Filtered"
+    vlan_id: "{{ ip_plan_vlans.media.vlan_id }}"
+    subnet: "{{ ip_plan_vlans.media.subnet }}"
+    gateway: "{{ ip_plan_vlans.media.gateway }}"
+    domain_name: "{{ localdomain }}"
+    isolated: false
+    internet: true
+    mdns: true
+    dhcp:
+      enabled: true
+      pool_from: "{{ ip_plan_vlans.media.dhcp_from }}"
+      pool_to: "{{ ip_plan_vlans.media.dhcp_to }}"
+      lease: 86400
+
+  - name: "servers"
+    description: "Server estate (Incus infra + IoT-servers, flat)"
+    deprecated: false
+    firewall_zone: "Servers"
+    vlan_id: "{{ ip_plan_vlans.servers.vlan_id }}"
+    subnet: "{{ ip_plan_vlans.servers.subnet }}"
+    gateway: "{{ ip_plan_vlans.servers.gateway }}"
+    domain_name: "{{ localdomain }}"
+    isolated: false
+    internet: true
+    mdns: false
+    dhcp:
+      enabled: true
+      pool_from: "{{ ip_plan_vlans.servers.dhcp_from }}"
+      pool_to: "{{ ip_plan_vlans.servers.dhcp_to }}"
+      lease: 86400
+
+  - name: "iot"
+    description: "IoT devices (all get internet; broker-only into servers)"
+    deprecated: false
+    firewall_zone: "IoT"
+    vlan_id: "{{ ip_plan_vlans.iot.vlan_id }}"
+    subnet: "{{ ip_plan_vlans.iot.subnet }}"
+    gateway: "{{ ip_plan_vlans.iot.gateway }}"
+    domain_name: "{{ localdomain }}"
+    isolated: false
+    internet: true
+    mdns: false
+    dhcp:
+      enabled: true
+      pool_from: "{{ ip_plan_vlans.iot.dhcp_from }}"
+      pool_to: "{{ ip_plan_vlans.iot.dhcp_to }}"
+      lease: 86400
+
+# ---------- Firewall zones (UniFi zone-based grouping) ----------
+# Each network belongs to exactly one firewall zone. Kids + Media share "Filtered"
+# so the content-filter policy is a single togglable rule and kids<->media
+# (printing/music/casting) is automatic intra-zone traffic.
+fabric_firewall_zones:
+  - name: "Mgmt"
+    networks: ["mgmt"]
+    deprecated: false
+  - name: "Trusted"
+    networks: ["trusted"]
+    deprecated: false
+  - name: "Filtered"
+    networks: ["kids", "media"]
+    deprecated: false
+  - name: "Guest"
+    networks: ["guest"]
+    deprecated: false
+  - name: "Servers"
+    networks: ["servers"]
+    deprecated: false
+  - name: "IoT"
+    networks: ["iot"]
+    deprecated: false
+
+# ---------- Firewall policy (intent) ----------
+# Inter-zone default is deny (UniFi ZBF); stateful established/related, masquerade
+# and the WAN drop-all baseline are implicit. Rules express only what to ALLOW
+# (plus the explicit IoT->Servers deny that sits after the broker allow).
+#
+# Rule fields (any subset):
+#   from / to            zone names (or "internet")
+#   from_networks        restrict source to specific net_zone name(s) within zone
+#   from_hosts / to_hosts  specific host IPs (seed-derived)
+#   ports / proto        L4 match
+#   paused               true = create the rule disabled (UI "Pause"); toggle on demand
+#   action               allow | deny
+#   temporary            annotate rules to remove at a known milestone
+#   deprecated           true = delete on next run, then safe to remove from IaC
+
+firewall_policy:
+  rules:
+    # -- Trusted = admin/unfiltered --
+    - name: "trusted-to-servers"
+      deprecated: false
+      from: ["trusted"]
+      to: ["servers"]
+      action: "allow"
+    - name: "trusted-to-iot"
+      deprecated: false
+      from: ["trusted"]
+      to: ["iot"]
+      action: "allow"
+    - name: "trusted-to-mgmt"
+      deprecated: false
+      from: ["trusted"]
+      to: ["mgmt"]
+      action: "allow"
+    - name: "trusted-to-filtered-media"
+      deprecated: false
+      from: ["trusted"]
+      to: ["media"]
+      action: "allow"
+    - name: "trusted-internet"
+      deprecated: false
+      from: ["trusted"]
+      to: ["internet"]
+      action: "allow"
+
+    # -- Servers estate --
+    - name: "servers-to-iot"
+      deprecated: false
+      from: ["servers"]
+      to: ["iot"]
+      action: "allow"
+    - name: "servers-internet"
+      deprecated: false
+      from: ["servers"]
+      to: ["internet"]
+      action: "allow"
+
+    # -- IoT --
+    - name: "iot-to-broker"
+      deprecated: false
+      from: ["iot"]
+      to: ["servers"]
+      to_hosts: ["{{ ip_plan_hosts.mqtt_broker }}"]
+      ports: [1883]
+      proto: "tcp"
+      action: "allow"
+    # TEMPORARY: remove when go-e chargers replace the Huawei SCharger.
+    - name: "iot-scharger-to-evcc"
+      deprecated: false
+      from: ["iot"]
+      to: ["servers"]
+      from_hosts: ["{{ ip_plan_hosts.huawei_scharger }}"]
+      to_hosts: ["{{ ip_plan_hosts.evcc_container }}"]
+      ports: [8887, 502, 503]
+      proto: "tcp"
+      action: "allow"
+      temporary: true
+    - name: "iot-dns-ntp-to-gateway"
+      deprecated: false
+      from: ["iot"]
+      to: ["gateway"]
+      ports: [53, 123]
+      action: "allow"
+    - name: "iot-internet"
+      deprecated: false
+      from: ["iot"]
+      to: ["internet"]
+      action: "allow"
+    # Explicit deny AFTER the broker/scharger allows above.
+    - name: "iot-to-servers-deny"
+      deprecated: false
+      from: ["iot"]
+      to: ["servers"]
+      action: "deny"
+
+    # -- Guest (isolation via zone flag; internet only) --
+    - name: "guest-internet-only"
+      deprecated: false
+      from: ["guest"]
+      to: ["internet"]
+      action: "allow"
+
+    # -- Filtered zone (kids + media) --
+    # On-demand internet kill-switch: created PAUSED (enabled:false) and placed
+    # BEFORE the allow so that, when enabled from the UniFi app, it wins and cuts
+    # kids+media internet. Feature-parity with the manual MikroTik toggle.
+    - name: "filtered-internet-block"
+      deprecated: false
+      paused: true
+      from: ["kids", "media"]
+      to: ["internet"]
+      action: "deny"
+    - name: "filtered-internet"
+      deprecated: false
+      from: ["kids", "media"]
+      to: ["internet"]
+      action: "allow"
+    # Kids bedtime pause: created PAUSED; enable/disable on demand from the app.
+    - name: "kids-bedtime-pause"
+      deprecated: false
+      paused: true
+      from: ["kids"]
+      from_networks: ["kids"]
+      to: ["internet"]
+      action: "deny"
+
+  # WAN inbound port forwards (masquerade is implicit).
+  port_forwards:
+    - name: "pool-remote-ssh"
+      deprecated: false
+      wan_port: 2022
+      to_host: "{{ ip_plan_hosts.pool_remote_access }}"
+      to_port: 22
+      proto: "tcp"
+
+# ---------- Wired port profiles ----------
+# Port-based VLAN assignment (no MAC/RADIUS). Unassigned access ports default to
+# the Guest zone (isolated + filtered). The switch-port map lives in the overlay.
+port_profiles:
+  - name: "Mgmt-Access"
+    deprecated: false
+    native_zone: "mgmt"
+    tagged_zones: []
+  - name: "Trusted-Access"
+    deprecated: false
+    native_zone: "trusted"
+    tagged_zones: []
+  - name: "Servers-Access"
+    deprecated: false
+    native_zone: "servers"
+    tagged_zones: []
+  - name: "IoT-Access"
+    deprecated: false
+    native_zone: "iot"
+    tagged_zones: []
+  - name: "Media-Access"
+    deprecated: false
+    native_zone: "media"
+    tagged_zones: []
+  - name: "Guest-Access"
+    deprecated: false
+    native_zone: "guest"
+    tagged_zones: []
+  - name: "Trunk-All"
+    deprecated: false
+    native_zone: "mgmt"
+    tagged_zones: ["trusted", "kids", "guest", "media", "servers", "iot"]

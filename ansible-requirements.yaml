@@ -13,3 +13,16 @@ collections:
     version: ">=8.0.0"
   - name: arensb.truenas
     version: ">=0.1.0"
+
+# ---------- UniFi network fabric (netunifimigrate202608) ----------
+# The UniFi playbooks (playbooks/ring0a/networking-unifi-*) drive the controller
+# entirely through ansible.builtin.uri against the local console REST API
+# (official integration API + internal /proxy/network/api/s/<site>/rest/*), so no
+# extra Galaxy collection is strictly required.
+#
+# OPTIONAL: Ubiquiti's official typed collection can be layered on later. It is
+# NOT published on Ansible Galaxy — install it from the tarball published on
+# apidoc-cdn.ui.com and add its python deps (httpx, urllib3):
+#   ansible-galaxy collection install \
+#     https://apidoc-cdn.ui.com/collections/ubiquiti-unifi_api-<version>.tar.gz
+#   pip install httpx urllib3

@@ -1,0 +1,132 @@
+---
+# Generic idempotent upsert against a UniFi REST endpoint (GET-then-POST/PUT).
+#
+# UniFi's API is NOT idempotent, so every object is reconciled by:
+#   1. GET the collection
+#   2. find an existing item by `uh_match_key` == `uh_match_value`
+#   3. PUT (merge) when it exists, else POST to create
+#
+# Works for BOTH the official integration API ({data:[...]}) and the internal
+# /proxy/network rest/* API ({data:[...], meta:{}}) — set `uh_list_path`/`uh_id_key`
+# accordingly.
+#
+# Required vars (pass via the include's `vars:`):
+#   uh_label        human label for logging
+#   uh_list_url     GET collection URL
+#   uh_match_value  value to match an existing item on
+#   uh_body         desired object (dict)
+# Optional vars (with defaults):
+#   uh_create_url   POST URL                       (default: uh_list_url)
+#   uh_match_key    match field                    (default: "name")
+#   uh_id_key       id field on existing items     (default: "id")
+#   uh_list_path    key holding the list in JSON   (default: "data")
+#   uh_update_method PUT|PATCH                      (default: "PUT")
+#   uh_merge        merge existing+body on update  (default: true)
+#
+# Registers `uh_result` (the create/update uri result) for the caller.
+
+- name: "Upsert [{{ uh_label }}] -- read current collection"
+  ansible.builtin.uri:
+    url: "{{ uh_list_url }}{{ '?limit=200&offset=0' if (uh_paginate | default(false)) else '' }}"
+    method: GET
+    headers: "{{ unifi_headers }}"
+    validate_certs: "{{ unifi_console_verify_ssl | default(false) }}"
+    status_code: [200]
+    return_content: true
+  register: uh_get
+
+# The integration API caps pages at 200 items; when the collection is larger
+# (e.g. firewall/policies mixes 300+ system rules with ours) a single-page GET
+# would miss existing items and cause duplicate POSTs on every run.
+- name: "Upsert [{{ uh_label }}] -- read remaining pages"
+  ansible.builtin.uri:
+    url: "{{ uh_list_url }}?limit=200&offset={{ item }}"
+    method: GET
+    headers: "{{ unifi_headers }}"
+    validate_certs: "{{ unifi_console_verify_ssl | default(false) }}"
+    status_code: [200]
+    return_content: true
+  register: uh_get_pages
+  when: (uh_paginate | default(false)) and ((uh_get.json.totalCount | default(0) | int) > 200)
+  loop: "{{ range(200, (uh_get.json.totalCount | default(0) | int), 200) | list }}"
+
+- name: "Upsert [{{ uh_label }}] -- locate existing item"
+  ansible.builtin.set_fact:
+    uh_existing: >-
+      {{ ((uh_get.json[uh_list_path | default('data')] | default([]))
+          + (uh_get_pages.results | default([])
+             | selectattr('json', 'defined')
+             | map(attribute='json')
+             | map(attribute=(uh_list_path | default('data')))
+             | flatten(levels=1)))
+         | selectattr(uh_match_key | default('name'), 'equalto', uh_match_value)
+         | list }}
+
+- name: "Upsert [{{ uh_label }}] -- CREATE (POST) when absent"
+  ansible.builtin.uri:
+    url: "{{ uh_create_url | default(uh_list_url) }}"
+    method: POST
+    headers: "{{ unifi_headers }}"
+    body_format: json
+    body: "{{ uh_body }}"
+    validate_certs: "{{ unifi_console_verify_ssl | default(false) }}"
+    status_code: [200, 201]
+    return_content: true
+  register: uh_result_create
+  when:
+    - not (uh_deprecated | default(false))
+    - uh_existing | length == 0
+
+- name: "Upsert [{{ uh_label }}] -- UPDATE (PUT) when present"
+  ansible.builtin.uri:
+    url: "{{ (uh_create_url | default(uh_list_url)) ~ '/' ~ uh_existing[0][uh_id_key | default('id')] }}"
+    method: "{{ uh_update_method | default('PUT') }}"
+    headers: "{{ unifi_headers }}"
+    body_format: json
+    # Strip server-owned/read-only keys — the integration API rejects unknown
+    # properties (e.g. id/metadata) in the body.
+    body: >-
+      {{ (((uh_existing[0] | combine(uh_body, recursive=True))
+            if (uh_merge | default(true)) else uh_body)
+          | dict2items
+          | rejectattr('key', 'in', uh_strip_keys | default(['id', '_id', 'metadata',
+              'default', 'site_id', 'external_id', 'attr_no_delete',
+              'attr_hidden_id']))
+          | items2dict) }}
+    validate_certs: "{{ unifi_console_verify_ssl | default(false) }}"
+    status_code: [200]
+    return_content: true
+  register: uh_result_update
+  when:
+    - not (uh_deprecated | default(false))
+    - uh_existing | length > 0
+
+# ---------- Deprecated objects (deprecated: true) ----------
+# When an object is marked deprecated it is DELETED if it still exists; if it is
+# already gone we only record a warning so the caller can print, at the very end,
+# that it is safe to remove from the IaC.
+- name: "Upsert [{{ uh_label }}] -- DELETE (deprecated) when still present"
+  ansible.builtin.uri:
+    url: "{{ uh_delete_url | default((uh_create_url | default(uh_list_url)) ~ '/' ~ uh_existing[0][uh_id_key | default('id')]) }}"
+    method: "{{ uh_delete_method | default('DELETE') }}"
+    headers: "{{ unifi_headers }}"
+    body_format: json
+    body: "{{ uh_delete_body | default(omit) }}"
+    validate_certs: "{{ unifi_console_verify_ssl | default(false) }}"
+    status_code: [200, 204]
+    return_content: true
+  register: uh_result_delete
+  when:
+    - uh_deprecated | default(false)
+    - uh_existing | length > 0
+
+- name: "Upsert [{{ uh_label }}] -- record deprecated object already removed"
+  ansible.builtin.set_fact:
+    unifi_deprecation_warnings: "{{ (unifi_deprecation_warnings | default([])) + [uh_label] }}"
+  when:
+    - uh_deprecated | default(false)
+    - uh_existing | length == 0
+
+- name: "Upsert [{{ uh_label }}] -- expose result"
+  ansible.builtin.set_fact:
+    uh_result: "{{ uh_result_update if (uh_existing | length > 0) else uh_result_create }}"

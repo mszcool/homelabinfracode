@@ -1,0 +1,222 @@
+---
+# Networking continuous setup for the UniFi network fabric.
+#
+# Vendor-neutral intent (group_vars/network_fabric/networking-foundation.yaml) is
+# compiled to UniFi API calls and reconciled idempotently (GET-then-POST/PUT).
+# This mirrors the ring0a MikroTik playbook but targets the UniFi console via the
+# local integration API + internal rest/* endpoints (no cloud).
+#
+# Usage:
+#   ansible-playbook \
+#     -i configs/envbase/ \
+#     -i configs.private/envprod/inventory/ \
+#     playbooks/ring0a/networking-unifi-continuous-configure-all.yaml
+#
+# Endpoint paths are centralized in `vars:` below and in
+# filter_plugins/unifi_translate.py — VERIFY them against the envlocaldev
+# controller before the production cutover.
+
+- name: UniFi network fabric -- continuous idempotent configuration
+  hosts: unifi
+  become: false
+  gather_facts: false
+
+  vars:
+    param_include_blank_setup_tasks: "{{ include_blank_setup_tasks | default(false) }}"
+    # Official integration API (local console): networks, firewall, devices.
+    unifi_ep_networks: "{{ unifi_console_base_url }}/v1/sites/{{ unifi_site_id }}/networks"
+    unifi_ep_fw_zones: "{{ unifi_console_base_url }}/v1/sites/{{ unifi_site_id }}/firewall/zones"
+    unifi_ep_fw_policies: "{{ unifi_console_base_url }}/v1/sites/{{ unifi_site_id }}/firewall/policies"
+    # Internal /proxy/network rest/* API (WLANs, reservations, port profiles, groups).
+    # Same X-API-KEY works here (verified on the UCG).
+    unifi_ep_networkconf: "{{ unifi_console_internal_base_url }}/rest/networkconf"
+    unifi_ep_users: "{{ unifi_console_internal_base_url }}/rest/user"
+    unifi_ep_portconf: "{{ unifi_console_internal_base_url }}/rest/portconf"
+    unifi_ep_wlanconf: "{{ unifi_console_internal_base_url }}/rest/wlanconf"
+    unifi_ep_usergroup: "{{ unifi_console_internal_base_url }}/rest/usergroup"
+    unifi_ep_firewallgroup: "{{ unifi_console_internal_base_url }}/rest/firewallgroup"
+    unifi_ep_portforward: "{{ unifi_console_internal_base_url }}/rest/portforward"
+    # AP groups live under the v2 API (…/v2/api/site/<site>/apgroups).
+    unifi_ep_apgroups: "{{ unifi_console_internal_base_url | regex_replace('/api/s/', '/v2/api/site/') }}/apgroups"
+
+  pre_tasks:
+    - name: Initialize the deprecated-object warning collector
+      ansible.builtin.set_fact:
+        unifi_deprecation_warnings: []
+
+    - name: Enforce environment change-level guardrail
+      ansible.builtin.include_tasks:
+        file: ../tasks/validate_change_level.yaml
+      vars:
+        required_change_level: -1
+
+    - name: Authenticate and discover the target site
+      ansible.builtin.include_tasks:
+        file: ./tasks/networking-unifi-auth.yaml
+
+  tasks:
+    # ---------- Firewall zones (must exist before networks: zoneId is required) ----------
+    - name: Firewall zones -- create custom zones and build the id map
+      ansible.builtin.include_tasks: ./tasks/networking-unifi-zones.yaml
+
+    # ---------- L3 networks / VLANs ----------
+    - name: Networks -- upsert each zone (VLAN + DHCP + DNS + isolation + mDNS)
+      ansible.builtin.include_tasks: ./tasks/networking-unifi-upsert.yaml
+      vars:
+        uh_label: "network {{ zone_item.name }}"
+        uh_list_url: "{{ unifi_ep_networks }}"
+        uh_match_value: "{{ zone_item.name }}"
+        uh_merge: false
+        uh_deprecated: "{{ zone_item.deprecated | default(false) }}"
+        uh_body: >-
+          {{ zone_item | unifi_network_body(unifi_fw_zone_ids[unifi_zone_of[zone_item.name]]) }}
+      loop: "{{ net_zones }}"
+      loop_control:
+        loop_var: zone_item
+        label: "{{ zone_item.name }}"
+
+    - name: Networks -- read back integration-API network ids
+      ansible.builtin.uri:
+        url: "{{ unifi_ep_networks }}"
+        method: GET
+        headers: "{{ unifi_headers }}"
+        validate_certs: "{{ unifi_console_verify_ssl | default(false) }}"
+        status_code: [200]
+        return_content: true
+      register: unifi_networks_get
+
+    - name: Networks -- build zone-name -> network-id map (integration API)
+      ansible.builtin.set_fact:
+        unifi_network_ids: >-
+          {{ dict(unifi_networks_get.json.data | map(attribute='name')
+                  | zip(unifi_networks_get.json.data | map(attribute='id'))) }}
+
+    - name: Networks -- read back internal network ids (for reservations/port profiles)
+      ansible.builtin.uri:
+        url: "{{ unifi_ep_networkconf }}"
+        method: GET
+        headers: "{{ unifi_headers }}"
+        validate_certs: "{{ unifi_console_verify_ssl | default(false) }}"
+        status_code: [200]
+        return_content: true
+      register: unifi_networkconf_get
+
+    - name: Networks -- build zone-name -> internal network-id map
+      ansible.builtin.set_fact:
+        unifi_internal_network_ids: >-
+          {{ dict(unifi_networkconf_get.json.data | map(attribute='name')
+                  | zip(unifi_networkconf_get.json.data | map(attribute='_id'))) }}
+
+    # ---------- WLANs (internal rest/wlanconf) ----------
+    - name: WLANs -- fetch site default user group
+      ansible.builtin.uri:
+        url: "{{ unifi_ep_usergroup }}"
+        method: GET
+        headers: "{{ unifi_headers }}"
+        validate_certs: "{{ unifi_console_verify_ssl | default(false) }}"
+        status_code: [200]
+        return_content: true
+      register: unifi_usergroup_get
+
+    - name: WLANs -- fetch AP groups (v2 API)
+      ansible.builtin.uri:
+        url: "{{ unifi_ep_apgroups }}"
+        method: GET
+        headers: "{{ unifi_headers }}"
+        validate_certs: "{{ unifi_console_verify_ssl | default(false) }}"
+        status_code: [200]
+        return_content: true
+      register: unifi_apgroups_get
+
+    - name: WLANs -- normalize AP group list (v2 returns a bare array)
+      ansible.builtin.set_fact:
+        unifi_apgroups_list: >-
+          {{ unifi_apgroups_get.json.data
+             if (unifi_apgroups_get.json.data is defined)
+             else unifi_apgroups_get.json }}
+
+    - name: WLANs -- resolve default user-group + AP-group ids
+      ansible.builtin.set_fact:
+        unifi_default_usergroup_id: >-
+          {{ ((unifi_usergroup_get.json.data | selectattr('name', 'equalto', 'Default') | list)
+              + unifi_usergroup_get.json.data) | map(attribute='_id') | first }}
+        unifi_ap_group_ids: >-
+          {{ [ ((unifi_apgroups_list | selectattr('name', 'equalto', 'All APs') | list)
+                + unifi_apgroups_list) | map(attribute='_id') | first ] }}
+
+    - name: WLANs -- upsert each SSID (bound to its zone's internal network id)
+      ansible.builtin.include_tasks: ./tasks/networking-unifi-upsert.yaml
+      vars:
+        uh_label: "wlan {{ wlan_item.ssid }}"
+        uh_list_url: "{{ unifi_ep_wlanconf }}"
+        uh_match_value: "{{ wlan_item.ssid }}"
+        uh_id_key: "_id"
+        uh_deprecated: "{{ wlan_item.deprecated | default(false) }}"
+        uh_body: >-
+          {{ wlan_item | unifi_wlan_body(unifi_internal_network_ids[wlan_item.zone],
+                                         unifi_default_usergroup_id, unifi_ap_group_ids) }}
+      loop: "{{ wlans }}"
+      loop_control:
+        loop_var: wlan_item
+        label: "{{ wlan_item.ssid }}"
+
+    # ---------- Firewall: zones + policies + content-filter switch ----------
+    - name: Firewall -- configure zones, policies and the content-filter switch
+      ansible.builtin.include_tasks: ./tasks/networking-unifi-firewall.yaml
+
+    # ---------- Fixed-IP reservations (internal rest/user) ----------
+    - name: Reservations -- upsert MAC -> fixed IP (+ local DNS) per device
+      ansible.builtin.include_tasks: ./tasks/networking-unifi-upsert.yaml
+      vars:
+        uh_label: "reservation {{ res_item.1.alias }}"
+        uh_list_url: "{{ unifi_ep_users }}"
+        uh_match_key: "mac"
+        uh_match_value: "{{ res_item.1.static_dhcp.mac | lower }}"
+        uh_id_key: "_id"
+        uh_deprecated: "{{ res_item.1.deprecated | default(false) }}"
+        # rest/user has no DELETE verb; a reservation is removed by forgetting the client.
+        uh_delete_url: "{{ unifi_console_internal_base_url }}/cmd/stamgr"
+        uh_delete_method: "POST"
+        uh_delete_body: "{{ {'cmd': 'forget-sta', 'macs': [res_item.1.static_dhcp.mac | lower]} }}"
+        uh_body: "{{ res_item.1 | unifi_reservation_body(unifi_internal_network_ids[res_item.0.zone]) }}"
+      with_subelements:
+        - "{{ devices_mapped }}"
+        - members
+      loop_control:
+        label: "{{ res_item.0.group }} - {{ res_item.1.alias }}"
+        loop_var: res_item
+      when:
+        - res_item.1.static_dhcp is defined
+        - res_item.1.static_dhcp.mac is defined
+
+    # ---------- Wired port profiles + assignment map ----------
+    - name: Port profiles -- configure profiles and per-port assignments
+      ansible.builtin.include_tasks: ./tasks/networking-unifi-port-profiles.yaml
+
+    # ---------- WAN inbound port forwards (internal rest/portforward) ----------
+    - name: Port forwards -- upsert each WAN forward (masquerade is implicit)
+      ansible.builtin.include_tasks: ./tasks/networking-unifi-upsert.yaml
+      vars:
+        uh_label: "portforward {{ pf_item.name }}"
+        uh_list_url: "{{ unifi_ep_portforward }}"
+        uh_match_value: "{{ pf_item.name }}"
+        uh_id_key: "_id"
+        uh_deprecated: "{{ pf_item.deprecated | default(false) }}"
+        uh_body: "{{ pf_item | unifi_portforward_body }}"
+      loop: "{{ firewall_policy.port_forwards | default([]) }}"
+      loop_control:
+        loop_var: pf_item
+        label: "{{ pf_item.name }}"
+
+  post_tasks:
+    # Printed at the very end so deprecated objects that are already gone from the
+    # controller can be cleaned out of the IaC.
+    - name: Deprecations -- warn about objects already removed (safe to delete from IaC)
+      ansible.builtin.debug:
+        msg: >-
+          DEPRECATED object no longer present on the controller -- it is safe to
+          REMOVE from the IaC: {{ warn_item }}
+      loop: "{{ unifi_deprecation_warnings | default([]) }}"
+      loop_control:
+        loop_var: warn_item
+      when: (unifi_deprecation_warnings | default([])) | length > 0
