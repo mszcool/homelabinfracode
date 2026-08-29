@@ -56,9 +56,12 @@ resource "incus_storage_volume" "volumes" {
   type         = "custom"
   content_type = "filesystem"
 
-  config = {
-    "size" = "${each.value.size_gb}GiB"
-  }
+  config = merge(
+    {
+      "size" = "${each.value.size_gb}GiB"
+    },
+    each.value.initial_mode != "" ? { "initial.mode" = each.value.initial_mode } : {}
+  )
 
   description = "Volume '${each.key}' for Docker container ${var.instance_name}"
 }

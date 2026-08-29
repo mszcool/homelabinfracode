@@ -1,0 +1,111 @@
+---
+# Ring0 bootstrap/preflight for the UniFi network fabric.
+#
+# UniFi device bring-up (adopting the Cloud Gateway + APs + switches and creating
+# the console-local API key) is a one-time MANUAL step — there is no API to adopt
+# an unadopted controller. This playbook verifies those prerequisites are in place
+# and then hands off to the idempotent ring0a configuration.
+#
+# MANUAL prerequisites (once):
+#   1. Bring up the UniFi Cloud Gateway; set its LAN/Mgmt IP to ip_plan_hosts.router.
+#   2. Adopt the APs and switches into the console.
+#   3. Create a console-local API key (Settings -> Control Plane -> Integrations)
+#      and store it in 1Password as referenced by vault_unifi_api_key.
+#
+# Usage:
+#   ansible-playbook -i configs/envbase/ -i configs.private/envprod/inventory/ \
+#     playbooks/ring0/networking-unifi.yaml
+
+- name: UniFi fabric -- ring0 preflight
+  hosts: unifi
+  become: false
+  gather_facts: false
+
+  pre_tasks:
+    - name: Enforce environment change-level guardrail
+      ansible.builtin.include_tasks:
+        file: ../tasks/validate_change_level.yaml
+      vars:
+        required_change_level: -1
+
+    - name: Authenticate and discover the target site
+      ansible.builtin.include_tasks:
+        file: ../ring0a/tasks/networking-unifi-auth.yaml
+
+  tasks:
+    - name: Preflight -- confirm the console answers and a site resolved
+      ansible.builtin.assert:
+        that:
+          - unifi_site_id is defined
+          - unifi_site_id | length > 0
+        success_msg: "UniFi console reachable; site id {{ unifi_site_id }} resolved."
+        fail_msg: >-
+          Could not resolve a site from the console. Verify the gateway is up at
+          {{ unifi_console_base_url }}, the API key is valid, and devices are adopted.
+
+    - name: Preflight -- read L3 networks (verify the factory Default was renamed)
+      ansible.builtin.uri:
+        url: "{{ unifi_console_base_url }}/v1/sites/{{ unifi_site_id }}/networks?limit=200"
+        method: GET
+        headers: "{{ unifi_headers }}"
+        validate_certs: "{{ unifi_console_verify_ssl | default(false) }}"
+        status_code: [200]
+        return_content: true
+      register: unifi_networks_preflight
+
+    - name: Preflight -- assert the renamed default network exists and no factory "Default" remains
+      ansible.builtin.assert:
+        that:
+          - "default_net_name in (unifi_networks_preflight.json.data | default([]) | map(attribute='name') | list)"
+          - "'Default' not in (unifi_networks_preflight.json.data | default([]) | map(attribute='name') | list)"
+        success_msg: "Factory 'Default' network has been renamed to '{{ default_net_name }}'."
+        fail_msg: >-
+          The factory 'Default' network must be renamed to '{{ default_net_name }}'
+          (on the mgmt VLAN/subnet) BEFORE applying the fabric config, or the admin
+          host can be stranded. Networks found:
+          {{ unifi_networks_preflight.json.data | default([]) | map(attribute='name') | list }}.
+
+    - name: Preflight -- read firewall zones (verify Zone-Based Firewall is on)
+      ansible.builtin.uri:
+        url: "{{ unifi_console_base_url }}/v1/sites/{{ unifi_site_id }}/firewall/zones?limit=200"
+        method: GET
+        headers: "{{ unifi_headers }}"
+        validate_certs: "{{ unifi_console_verify_ssl | default(false) }}"
+        status_code: [200, 404]
+        return_content: true
+      register: unifi_zones_preflight
+
+    - name: Preflight -- assert Zone-Based Firewall is active (built-in zones present)
+      ansible.builtin.assert:
+        that:
+          - "'Internal' in (unifi_zones_preflight.json.data | default([]) | map(attribute='name') | list)"
+          - "'External' in (unifi_zones_preflight.json.data | default([]) | map(attribute='name') | list)"
+        success_msg: "Zone-Based Firewall is active (built-in Internal/External zones present)."
+        fail_msg: >-
+          Zone-Based Firewall does not appear active (built-in Internal/External
+          zones not found). Enable it in the UniFi app
+          (Settings -> Security -> Firewall) before applying the fabric config.
+
+    - name: Preflight -- list adopted devices (informational)
+      ansible.builtin.uri:
+        url: "{{ unifi_console_base_url }}/v1/sites/{{ unifi_site_id }}/devices"
+        method: GET
+        headers: "{{ unifi_headers }}"
+        validate_certs: "{{ unifi_console_verify_ssl | default(false) }}"
+        status_code: [200]
+        return_content: true
+      register: unifi_devices_preflight
+
+    - name: Preflight -- report adopted device count
+      ansible.builtin.debug:
+        msg: >-
+          {{ (unifi_devices_preflight.json.data | default([])) | length }} device(s)
+          adopted on site {{ unifi_site }}. Proceed with
+          playbooks/ring0a/networking-unifi-continuous-configure-all.yaml to apply
+          the fabric configuration.
+
+# Hand off to the idempotent configuration (blank-setup baseline enabled).
+- name: UniFi fabric -- apply configuration (baseline)
+  ansible.builtin.import_playbook: ../ring0a/networking-unifi-continuous-configure-all.yaml
+  vars:
+    include_blank_setup_tasks: true

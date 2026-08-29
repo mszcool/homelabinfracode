@@ -39,6 +39,15 @@ all:
     # MikroTik main router (managed via localhost API)
     mainrouter:
 
+    # UniFi / pfSense network fabric (vendor-neutral intent schema in
+    # group_vars/network_fabric/). Controller hosts are defined per environment
+    # in <env>/hosts.yaml. The 'unifi' child holds UniFi console/gateway targets;
+    # a future 'pfsense' child would hold pfSense targets consuming the SAME vars.
+    network_fabric:
+      children:
+        unifi:
+        # pfsense:   # future: pfSense translator (schema/contract already supports it)
+
     # Remote maintenance shell containers (SSH-accessible LXC)
     remote_maintenance:
 

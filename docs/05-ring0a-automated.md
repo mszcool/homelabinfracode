@@ -10,8 +10,9 @@ The workflow is simple: update the inventory/configuration, then run the corresp
 
 | Playbook | Target | Purpose |
 |----------|--------|---------|
-| `networking-mikrotik-continuous-configure-all.yaml` | MikroTik router | Apply full router config (VLANs, DHCP, DNS, firewall) |
-| `networking-mikrotik-continuous-cleanup.yaml` | MikroTik router | Remove orphaned entries no longer in inventory |
+| `networking-unifi-continuous-configure-all.yaml` | UniFi console | Apply full fabric (VLANs, ZBF zones+policies, WLANs, reservations, port profiles, WAN forwards) |
+| `networking-mikrotik-continuous-configure-all.yaml` | MikroTik router | *(Legacy)* Apply full router config (VLANs, DHCP, DNS, firewall) |
+| `networking-mikrotik-continuous-cleanup.yaml` | MikroTik router | *(Legacy)* Remove orphaned entries no longer in inventory |
 | `host-incus-update.yaml` | Incus compute nodes | Certificate rotation, UFW, OS updates |
 | `host-incus-import-iso.yaml` | Incus compute nodes | Import/update ISO images in Incus storage |
 | `identity-lifecycle.yaml` | Samba4 AD DC | User/group/OU lifecycle management |
@@ -20,7 +21,63 @@ The workflow is simple: update the inventory/configuration, then run the corresp
 
 ---
 
-## 1. Continuous Router Configuration
+## 1. Continuous UniFi Network Fabric Configuration
+
+> **This is the current networking stack.** The [MikroTik continuous config below](#1-legacy-continuous-router-configuration) is kept as a **legacy / rollback** reference.
+
+### Applying Configuration
+
+The continuous configuration compiles the vendor-neutral intent schema into UniFi API calls and reconciles the console idempotently (GET-then-POST/PUT) over the local integration API + internal `rest/*` endpoints. It runs with `connection: local` against the `unifi` host:
+
+```bash
+eval $(./scripts/op-session.sh 2h prod)
+
+ansible-playbook \
+    -i configs/envbase/ \
+    -i configs.private/envprod/inventory/ \
+    playbooks/ring0a/networking-unifi-continuous-configure-all.yaml
+```
+
+> First-time bring-up (pre-flight + baseline) goes through the ring0 wrapper `playbooks/ring0/networking-unifi.yaml`. For ongoing changes, run the ring0a playbook above directly.
+
+#### What Gets Configured
+
+- **Firewall zones**: the custom zones (Mgmt, Trusted, Filtered, Guest, Servers, IoT) — created first, since ZBF requires every network to carry a `zoneId`
+- **Networks / VLANs**: L3 networks with DHCP pool, lease, domain, isolation and mDNS
+- **WLANs**: SSIDs (WPA2/WPA3/open) bound to their zone's network, with AP-group + user-group
+- **Firewall policies**: zone-based allow/deny rules with host/subnet narrowing and port/protocol match; `paused` rules are created disabled for on-demand toggling
+- **DHCP reservations**: MAC → fixed IP (+ local DNS name) per device
+- **Wired port profiles**: native/tagged VLAN port profiles (`rest/portconf`)
+- **WAN port forwards**: inbound forwards (`rest/portforward`)
+
+#### Idempotency & the `deprecated` flag
+
+The playbook is fully idempotent (re-runs report `changed=0`). Unlike the MikroTik flow there is **no separate cleanup playbook** — removal is declarative:
+
+- Mark any object `deprecated: true` in the inventory. On the next run it is **deleted if it still exists**; if it is already gone, the playbook prints a warning at the very end that it is safe to remove from the IaC.
+- Reservations are deleted via `forget-sta`; all other objects via their REST / integration `DELETE`.
+
+### Configuration Source
+
+- **`configs/envbase/group_vars/network_fabric/networking-foundation.yaml`**: intent schema (`net_zones`, `fabric_firewall_zones`, `firewall_policy` incl. `port_forwards`, `port_profiles`, `default_net_name`).
+- **`playbooks/ring0a/filter_plugins/unifi_translate.py`**: schema → UniFi API translator.
+- **Environment overlay**: `unifi_console_*`, `wlans`, `devices_mapped`, `vault_unifi_api_key`.
+
+### Common day-2 tasks
+
+| Task | How |
+|------|-----|
+| Add a device reservation | Add a `members` entry (alias, MAC, IP, dns_names) under the right `devices_mapped` group, then run the playbook |
+| Add a firewall rule | Add a rule to `firewall_policy.rules` (order matters — deny before allow), then run |
+| Retire an object | Set `deprecated: true` on it, run once (it is deleted), then remove it from the IaC |
+| Pause a rule | Set `paused: true` (created disabled; toggle it in the UniFi app) |
+| Add a WLAN | Add an entry to `wlans` in the overlay, then run |
+
+---
+
+## 1 (Legacy). Continuous Router Configuration
+
+> **Legacy / rollback only.** The homelab now runs the [UniFi network fabric](#1-continuous-unifi-network-fabric-configuration) above.
 
 ### Applying Configuration
 

@@ -53,6 +53,14 @@ all:
         mszrouter:
           ansible_host: "{{ ip_plan_hosts.router }}"
 
+    # ---------- UniFi network fabric controller ----------
+    unifi:
+      hosts:
+        unifi-console:
+          ansible_host: "{{ ip_plan_hosts.router }}"
+          ansible_connection: local
+          ansible_python_interpreter: "{{ ansible_playbook_python }}"
+
     # ---------- Home Assistant OS VM (Ring 1) ----------
     home_assistant:
       hosts:

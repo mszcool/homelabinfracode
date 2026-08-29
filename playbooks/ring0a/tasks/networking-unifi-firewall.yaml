@@ -1,0 +1,42 @@
+---
+# Firewall: zone-based policies.
+#
+# Zones and the zone id map (unifi_zone_of / unifi_fw_zone_ids) are created
+# earlier by networking-unifi-zones.yaml. Network->zone membership is set via each
+# network's zoneId, so we do not manage zone.networkIds here.
+
+- name: Firewall -- expand policy intent into ordered rules
+  ansible.builtin.set_fact:
+    unifi_fw_rules: "{{ firewall_policy | unifi_expand_firewall }}"
+
+# net_zone name -> subnet CIDR, so a zone-scoped rule can be narrowed to a single
+# network via from_networks (e.g. kids only, inside the shared Filtered zone).
+- name: Firewall -- build net_zone name -> subnet map
+  ansible.builtin.set_fact:
+    unifi_net_cidrs: >-
+      {{ dict(net_zones | map(attribute='name')
+              | zip(net_zones | map(attribute='subnet'))) }}
+
+# Address/port groups (rest/firewallgroup) referenced by policies are keyed by
+# external_id. None of the base rules use groups yet (they inline host IPs), so
+# default to an empty map; populated when group-based rules are added.
+- name: Firewall -- default empty group id map
+  ansible.builtin.set_fact:
+    unifi_fw_group_ids: "{{ unifi_fw_group_ids | default({}) }}"
+
+- name: Firewall -- upsert zone-based policies
+  ansible.builtin.include_tasks: networking-unifi-upsert.yaml
+  vars:
+    uh_label: "fw-policy {{ rule_item.name }}"
+    uh_list_url: "{{ unifi_ep_fw_policies }}"
+    uh_match_value: "{{ rule_item.name }}"
+    uh_merge: false
+    uh_paginate: true
+    uh_deprecated: "{{ rule_item.deprecated | default(false) }}"
+    uh_body: >-
+      {{ rule_item | unifi_policy_body(unifi_zone_of, unifi_fw_zone_ids,
+                                       unifi_fw_group_ids, unifi_net_cidrs) }}
+  loop: "{{ unifi_fw_rules }}"
+  loop_control:
+    loop_var: rule_item
+    label: "{{ rule_item.name }}"

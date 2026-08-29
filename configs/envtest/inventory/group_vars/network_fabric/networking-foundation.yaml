@@ -1,0 +1,76 @@
+---
+# Test environment overlay for the vendor-neutral network fabric.
+#
+# Base schema + firewall intent: configs/envbase/group_vars/network_fabric/networking-foundation.yaml
+# IP plan seeds:                  common-seeds.yaml (ip_plan_vlans, ip_plan_hosts)
+#
+# Test uses synthetic MACs (AA:BB:CC:DD:EE:xx) and the 10.10.x space. This is the
+# public reference environment; keep it minimal but representative.
+
+# ---------- UniFi controller connection (local console) ----------
+unifi_site: "{{ fabric_site_name }}"
+unifi_console_base_url: "https://{{ ip_plan_hosts.router }}/proxy/network/integration"
+unifi_console_internal_base_url: "https://{{ ip_plan_hosts.router }}/proxy/network/api/s/{{ unifi_site }}"
+unifi_api_key: "{{ vault_unifi_api_key }}"
+unifi_console_verify_ssl: false
+
+# ---------- WLANs (5 SSIDs) ----------
+wlans:
+  - ssid: "testHome"
+    zone: "trusted"
+    security: "wpa3"
+    passphrase: "{{ vault_wifi_passwords.trusted }}"
+    bands: ["2g", "5g"]
+    client_isolation: false
+  - ssid: "testKids"
+    zone: "kids"
+    security: "wpa2"
+    passphrase: "{{ vault_wifi_passwords.kids }}"
+    bands: ["2g", "5g"]
+    client_isolation: false
+  - ssid: "testGuest"
+    zone: "guest"
+    security: "wpa2"
+    passphrase: "{{ vault_wifi_passwords.guest }}"
+    bands: ["2g", "5g"]
+    client_isolation: true
+  - ssid: "testMedia"
+    zone: "media"
+    security: "wpa2"
+    passphrase: "{{ vault_wifi_passwords.media }}"
+    bands: ["2g", "5g"]
+    client_isolation: false
+  - ssid: "testIoT"
+    zone: "iot"
+    security: "wpa2"
+    passphrase: "{{ vault_wifi_passwords.iot }}"
+    bands: ["2g"]
+    client_isolation: false
+
+# ---------- Device reservations (MAC -> fixed IP + DNS) ----------
+devices_mapped:
+  - group: "servers"
+    zone: "servers"
+    members:
+      - alias: "incussingledisk"
+        dns_names: ["incussingledisk", "incussingledisk.{{ localdomain }}"]
+        static_dhcp: { mac: "AA:BB:CC:DD:EE:01", ip: "{{ ip_plan_hosts.incus_singledisk }}" }
+      - alias: "incusdualdisk"
+        dns_names: ["incusdualdisk", "incusdualdisk.{{ localdomain }}"]
+        static_dhcp: { mac: "AA:BB:CC:DD:EE:02", ip: "{{ ip_plan_hosts.incus_dualdisk }}" }
+      - alias: "samba4-addc-test"
+        dns_names: ["samba4-addc", "samba4-addc.{{ localdomain }}"]
+        static_dhcp: { mac: "AA:BB:CC:DD:EE:11", ip: "{{ ip_plan_hosts.samba4_addc }}" }
+      - alias: "truenas-test"
+        dns_names: ["truenas-primary", "truenas-primary.{{ localdomain }}"]
+        static_dhcp: { mac: "AA:BB:CC:DD:EE:12", ip: "{{ ip_plan_hosts.truenas }}" }
+      - alias: "IoT-Pool-Mqtt-Broker"
+        dns_names: ["iotsrv.poolmqtt", "iotsrv.poolmqtt.{{ localdomain }}"]
+        static_dhcp: { mac: "AA:BB:CC:DD:EE:22", ip: "{{ ip_plan_hosts.mqtt_broker }}" }
+
+  - group: "iot"
+    zone: "iot"
+    members:
+      - alias: "Test-IoT-Device"
+        dns_names: ["iot.testdevice", "iot.testdevice.{{ localdomain }}"]
+        static_dhcp: { mac: "AA:BB:CC:DD:EE:40", ip: "10.10.100.40" }
