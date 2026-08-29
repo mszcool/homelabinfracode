@@ -12,8 +12,8 @@ This document covers both the infrastructure architecture (what physical and log
                     └──────┬───────┘
                            │ WAN
                     ┌──────┴──────┐
-                    │  MikroTik   │
-                    │   Router    │
+                    │ UniFi Cloud │
+                    │   Gateway   │
                     │ (Ring 0)    │
                     └──────┬──────┘
                            │ LAN / VLANs
@@ -45,7 +45,7 @@ This document covers both the infrastructure architecture (what physical and log
 
 | Component | Role | Type | Notes |
 |-----------|------|------|-------|
-| **MikroTik Router** | Network gateway, firewall, DHCP, DNS, VLANs, VPN | Physical appliance | Managed via RouterOS CLI over SSH |
+| **UniFi Cloud Gateway** | Network gateway, zone-based firewall, DHCP, VLANs, WLANs, WAN forwards | Physical appliance | Managed via the local UniFi API (integration + `rest/*`); MikroTik router is the legacy/rollback alternative |
 | **Incus Compute Nodes** | Virtualization hosts (VMs + containers) | Bare-metal Ubuntu servers | LVM storage pools, macvlan + NAT networking |
 | **TrueNAS Scale** | Network-attached storage (SMB, NFS), snapshots | VM on Incus (PCIe passthrough) | SATA controller passed through for direct disk access |
 | **Samba4 AD DC** | Active Directory, DNS, Kerberos, LDAP | VM on Incus | Centralized identity for all services |
@@ -70,14 +70,15 @@ This document covers both the infrastructure architecture (what physical and log
 
 ### Networking Architecture
 
-The MikroTik router manages all network segments:
+The **UniFi Cloud Gateway** manages all network segments (the legacy MikroTik router remains available for rollback):
 
-- **WAN interface**: DHCP client to upstream ISP
-- **LAN bridge**: Primary network with static IP assignments
-- **VLANs**: Segmented networks for isolation (e.g., IoT, management)
-- **Firewall**: Rule-based filtering with named address lists for device groups
-- **DHCP**: Static leases for known devices, DNS static entries
-- **Site-to-site VPN**: IPsec tunnels for remote network bridging (optional)
+- **WAN**: DHCP client to the upstream ISP, with inbound port-forwards
+- **Networks / VLANs**: per-zone L3 networks (mgmt, trusted, kids, guest, media, servers, iot) with DHCP pools and reservations
+- **Zone-Based Firewall**: networks grouped into firewall zones (Mgmt, Trusted, Filtered, Guest, Servers, IoT) with zone-to-zone allow/deny policies
+- **WLANs**: WPA2/WPA3 SSIDs bound to their zone's network
+- **DHCP**: static (fixed-IP) reservations for known devices + local DNS names
+
+The vendor-neutral intent schema (`group_vars/network_fabric/`) is compiled to UniFi API calls by a translator, so the same IP plan (`common-seeds.yaml`) drives both the UniFi and legacy MikroTik configs.
 
 Incus nodes provide two network modes for VMs:
 
@@ -132,7 +133,8 @@ homelabinfracode/                    # Main public repository
 │   │   └── group_vars/              # Per-group variable files
 │   │       ├── all/                  # Global variables + secrets vault example
 │   │       ├── incus_scope/          # Incus cluster shared config
-│   │       ├── mainrouter/           # Router config (networks, firewall, devices)
+│   │       ├── network_fabric/       # UniFi fabric intent (zones, VLANs, firewall, WLANs)
+│   │       ├── mainrouter/           # (Legacy) MikroTik router config
 │   │       ├── truenas/              # TrueNAS setup + ongoing config
 │   │       ├── identityprovider/     # Samba4 AD config + identity definitions
 │   │       └── edge_devices/         # Raspberry Pi edge configs
@@ -196,7 +198,7 @@ ansible-playbook -i configs/envbase/ -i configs.private/envprod/inventory/ <play
 
 **Base inventory** (`configs/envbase/`):
 
-- `hosts.yaml` — Defines all Ansible groups: `incus_scope`, `incus`, `identityprovider`, `truenas`, `mainrouter`, `edge_devices`
+- `hosts.yaml` — Defines all Ansible groups: `incus_scope`, `incus`, `identityprovider`, `truenas`, `network_fabric` (UniFi), `mainrouter` (legacy MikroTik), `edge_devices`
 - `group_vars/` — Variable files per group containing configuration constants, firewall rules, network definitions, dataset structures, identity definitions
 
 **Environment overlays** (`configs/envtest/inventory/` or `configs.private/envprod/inventory/`):
@@ -215,7 +217,9 @@ all
 ├── identityprovider                # Samba4 AD DC hosts
 ├── securitytokenservice            # OAuth/OIDC providers (future)
 ├── truenas                         # TrueNAS Scale instances
-├── mainrouter                      # MikroTik network router
+├── network_fabric                  # UniFi network fabric
+│   └── unifi                       # UniFi console (local API)
+├── mainrouter                      # (Legacy) MikroTik network router
 └── edge_devices                    # Raspberry Pi edge bridges
 ```
 
@@ -309,15 +313,17 @@ eval $(./scripts/op-session.sh 1h test)   # 1-hour test session
 | `prepare-localhost.yaml` | — | Install control host packages |
 | `all-base/bootstrap-machines.yaml` | — | Bootstrap OS packages on all hosts |
 | `all-base/upgrade-machines.yaml` | — | Safe OS upgrades (serial: 1) |
-| `ring0/networking-mikrotik.yaml` | 0 | Generate router bootstrap scripts |
+| `ring0/networking-unifi.yaml` | 0 | UniFi pre-flight checks + baseline fabric config |
+| `ring0/networking-mikrotik.yaml` | 0 | *(Legacy)* Generate router bootstrap scripts |
 | `ring0/host-incus-image-unified.yaml` | 0 | Generate unified autoinstall ISO |
 | `ring0/identity-samba4-addc-setup.yaml` | 0 | Provision Samba4 AD DC |
 | `ring0/storage-truenas-scale-fundamental-config.yaml` | 0 | Initial TrueNAS configuration |
 | `ring0/storage-vm-incus-truenas-find-disk-pci.yaml` | 0 | Discover PCI-to-disk mappings |
 | `ring0/pki-stepca-bootstrap-root.yaml` | 0 | Generate Root CA (controller-side), store encrypted key in 1Password |
 | `ring0/pki-stepca-bootstrap.yaml` | 0 | Initialise `$STEPPATH` and Intermediate CA inside the step-ca container |
-| `ring0a/networking-mikrotik-continuous-configure-all.yaml` | 0a | Continuous router configuration |
-| `ring0a/networking-mikrotik-continuous-cleanup.yaml` | 0a | Remove orphaned router entries |
+| `ring0a/networking-unifi-continuous-configure-all.yaml` | 0a | Continuous UniFi fabric config (zones, VLANs, policies, WLANs, reservations, port profiles, WAN forwards) |
+| `ring0a/networking-mikrotik-continuous-configure-all.yaml` | 0a | *(Legacy)* Continuous router configuration |
+| `ring0a/networking-mikrotik-continuous-cleanup.yaml` | 0a | *(Legacy)* Remove orphaned router entries |
 | `ring0a/host-incus-update.yaml` | 0a | Incus node maintenance |
 | `ring0a/host-incus-import-iso.yaml` | 0a | Import ISO images to Incus |
 | `ring0a/identity-lifecycle.yaml` | 0a | Identity user/group lifecycle |

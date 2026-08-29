@@ -54,11 +54,13 @@ This script performs:
 | Collection | Version | Purpose |
 |------------|---------|---------|
 | `community.general` | >= 10.5.0 | 1Password lookup, general utilities |
-| `community.routeros` | >= 3.16.0 | MikroTik RouterOS API and CLI |
+| `community.routeros` | >= 3.16.0 | *(Legacy)* MikroTik RouterOS API and CLI |
 | `community.crypto` | >= 2.20.0 | X.509 key/CSR/cert generation for PKI primitives |
-| `ansible.netcommon` | >= 8.0.0 | Network device connectivity (SSH to router) |
+| `ansible.netcommon` | >= 8.0.0 | *(Legacy)* Network device connectivity (SSH to the MikroTik router) |
 | `arensb.truenas` | >= 0.1.0 | TrueNAS Scale API modules |
 | `pfsensible.core` | >= 0.6.1 | pfSense management (optional/future) |
+
+> The UniFi network fabric needs **no extra collection** — it talks to the local UniFi API with the built-in `ansible.builtin.uri` module (integration API + internal `rest/*`), authenticating with the console API key.
 
 ## Step 4: Install Localhost Packages
 
@@ -77,7 +79,7 @@ This installs:
 | `isolinux` | ISO generation playbooks | ISO boot loader |
 | `p7zip-full` | ISO generation playbooks | 7z archive extraction (Ubuntu ISO) |
 | `genisoimage` | ISO generation playbooks | ISO image creation |
-| `python3-paramiko` | RouterOS playbooks | SSH library for router communication |
+| `python3-paramiko` | *(Legacy)* RouterOS playbooks | SSH library for router communication |
 
 ## Step 5: Install Terraform
 

@@ -9,7 +9,7 @@ Ring 0 contains the foundational infrastructure that must be in place before any
 Ring 0 components must be set up in a specific sequence because of inter-dependencies:
 
 ```
-1. MikroTik Router     ──→ Networking foundation (DHCP, DNS, VLANs, firewall)
+1. UniFi Network Fabric ──→ Networking foundation (VLANs, DHCP, ZBF, WLANs)  [MikroTik = legacy/rollback]
 2. Incus Compute Nodes ──→ Virtualization platform (needs network from step 1)
 3. TrueNAS Scale       ──→ Storage (runs as VM on Incus from step 2)
 4. Samba4 AD DC        ──→ Identity (runs as VM on Incus, may use TrueNAS DNS)
@@ -20,7 +20,60 @@ Ring 0 components must be set up in a specific sequence because of inter-depende
 
 ---
 
-## 1. MikroTik Router Setup
+## 1. UniFi Network Fabric Setup
+
+> **This is the current networking stack.** The [MikroTik setup below](#1-legacy-mikrotik-router-setup) is kept as a **legacy / rollback** reference.
+
+The UniFi Cloud Gateway (plus APs and switches) is the network foundation. Device adoption and a few console settings are a **one-time manual** step — there is no API to adopt an unadopted controller. Everything else (VLANs/networks, zone-based firewall zones + policies, WLANs, DHCP reservations, wired port profiles and WAN port-forwards) is applied idempotently by the ring0 / ring0a playbooks.
+
+### Step 1a: Manual console prerequisites (one-time)
+
+Do these in the UniFi app/console **before** running any playbook:
+
+1. **Factory reset** the Cloud Gateway, then adopt the APs and switches into its console.
+2. **Rename the factory `Default` network to `mgmt`** and set its subnet / gateway / DHCP range to match the IaC management VLAN (`ip_plan_vlans.mgmt` in `common-seeds.yaml`). Do this from the host you administer from, and keep that host on this network so a later run cannot strand you. (The managed name is the `default_net_name` variable.)
+3. **Enable Zone-Based Firewall** (Settings → Security → Firewall). The playbooks model firewall zones + policies and require ZBF to be active.
+4. **Create a console-local API key** (Settings → Control Plane → Integrations). Store it in 1Password as referenced by `vault_unifi_api_key` (the `unifi` host reads it via `unifi_api_key`).
+
+> The ring0 playbook **pre-flight validates** items 2 and 3: it asserts the `mgmt` network exists with no factory `Default` remaining, and that the built-in Zone-Based Firewall zones (`Internal` / `External`) are present. It stops with a clear message if either is missing.
+
+### Step 1b: Run the ring0 UniFi playbook
+
+```bash
+# Start a 1Password session
+eval $(./scripts/op-session.sh 2h prod)
+
+# Pre-flight checks + baseline fabric configuration
+ansible-playbook \
+    -i configs/envbase/ \
+    -i configs.private/envprod/inventory/ \
+    playbooks/ring0/networking-unifi.yaml
+```
+
+This playbook:
+
+1. Authenticates to the console with the API key and discovers the target site.
+2. Runs the **pre-flight asserts**: console reachable + site resolved, factory `Default` renamed to `mgmt`, and Zone-Based Firewall active.
+3. Reports the adopted device count (informational).
+4. Hands off to the idempotent ring0a configuration to apply the full fabric.
+
+For **day-2 / continuous** changes, run the ring0a UniFi playbook directly — see [Ring 0a: Continuous UniFi Configuration](05-ring0a-automated.md#1-continuous-unifi-network-fabric-configuration).
+
+### Configuration Source
+
+UniFi fabric configuration is a vendor-neutral intent model, compiled to API calls by a translator:
+
+- **`configs/envbase/group_vars/network_fabric/networking-foundation.yaml`**: the intent schema — `net_zones` (VLANs/DHCP), `fabric_firewall_zones`, `firewall_policy` (rules + `port_forwards`), `port_profiles`, and the `default_net_name` management-network name.
+- **`playbooks/ring0a/filter_plugins/unifi_translate.py`**: translator that compiles the schema into UniFi integration-API and internal `rest/*` request bodies.
+- **Environment overlay** (`configs.private/envprod/inventory/.../network_fabric/`): `unifi_console_*` connection details, `wlans` (SSIDs + PSK references), `devices_mapped` (reservations), and `vault_unifi_api_key`.
+
+> **Single source of truth for IPs**: both UniFi and the legacy MikroTik config derive their subnets / gateways / pools from the SAME `common-seeds.yaml` (`ip_plan_*`), so the IP plan stays consistent during and after the migration.
+
+---
+
+## 1 (Legacy). MikroTik Router Setup
+
+> **Legacy / rollback only.** The homelab now runs the [UniFi network fabric](#1-unifi-network-fabric-setup) above. This MikroTik flow is preserved unchanged for rollback and reference.
 
 The router is the first component because all other devices depend on network connectivity. The Ansible playbook generates RouterOS scripts in **two phases** that must be executed manually.
 
