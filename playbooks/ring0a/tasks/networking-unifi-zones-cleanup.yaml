@@ -1,0 +1,24 @@
+---
+# Firewall zones cleanup — delete zones flagged deprecated: true.
+#
+# MUST run AFTER the networks task: a zone cannot be deleted while a network
+# still references it via zoneId. Networks are re-homed onto their new zones
+# (built-in Internal/Hotspot or renamed custom zones) first, leaving the old
+# zones empty and safe to remove. If a deprecated zone is already gone, the
+# upsert records the "safe to remove from IaC" warning instead.
+
+- name: Firewall zones -- delete deprecated zones (post-networks)
+  ansible.builtin.include_tasks: networking-unifi-upsert.yaml
+  vars:
+    uh_label: "fw-zone {{ zone_item.name }}"
+    uh_list_url: "{{ unifi_ep_fw_zones }}"
+    uh_match_value: "{{ zone_item.name }}"
+    uh_merge: false
+    uh_deprecated: true
+    uh_body:
+      name: "{{ zone_item.name }}"
+      networkIds: []
+  loop: "{{ fabric_firewall_zones | selectattr('deprecated', 'equalto', true) | list }}"
+  loop_control:
+    loop_var: zone_item
+    label: "{{ zone_item.name }}"

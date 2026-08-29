@@ -35,8 +35,9 @@ fabric_site_name: "default"
 # Vendor-neutral replacement for the MikroTik `networks` list, minus RouterOS
 # interface plumbing. Subnets/gateways/pools come from ip_plan_vlans seeds.
 #
-# firewall_zone    UniFi firewall zone this network belongs to (kids+media share
-#                  "Filtered" so kids<->media print/music is intra-zone automatic)
+# firewall_zone    UniFi firewall zone this network belongs to; built-in zones
+#                  (Internal, Hotspot, External) are reused by name. kids+media
+#                  share the custom "KidsMedia" zone (intra-zone print/music/cast)
 # isolated         client isolation within the network (guest)
 # internet         whether the zone may reach the internet at all
 # mdns             reflect mDNS/SSDP toward the Media zone (never into IoT)
@@ -64,7 +65,7 @@ net_zones:
   - name: "trusted"
     description: "Trusted user devices (unfiltered)"
     deprecated: false
-    firewall_zone: "Trusted"
+    firewall_zone: "Internal"
     vlan_id: "{{ ip_plan_vlans.trusted.vlan_id }}"
     subnet: "{{ ip_plan_vlans.trusted.subnet }}"
     gateway: "{{ ip_plan_vlans.trusted.gateway }}"
@@ -81,7 +82,7 @@ net_zones:
   - name: "kids"
     description: "Kids devices (content filtered + bedtime schedule)"
     deprecated: false
-    firewall_zone: "Filtered"
+    firewall_zone: "KidsMedia"
     vlan_id: "{{ ip_plan_vlans.kids.vlan_id }}"
     subnet: "{{ ip_plan_vlans.kids.subnet }}"
     gateway: "{{ ip_plan_vlans.kids.gateway }}"
@@ -96,14 +97,16 @@ net_zones:
       lease: 86400
 
   - name: "guest"
-    description: "Guest network (isolated, internet only)"
+    description: "Guest network (internet only; isolation via the Hotspot zone)"
     deprecated: false
-    firewall_zone: "Guest"
+    firewall_zone: "Hotspot"
     vlan_id: "{{ ip_plan_vlans.guest.vlan_id }}"
     subnet: "{{ ip_plan_vlans.guest.subnet }}"
     gateway: "{{ ip_plan_vlans.guest.gateway }}"
     domain_name: "{{ localdomain }}"
-    isolated: true
+    # Network-level isolate must be OFF to join Hotspot; the Hotspot zone then
+    # blocks guest -> all internal zones. WLAN client_isolation stays on (L2).
+    isolated: false
     internet: true
     mdns: false
     dhcp:
@@ -115,7 +118,7 @@ net_zones:
   - name: "media"
     description: "Discoverable consumer devices (TVs, speakers, printers, casting)"
     deprecated: false
-    firewall_zone: "Filtered"
+    firewall_zone: "KidsMedia"
     vlan_id: "{{ ip_plan_vlans.media.vlan_id }}"
     subnet: "{{ ip_plan_vlans.media.subnet }}"
     gateway: "{{ ip_plan_vlans.media.gateway }}"
@@ -164,27 +167,58 @@ net_zones:
       lease: 86400
 
 # ---------- Firewall zones (UniFi zone-based grouping) ----------
-# Each network belongs to exactly one firewall zone. Kids + Media share "Filtered"
-# so the content-filter policy is a single togglable rule and kids<->media
-# (printing/music/casting) is automatic intra-zone traffic.
+# The playbook only creates entries that are neither `builtin` nor `deprecated`;
+# networks join a zone via their own `zoneId`. Built-in zones are reused by NAME:
+#   trusted -> Internal      guest -> Hotspot      internet/gateway -> External
+# (guest must have network isolate OFF to join Hotspot; the Hotspot zone then
+#  blocks guest -> all internal zones.)
+# They are listed below with `builtin: true` FOR REFERENCE ONLY — the playbook
+# never creates, modifies or deletes them. Kids + Media share the custom
+# "KidsMedia" zone so kids<->media (printing/music/casting) is automatic
+# intra-zone traffic and the content toggle stays one rule.
+#
+# The Trusted/Guest/Filtered entries are the OLD custom zones, kept with
+# `deprecated: true` so they are deleted once their networks have moved to the
+# built-in / renamed zones. Remove them from this list after a cleanup run.
 fabric_firewall_zones:
+  # -- Custom zones the playbook manages --
   - name: "Mgmt"
     networks: ["mgmt"]
     deprecated: false
-  - name: "Trusted"
-    networks: ["trusted"]
-    deprecated: false
-  - name: "Filtered"
+  - name: "KidsMedia"
     networks: ["kids", "media"]
-    deprecated: false
-  - name: "Guest"
-    networks: ["guest"]
     deprecated: false
   - name: "Servers"
     networks: ["servers"]
     deprecated: false
   - name: "IoT"
     networks: ["iot"]
+    deprecated: false
+
+  # -- Built-in UniFi zones (reference only; builtin:true => never touched) --
+  - name: "Internal"
+    networks: ["trusted"]
+    builtin: true
+    deprecated: false
+  - name: "Hotspot"
+    networks: ["guest"]   # guest reuses Hotspot (isolation via the zone, isolate flag OFF)
+    builtin: true
+    deprecated: false
+  - name: "External"
+    networks: []          # internet / gateway rules resolve here
+    builtin: true
+    deprecated: false
+  - name: "Gateway"
+    networks: []
+    builtin: true
+    deprecated: false
+  - name: "Vpn"
+    networks: []
+    builtin: true
+    deprecated: false
+  - name: "Dmz"
+    networks: []
+    builtin: true
     deprecated: false
 
 # ---------- Firewall policy (intent) ----------
@@ -225,17 +259,22 @@ firewall_policy:
       from: ["trusted"]
       to: ["media"]
       action: "allow"
-    - name: "trusted-internet"
-      deprecated: false
-      from: ["trusted"]
-      to: ["internet"]
-      action: "allow"
 
     # -- Servers estate --
+    - name: "servers-to-servers"
+      deprecated: false
+      from: ["servers"]
+      to: ["servers"]
+      action: "allow"
     - name: "servers-to-iot"
       deprecated: false
       from: ["servers"]
       to: ["iot"]
+      action: "allow"
+    - name: "servers-to-mgmt"
+      deprecated: false
+      from: ["servers"]
+      to: ["mgmt"]
       action: "allow"
     - name: "servers-internet"
       deprecated: false
@@ -263,46 +302,22 @@ firewall_policy:
       proto: "tcp"
       action: "allow"
       temporary: true
-    - name: "iot-dns-ntp-to-gateway"
-      deprecated: false
-      from: ["iot"]
-      to: ["gateway"]
-      ports: [53, 123]
-      action: "allow"
     - name: "iot-internet"
       deprecated: false
       from: ["iot"]
       to: ["internet"]
       action: "allow"
-    # Explicit deny AFTER the broker/scharger allows above.
-    - name: "iot-to-servers-deny"
-      deprecated: false
-      from: ["iot"]
-      to: ["servers"]
-      action: "deny"
-
-    # -- Guest (isolation via zone flag; internet only) --
-    - name: "guest-internet-only"
-      deprecated: false
-      from: ["guest"]
-      to: ["internet"]
-      action: "allow"
 
     # -- Filtered zone (kids + media) --
-    # On-demand internet kill-switch: created PAUSED (enabled:false) and placed
-    # BEFORE the allow so that, when enabled from the UniFi app, it wins and cuts
-    # kids+media internet. Feature-parity with the manual MikroTik toggle.
+    # On-demand internet kill-switches, created PAUSED (enabled:false). With no
+    # explicit KidsMedia->External allow of our own, these paused blocks preempt
+    # the built-in system "Allow All" when enabled from the app. MikroTik parity.
     - name: "filtered-internet-block"
       deprecated: false
       paused: true
       from: ["kids", "media"]
       to: ["internet"]
       action: "deny"
-    - name: "filtered-internet"
-      deprecated: false
-      from: ["kids", "media"]
-      to: ["internet"]
-      action: "allow"
     # Kids bedtime pause: created PAUSED; enable/disable on demand from the app.
     - name: "kids-bedtime-pause"
       deprecated: false
@@ -311,6 +326,52 @@ firewall_policy:
       from_networks: ["kids"]
       to: ["internet"]
       action: "deny"
+
+    # -- KidsMedia estate (kids + media share the zone) --
+    # Intra-zone allow (custom zones default to Block All within their own zone).
+    - name: "kidsmedia-to-kidsmedia"
+      deprecated: false
+      from: ["kids"]
+      to: ["media"]   # both map to the KidsMedia zone => intra-zone allow-all
+      action: "allow"
+    # Kids/Media -> Servers: TrueNAS (SMB + NFSv4) + web + full Samba AD DC auth.
+    # One protocol per rule; NetBIOS (137/138 udp, 139 tcp) included per request.
+    - name: "kidsmedia-to-servers-tcp"
+      deprecated: false
+      from: ["kids", "media"]
+      to: ["servers"]
+      ports: [80, 443, 445, 2049, 53, 88, 135, 389, 464, 636, 3268, 3269, 139]
+      proto: "tcp"
+      action: "allow"
+    - name: "kidsmedia-to-servers-udp"
+      deprecated: false
+      from: ["kids", "media"]
+      to: ["servers"]
+      ports: [53, 88, 123, 389, 464, 137, 138]
+      proto: "udp"
+      action: "allow"
+
+    # -- VPN clients (built-in "Vpn" zone, referenced by name) --
+    - name: "vpn-to-iot"
+      deprecated: false
+      from: ["Vpn"]
+      to: ["iot"]
+      action: "allow"
+    # VPN -> Servers: same service set as kids/media (TrueNAS SMB+NFSv4, web, AD DC auth).
+    - name: "vpn-to-servers-tcp"
+      deprecated: false
+      from: ["Vpn"]
+      to: ["servers"]
+      ports: [80, 443, 445, 2049, 53, 88, 135, 389, 464, 636, 3268, 3269, 139]
+      proto: "tcp"
+      action: "allow"
+    - name: "vpn-to-servers-udp"
+      deprecated: false
+      from: ["Vpn"]
+      to: ["servers"]
+      ports: [53, 88, 123, 389, 464, 137, 138]
+      proto: "udp"
+      action: "allow"
 
   # WAN inbound port forwards (masquerade is implicit).
   port_forwards:

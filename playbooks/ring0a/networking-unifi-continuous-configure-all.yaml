@@ -208,6 +208,13 @@
         loop_var: pf_item
         label: "{{ pf_item.name }}"
 
+    # ---------- Deferred firewall-zone cleanup ----------
+    # Runs LAST: deletes zones flagged deprecated only after their networks (and
+    # any referencing policies) have been re-homed, so the delete cannot fail on
+    # an in-use zone.
+    - name: Firewall zones -- delete deprecated zones (dependency-safe)
+      ansible.builtin.include_tasks: ./tasks/networking-unifi-zones-cleanup.yaml
+
   post_tasks:
     # Printed at the very end so deprecated objects that are already gone from the
     # controller can be cleaned out of the IaC.

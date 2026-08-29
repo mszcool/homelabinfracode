@@ -177,6 +177,7 @@ def unifi_expand_firewall(firewall_policy):
             "src_zones": r.get("from", []) or [],
             "dst_zones": r.get("to", []) or [],
             "src_networks": r.get("from_networks", []) or [],
+            "dst_networks": r.get("to_networks", []) or [],
             "src_hosts": r.get("from_hosts", []) or [],
             "dst_hosts": r.get("to_hosts", []) or [],
             "ports": r.get("ports", []) or [],
@@ -261,7 +262,11 @@ def unifi_policy_body(rule, zone_of=None, zone_ids=None, group_ids=None, net_cid
         source["trafficFilter"] = ip_items(src_values)
 
     destination = {"zoneId": dst_zone_ids[0] if dst_zone_ids else None}
-    dst_tf = ip_items(rule["dst_hosts"]) if rule.get("dst_hosts") else None
+    # Narrow the destination to specific host IPs and/or whole net_zone subnets
+    # (to_networks), e.g. reach only the kids network inside the shared KidsMedia zone.
+    dst_values = list(rule.get("dst_hosts", []) or []) \
+        + [net_cidrs[n] for n in (rule.get("dst_networks", []) or []) if n in net_cidrs]
+    dst_tf = ip_items(dst_values) if dst_values else None
     if rule.get("ports"):
         dst_tf = dst_tf or {"type": "PORT"}
         dst_tf["portFilter"] = {
