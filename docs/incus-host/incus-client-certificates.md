@@ -548,6 +548,62 @@ Before deployment:
    curl -k https://10.10.0.20:8443/
    ```
 
+### Problem: "certificate signed by unknown authority" after a server cert rotation
+
+**Symptom:** After the Incus node's IP or hostname changed (e.g. the UniFi VLAN
+re-IP), remote commands fail with:
+
+```
+Error: Get "https://incus.aoostar.mszlocal:8443/1.0": tls: failed to verify
+certificate: x509: certificate signed by unknown authority (possibly because of
+"x509: invalid signature: parent certificate cannot sign this kind of
+certificate" while trying to verify candidate authority certificate
+"incus.aoostar")
+```
+
+**Cause:** Incus servers use a **self-signed** certificate, and the client trusts
+a remote by **pinning** that exact certificate under
+`$INCUS_CONF/servercerts/<remote>.crt`. `playbooks/ring0a/host-incus-update.yaml`
+automatically **rotates** the server certificate whenever the node's IP/hostname
+no longer matches the cert SANs (it re-issues with the current IP and the
+`<host>.<localdomain>` FQDN). After rotation the server's fingerprint changes, the
+pinned copy is stale, and — because a self-signed leaf cannot act as its own CA —
+verification fails with the error above. Re-running `add-remote` alone does **not**
+help on its own: `incus remote add` refuses to modify an existing remote, so the
+stale pin is never refreshed.
+
+**Solution:** Re-pin the current server certificate. The helper script now
+self-heals this automatically (it removes an existing remote before re-adding, so
+the new cert is re-pinned):
+
+```bash
+scripts/manage-incus-client-certs.sh --env ring1 \
+  add-remote incus.aoostar.mszlocal incus.aoostar.mszlocal 8443
+```
+
+Non-destructive alternative (refresh the pin without touching the remote or its
+client-cert auth):
+
+```bash
+D="$INCUS_CONF"   # e.g. $HOME/incus/ring1
+echo | openssl s_client -connect incus.aoostar.mszlocal:8443 \
+  -servername incus.aoostar.mszlocal 2>/dev/null \
+  | openssl x509 > "$D/servercerts/incus.aoostar.mszlocal.crt"
+```
+
+Verify the pinned copy now matches the live server:
+
+```bash
+echo | openssl s_client -connect incus.aoostar.mszlocal:8443 2>/dev/null \
+  | openssl x509 -noout -fingerprint -sha256          # live server cert
+openssl x509 -in "$INCUS_CONF/servercerts/incus.aoostar.mszlocal.crt" \
+  -noout -fingerprint -sha256                         # pinned copy
+```
+
+Your **client** certificate stays trusted server-side (the playbook re-applies
+`incus_trusted_clients`), so only the server-cert pin needs refreshing — no new
+trust token is required.
+
 ### Problem: "Permission denied" on projects
 
 **Symptom:** Cannot see expected projects

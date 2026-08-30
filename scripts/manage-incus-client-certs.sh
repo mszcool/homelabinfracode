@@ -6,6 +6,9 @@
 # 1. Generate new client certificates
 # 2. Extract public certificates for Git storage
 # 3. Configure Incus remotes with proper authentication
+# 4. Self-heal a stale server-certificate pin after the server rotates its cert
+#    (e.g. following an IP/hostname change such as the UniFi VLAN re-IP). See the
+#    self-heal note in add_incus_remote() and docs/incus-host/incus-client-certificates.md.
 #
 
 set -e
@@ -168,11 +171,40 @@ add_incus_remote() {
     fi
     
     print_success "Adding remote $remote_name at $server_ip:$server_port"
-    
-    # Add the remote
+
+    # Self-heal a stale server-certificate pin (e.g. after a server cert rotation).
+    #
+    # Incus trusts a TLS remote by PINNING the server's self-signed certificate
+    # under $INCUS_CONF/servercerts/<remote>.crt. When the server rotates that
+    # cert -- which playbooks/ring0a/host-incus-update.yaml does automatically
+    # whenever the node's IP or hostname changes (e.g. after the UniFi VLAN
+    # re-IP) -- the pinned copy no longer matches and every request fails with:
+    #   tls: failed to verify certificate: x509: certificate signed by unknown
+    #   authority (... parent certificate cannot sign this kind of certificate ...)
+    #
+    # `incus remote add` refuses to modify an existing remote, so a plain re-run
+    # would leave the stale pin in place. Remove the remote first so the add below
+    # re-pins the server's CURRENT certificate via --accept-certificate.
+    if incus remote list --format csv 2>/dev/null | cut -d, -f1 | sed 's/ (current)$//' | grep -qx "$remote_name"; then
+        # Incus cannot remove the currently-selected ("current") remote, so the
+        # re-pin would fail mid-way. Validate and stop with actionable guidance.
+        local current_remote
+        current_remote="$(incus remote get-default 2>/dev/null || true)"
+        if [ "$current_remote" = "$remote_name" ]; then
+            print_error "Remote $remote_name is the current remote and cannot be removed to re-pin its certificate."
+            print_warning "Switch to another remote first, then re-run this command:"
+            echo "  incus remote switch local   # or any other configured remote"
+            echo "  $0 --env $INCUS_ENV add-remote $remote_name $server_ip $server_port"
+            exit 1
+        fi
+        print_warning "Remote $remote_name already exists -- removing it first to re-pin the current server certificate (self-heal after a cert rotation)."
+        incus remote remove "$remote_name" 2>/dev/null || true
+    fi
+
+    # Add the remote (re-pins the server's current self-signed certificate).
     incus remote add "$remote_name" "https://$server_ip:$server_port" \
-        --accept-certificate --auth-type tls || true
-    
+        --accept-certificate --auth-type tls
+
     print_success "Remote added successfully!"
     echo
     print_warning "Make sure the server admin has added your certificate to the trust store:"
@@ -331,7 +363,11 @@ Commands:
                                       --repo-root it is written to the playbook's
                                       $TRUSTED_CERTS_SUBDIR directory; otherwise
                                       printed to stdout.
-  add-remote <name> <ip/dns> [port]   Add Incus remote with authentication
+  add-remote <name> <ip/dns> [port]   Add Incus remote with authentication.
+                                      Self-heals a stale server-cert pin: if the
+                                      remote already exists it is removed and
+                                      re-added so the CURRENT server certificate
+                                      is re-pinned (needed after a cert rotation).
   list-remotes                        List configured remotes
   list-envs                           List incus environments under \$HOME/incus
   activate <envname|default>          Print an eval-able INCUS_CONF export for an
