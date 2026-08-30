@@ -72,7 +72,7 @@ net_zones:
     domain_name: "{{ localdomain }}"
     isolated: false
     internet: true
-    mdns: false
+    mdns: true
     dhcp:
       enabled: true
       pool_from: "{{ ip_plan_vlans.trusted.dhcp_from }}"
@@ -89,7 +89,7 @@ net_zones:
     domain_name: "{{ localdomain }}"
     isolated: false
     internet: true
-    mdns: false
+    mdns: true
     dhcp:
       enabled: true
       pool_from: "{{ ip_plan_vlans.kids.dhcp_from }}"
