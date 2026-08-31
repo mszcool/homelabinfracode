@@ -1,0 +1,84 @@
+---
+# Samba4 AD DC -- DNS self-registration + reverse-zone maintenance (idempotent).
+#
+# Included by BOTH the first-time setup play (ring0/identity-samba4-addc-setup.yaml)
+# and the continuously-run lifecycle play (ring0a/identity-lifecycle.yaml), so the
+# DC's own A/SRV/PTR records track its current IP after any re-IP without having to
+# re-run the disruptive provisioning play.
+#
+# Requires (from the identityprovider group_vars):
+#   ip_plan_vlans.servers.subnet   Servers VLAN CIDR (the reverse zone is derived from it)
+#   samba4_addc.admin_password     Domain admin password (needed for zonecreate)
+# Optional:
+#   samba4_manage_reverse_zone     set false to skip reverse-zone + PTR management (default true)
+#   samba4_reverse_ptr_records     list of {ip, name} PTRs to ensure in the reverse
+#                                  zone; defaults to just the DC (samba4-addc). Add
+#                                  more Servers-VLAN hosts here (e.g. truenas) as needed.
+
+- name: DNS Sync -- Derive the reverse-DNS zone + default PTR set from the IP plan
+  ansible.builtin.set_fact:
+    # Assumes a /24 (all fabric VLANs are /24); another prefix would need a
+    # more general octet-boundary calculation.
+    samba4_reverse_zone: "{{ o[2] }}.{{ o[1] }}.{{ o[0] }}.in-addr.arpa"
+    # PTRs to ensure in the reverse zone. Defaults to the DC itself; override
+    # samba4_reverse_ptr_records in group_vars to add more Servers-VLAN hosts.
+    samba4_reverse_ptr_records: "{{ samba4_reverse_ptr_records | default([{'ip': samba4_addc_ip, 'name': hostname ~ '.' ~ samba4_addc.dns_domain}]) }}"
+  vars:
+    o: "{{ ip_plan_vlans.servers.subnet.split('/')[0].split('.') }}"
+
+- name: DNS Sync -- Ensure the reverse-DNS zone exists
+  ansible.builtin.command:
+    cmd: >-
+      samba-tool dns zonecreate 127.0.0.1 {{ samba4_reverse_zone }}
+      --username=Administrator --password={{ samba4_addc.admin_password }}
+  register: samba4_reverse_zone_result
+  no_log: yes
+  changed_when:
+    - samba4_reverse_zone_result.rc == 0
+    - "'already exists' not in (((samba4_reverse_zone_result.stderr | default('')) ~ (samba4_reverse_zone_result.stdout | default(''))) | lower)"
+  failed_when:
+    - samba4_reverse_zone_result.rc != 0
+    - "'already exists' not in (((samba4_reverse_zone_result.stderr | default('')) ~ (samba4_reverse_zone_result.stdout | default(''))) | lower)"
+  when: samba4_manage_reverse_zone | default(true)
+
+- name: DNS Sync -- Ensure reverse PTR records for server-VLAN hosts
+  # samba_dnsupdate does NOT reliably populate PTRs, so ensure them explicitly.
+  # Idempotent: an existing record returns WERR_DNS_ERROR_RECORD_ALREADY_EXISTS,
+  # which is treated as OK (not changed, not failed).
+  ansible.builtin.command:
+    cmd: >-
+      samba-tool dns add 127.0.0.1 {{ samba4_reverse_zone }}
+      {{ item.ip.split('.')[3] }} PTR {{ item.name }}
+      --username=Administrator --password={{ samba4_addc.admin_password }}
+  loop: "{{ samba4_reverse_ptr_records }}"
+  loop_control:
+    label: "{{ item.name }} ({{ item.ip }})"
+  register: samba4_ptr_result
+  no_log: yes
+  changed_when:
+    - samba4_ptr_result.rc == 0
+    - "'already exists' not in (((samba4_ptr_result.stderr | default('')) ~ (samba4_ptr_result.stdout | default(''))) | lower)"
+  failed_when:
+    - samba4_ptr_result.rc != 0
+    - "'already exists' not in (((samba4_ptr_result.stderr | default('')) ~ (samba4_ptr_result.stdout | default(''))) | lower)"
+  when: samba4_manage_reverse_zone | default(true)
+
+- name: DNS Sync -- Re-register all dynamic DNS records (A/SRV/PTR)
+  # --all-names forces a full re-check so records self-heal after a re-IP. Records
+  # that are already correct return WERR_DNS_ERROR_RECORD_ALREADY_EXISTS and bump
+  # the exit code -- that is benign. Only fail on a stderr ERROR line that is NOT
+  # an "already exists" result. (A transient "Cannot contact any KDC" warning is
+  # also benign: samba_dnsupdate falls back to local samba-tool and self-heals.)
+  ansible.builtin.command:
+    cmd: samba_dnsupdate --all-names
+  register: samba4_dnsupdate_result
+  changed_when: >-
+    'added successfully' in (samba4_dnsupdate_result.stdout | default('')) or
+    'deleted successfully' in (samba4_dnsupdate_result.stdout | default(''))
+  failed_when:
+    - samba4_dnsupdate_result.rc != 0
+    - >-
+      (samba4_dnsupdate_result.stderr_lines | default([])
+       | reject('search', 'WERR_DNS_ERROR_RECORD_ALREADY_EXISTS')
+       | select('search', 'ERROR')
+       | list | length) > 0

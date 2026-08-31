@@ -232,6 +232,13 @@
           when: not (delete_confirmed | default(false) | bool) and ous_to_delete | length > 0
 
     # ========================================================================
+    # DNS MAINTENANCE (idempotent, shared with the setup play)
+    # ========================================================================
+
+    - name: DNS Sync -- Ensure reverse zone + re-register DC DNS records
+      ansible.builtin.include_tasks: ../tasks/samba4-dns-sync.yaml
+
+    # ========================================================================
     # SUMMARY
     # ========================================================================
 

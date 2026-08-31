@@ -20,6 +20,45 @@
   ansible.builtin.set_fact:
     param_node_nat_forwards: "{{ incus_network_forwards | default([]) | selectattr('remote', 'equalto', inventory_hostname) | list }}"
 
+# ---------- Prune stale forwards ----------
+# Remove forwards that still exist on a managed network but are no longer in the
+# inventory (e.g. an old listen_address left behind after a host re-IP). Scoped to
+# networks that still carry at least one desired forward, so other networks are
+# never touched. A network whose forwards were ALL removed from inventory is not
+# visited here (nothing points us at it) -- delete those by hand.
+- name: List existing Incus network forwards on managed networks.
+  ansible.builtin.command:
+    cmd: "incus network forward list {{ item }} --format json"
+  loop: "{{ param_node_nat_forwards | map(attribute='network') | unique | list }}"
+  loop_control:
+    label: "{{ item }}"
+  register: nat_forward_existing
+  changed_when: false
+
+- name: Compute stale Incus network forwards to prune.
+  # Encoded as "<network> <listen_address>" so the delete task passes them as the
+  # two CLI args directly (neither value can contain spaces).
+  ansible.builtin.set_fact:
+    param_stale_forwards: >-
+      {{ param_stale_forwards | default([])
+         + (item.stdout | from_json | map(attribute='listen_address') | list
+            | difference(param_node_nat_forwards
+                         | selectattr('network', 'equalto', item.item)
+                         | map(attribute='listen_address') | list)
+            | map('regex_replace', '^', item.item ~ ' ')
+            | list) }}
+  loop: "{{ nat_forward_existing.results | default([]) }}"
+  loop_control:
+    label: "{{ item.item }}"
+
+- name: Prune stale Incus network forwards (present on node but not in inventory).
+  ansible.builtin.command:
+    cmd: "incus network forward delete {{ item }}"
+  loop: "{{ param_stale_forwards | default([]) }}"
+  loop_control:
+    label: "{{ item }}"
+  changed_when: true
+
 - name: Check whether each dev NAT network forward already exists.
   ansible.builtin.command:
     cmd: "incus network forward show {{ item.network }} {{ item.listen_address }}"

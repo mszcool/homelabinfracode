@@ -402,6 +402,14 @@
         msg: |
           DNS SRV Records:
           {{ dns_ldap_test.stdout }}
+
+    # ============================================================================
+    # STEP 7: DNS self-registration + reverse zone (idempotent, always-on)
+    # ============================================================================
+    # Shared with ring0a/identity-lifecycle.yaml so the same records self-heal on
+    # the continuously-run play (see tasks/samba4-dns-sync.yaml).
+    - name: DNS Sync -- Ensure reverse zone + re-register DC DNS records
+      ansible.builtin.include_tasks: ../tasks/samba4-dns-sync.yaml
   handlers: []
   post_tasks:
     - name: Display summary and next steps
@@ -438,11 +446,11 @@
              - Set the AD DC's IP ({{ samba4_addc.ip_address }}) as the DNS server
              - Join domain members with: samba-tool domain join --help
           
-          5. (OPTIONAL) CREATE REVERSE DNS ZONE:
-             samba-tool dns zonecreate {{ samba4_addc.ip_address }} <reverse-zone> -U Administrator
-             
-             Example for 10.0.0.0/24 network:
-             samba-tool dns zonecreate {{ samba4_addc.ip_address }} 0.0.10.in-addr.arpa -U Administrator
+          5. REVERSE DNS ZONE + RECORD SYNC (automated):
+             This play now ensures the reverse zone ({{ samba4_reverse_zone | default('<servers-subnet>.in-addr.arpa') }})
+             and runs `samba_dnsupdate --all-names`, so the DC's A/SRV/PTR records
+             track its current IP automatically after a re-IP. Disable the reverse
+             zone step with: -e samba4_manage_reverse_zone=false
           
           6. (OPTIONAL) ENABLE GROUP POLICY:
              Edit /etc/samba/smb.conf and add:
