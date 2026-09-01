@@ -145,3 +145,40 @@
   loop: "{{ param_node_nat_forwards | subelements('ports') }}"
   loop_control:
     label: "{{ item.0.network }} out -> {{ item.1.target_ip }}:{{ item.1.target }}/{{ item.1.proto }}"
+
+# ---------- Retire obsolete UFW route rules ----------
+# The ufw module can add/keep desired rules but cannot discover drift. Rather than
+# parsing `ufw status`, retirements are declared explicitly per forward via
+# `retired_source_subnets` (e.g. an old source_subnet left behind after a re-IP).
+# We expand a retirement matrix (forward x retired_subnet x port) and delete each
+# rule with the ufw module, which is idempotent (a no-op once the rule is gone).
+# Runs AFTER the add task so the desired rules are never briefly absent.
+- name: Build the UFW retirement matrix (retired_source_subnets x ports).
+  ansible.builtin.set_fact:
+    param_retired_ufw_rules: >-
+      {{ param_retired_ufw_rules | default([])
+         + (item.0.retired_source_subnets | default([])
+            | map('community.general.dict_kv', 'from')
+            | map('combine', {'network': item.0.network,
+                              'target_ip': item.1.target_ip,
+                              'target': item.1.target,
+                              'proto': item.1.proto})
+            | list) }}
+  loop: "{{ param_node_nat_forwards | subelements('ports') }}"
+  loop_control:
+    label: "{{ item.0.network }}:{{ item.1.target_ip }}:{{ item.1.target }}"
+
+- name: Remove retired UFW route rules (declared old source subnets).
+  community.general.ufw:
+    route: true
+    rule: allow
+    direction: out
+    interface: "{{ item.network }}"
+    from_ip: "{{ item['from'] }}"
+    dest: "{{ item.target_ip }}"
+    to_port: "{{ item.target | string }}"
+    proto: "{{ item.proto }}"
+    delete: true
+  loop: "{{ param_retired_ufw_rules | default([]) }}"
+  loop_control:
+    label: "{{ item.network }} out {{ item['from'] }} -> {{ item.target_ip }}:{{ item.target }}/{{ item.proto }}"
