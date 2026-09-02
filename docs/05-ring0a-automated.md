@@ -56,6 +56,7 @@ The playbook is fully idempotent (re-runs report `changed=0`). Unlike the MikroT
 
 - Mark any object `deprecated: true` in the inventory. On the next run it is **deleted if it still exists**; if it is already gone, the playbook prints a warning at the very end that it is safe to remove from the IaC.
 - Reservations are deleted via `forget-sta`; all other objects via their REST / integration `DELETE`.
+- **Reservations are matched by MAC.** Replacing a device that has a **new MAC** is a *delete + create*, not an in-place edit: changing a reservation's MAC strands the old client on the gateway (it keeps pinning the fixed IP), and the new MAC then fails with `api.err.DuplicateFixedIP`. Deprecate the old entry (keep its OLD MAC) and add the replacement **after** it — see the "Replace a device" day-2 task.
 
 ### Configuration Source
 
@@ -68,6 +69,7 @@ The playbook is fully idempotent (re-runs report `changed=0`). Unlike the MikroT
 | Task | How |
 |------|-----|
 | Add a device reservation | Add a `members` entry (alias, MAC, IP, dns_names) under the right `devices_mapped` group, then run the playbook |
+| Replace a device (new MAC) | Set `deprecated: true` on the existing entry (keep its **OLD MAC**) and add the replacement as a **new** `members` entry **after** it (new MAC, same IP). Run once — the old MAC is forgotten first, freeing the IP for the new one — then remove the deprecated tombstone. Do **not** edit the MAC in place. |
 | Add a firewall rule | Add a rule to `firewall_policy.rules` (order matters — deny before allow), then run |
 | Retire an object | Set `deprecated: true` on it, run once (it is deleted), then remove it from the IaC |
 | Pause a rule | Set `paused: true` (created disabled; toggle it in the UniFi app) |

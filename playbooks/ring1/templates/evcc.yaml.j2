@@ -157,8 +157,8 @@ mqtt:
 
 # ---------------------------------------------------------------------------
 # Sponsor token
-# Required by sponsor-only device templates (e.g. the Huawei ocpp-huawei
-# charger). See https://docs.evcc.io/en/sponsorship
+# Required by sponsor-only device templates (e.g. the go-e-v3 charger).
+# See https://docs.evcc.io/en/sponsorship
 # ---------------------------------------------------------------------------
 {% if evcc_sponsortoken is defined and evcc_sponsortoken | length > 0 %}
 sponsortoken: {{ evcc_sponsortoken }}
@@ -208,10 +208,8 @@ vehicles:
 # ---------------------------------------------------------------------------
 # Chargers
 #
-# Production (envprod): Huawei SCharger-22KT-S0 via the sponsor-only
-# `ocpp-huawei` template. The charger dials into evcc's built-in OCPP server
-# (default port 8887) over the LAN — the evcc container is bridged with its
-# own IP, so no port mapping is required.
+# Production (envprod): go-e Gemini Flex 2.0 via the sponsor-only `go-e-v3`
+# template and the wallbox's local HTTP APIs.
 #
 # Demo (envlocaldev): the `demo-charger` template with fixed status / power.
 #
@@ -224,6 +222,9 @@ chargers:
   - name: {{ charger.name }}
     type: {{ charger.type }}
     template: {{ charger.template }}
+{%   if charger.host is defined %}
+    host: {{ charger.host }}
+{%   endif %}
 {%   if charger.stationid is defined %}
     stationid: {{ charger.stationid }}
 {%   endif %}

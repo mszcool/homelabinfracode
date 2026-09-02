@@ -291,17 +291,6 @@ firewall_policy:
       ports: [1883]
       proto: "tcp"
       action: "allow"
-    # TEMPORARY: remove when go-e chargers replace the Huawei SCharger.
-    - name: "iot-scharger-to-evcc"
-      deprecated: false
-      from: ["iot"]
-      to: ["servers"]
-      from_hosts: ["{{ ip_plan_hosts.huawei_scharger }}"]
-      to_hosts: ["{{ ip_plan_hosts.evcc_container }}"]
-      ports: [8887, 502, 503]
-      proto: "tcp"
-      action: "allow"
-      temporary: true
     - name: "iot-internet"
       deprecated: false
       from: ["iot"]

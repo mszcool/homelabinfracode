@@ -71,6 +71,14 @@ Ring 2 contains applications that are convenient but not critical. If a Ring 2 s
 
 Ring 2 services are predominantly containers. They may store data on TrueNAS and authenticate through the identity provider, but their absence does not affect core homelab operation.
 
+## Declarative Replacement Principle
+
+**Objects reconciled by an immutable identity key must be *replaced*, never edited in place, when that key changes.**
+
+The idempotent playbooks match existing objects by a stable identity — e.g. UniFi DHCP reservations are keyed by **MAC address**. Changing that key in place (such as swapping a reservation's MAC when a device is replaced) makes the reconciler treat it as a *different* object: the old object is left orphaned on the target — still holding its resources, such as a fixed IP — and creating the new one fails on the conflict (`api.err.DuplicateFixedIP`).
+
+**Process requirement:** to replace such an object, mark the old one `deprecated: true` (keeping its original identity key) and add the replacement as a new entry **ordered after** it, so the old object is deleted (freeing its resources) before the new one is created in the same run. Remove the deprecated tombstone after one successful run.
+
 ## The Layer Inversion Principle
 
 **Services from higher rings may depend on services from lower rings. Services from lower rings MUST NEVER depend on services from higher rings.**
