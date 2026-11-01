@@ -19,11 +19,14 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # Environment conventions
 # ----------------------------------------------------------------------------
 # Incus client configuration environment. Selects where the client key pair
-# (client.crt/client.key) and configured remotes live. Overridable via -e/--env:
-#   default  -> $HOME/.config/incus (the incus CLI default)
+# (client.crt/client.key) and configured remotes live. Honors INCUS_CONF unless
+# explicitly overridden via -e/--env:
+#   default  -> $XDG_CONFIG_HOME/incus or $HOME/.config/incus (incus CLI default)
 #   <name>   -> $HOME/incus/<name>  (matches the INCUS_CONF convention)
 INCUS_ENV="default"
-CLIENT_CERT_DIR="$HOME/.config/incus"
+INCUS_ENV_EXPLICIT=false
+DEFAULT_CLIENT_CERT_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/incus"
+CLIENT_CERT_DIR="${INCUS_CONF:-$DEFAULT_CLIENT_CERT_DIR}"
 
 # Environment repo root for storing PUBLIC client certificates consumed by the
 # playbooks/ring0a/host-incus-update.yaml playbook (e.g. configs.private/incus or
@@ -165,7 +168,7 @@ add_incus_remote() {
     
     # Check if certificate exists
     if [ ! -f "$CLIENT_CERT_DIR/client.crt" ] || [ ! -f "$CLIENT_CERT_DIR/client.key" ]; then
-        print_error "Client certificate not found"
+        print_error "Client certificate pair not found: expected $CLIENT_CERT_DIR/client.crt and $CLIENT_CERT_DIR/client.key"
         print_warning "Run: $0 generate <client-name> first"
         exit 1
     fi
@@ -194,7 +197,7 @@ add_incus_remote() {
             print_error "Remote $remote_name is the current remote and cannot be removed to re-pin its certificate."
             print_warning "Switch to another remote first, then re-run this command:"
             echo "  incus remote switch local   # or any other configured remote"
-            echo "  $0 --env $INCUS_ENV add-remote $remote_name $server_ip $server_port"
+            printf '  INCUS_CONF=%q %q add-remote %q %q %q\n' "$CLIENT_CERT_DIR" "$0" "$remote_name" "$server_ip" "$server_port"
             exit 1
         fi
         print_warning "Remote $remote_name already exists -- removing it first to re-pin the current server certificate (self-heal after a cert rotation)."
@@ -235,7 +238,7 @@ list_environments() {
 
     print_header "Available Incus Environments"
     echo "Base directory: $base"
-    echo "Default (incus CLI): $HOME/.config/incus"
+    echo "Default (incus CLI): $DEFAULT_CLIENT_CERT_DIR"
     echo
 
     if [ ! -d "$base" ]; then
@@ -277,7 +280,7 @@ activate_environment() {
 
     local env_dir
     if [ "$env_name" = "default" ]; then
-        env_dir="$HOME/.config/incus"
+        env_dir="$DEFAULT_CLIENT_CERT_DIR"
     else
         env_dir="$HOME/incus/$env_name"
     fi
@@ -350,8 +353,10 @@ Usage:
 
 Global options (may appear before or after the command):
   -e, --env <name>          Select the incus client config directory:
-                              default  -> \$HOME/.config/incus (incus CLI default)
+                              default  -> \${XDG_CONFIG_HOME:-\$HOME/.config}/incus
                               <name>   -> \$HOME/incus/<name>  (INCUS_CONF convention)
+                            Overrides INCUS_CONF. Without --env, use INCUS_CONF
+                            or the incus CLI default when unset or empty.
   -r, --repo-root <path>    Environment repo root used to store PUBLIC certs for
                             the host-incus-update.yaml playbook. Certs are written
                             to <path>/$TRUSTED_CERTS_SUBDIR/<client-name>.crt
@@ -377,7 +382,7 @@ Commands:
   help                                Show this help message
 
 Examples:
-  # Generate a certificate in the default (\$HOME/.config/incus) config dir
+  # Generate a certificate in the active (INCUS_CONF or CLI default) config dir
   $0 generate workstation-admin-mszcool
 
   # Generate a certificate in the ring1 environment (\$HOME/incus/ring1)
@@ -419,6 +424,7 @@ while [ $# -gt 0 ]; do
         -e|--env)
             [ -z "${2:-}" ] && { print_error "Option $1 requires a value"; exit 1; }
             INCUS_ENV="$2"
+            INCUS_ENV_EXPLICIT=true
             shift 2
             ;;
         -r|--repo-root)
@@ -436,8 +442,12 @@ set -- "${POSITIONAL[@]}"
 
 # Resolve the incus client config directory from the environment convention and
 # make the incus CLI read/write it (remotes and the client key pair live here).
-if [ "$INCUS_ENV" != "default" ]; then
-    CLIENT_CERT_DIR="$HOME/incus/$INCUS_ENV"
+if [ "$INCUS_ENV_EXPLICIT" = true ]; then
+    if [ "$INCUS_ENV" = "default" ]; then
+        CLIENT_CERT_DIR="$DEFAULT_CLIENT_CERT_DIR"
+    else
+        CLIENT_CERT_DIR="$HOME/incus/$INCUS_ENV"
+    fi
 fi
 export INCUS_CONF="$CLIENT_CERT_DIR"
 

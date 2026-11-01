@@ -410,6 +410,17 @@ incus list
 
 The `scripts/manage-incus-client-certs.sh` script provides convenient commands for certificate management.
 
+All certificate and remote commands use the same configuration directory as the
+Incus CLI: the exported `INCUS_CONF`, or `${XDG_CONFIG_HOME:-$HOME/.config}/incus`
+when `INCUS_CONF` is unset or empty. An explicit `--env <name>` overrides
+`INCUS_CONF` with `$HOME/incus/<name>`; `--env default` selects the CLI default
+directory instead.
+
+```bash
+export INCUS_CONF="$HOME/incus/ring1"
+./scripts/manage-incus-client-certs.sh add-remote incus-aoostar 10.10.0.20 8443
+```
+
 ### Available Commands
 
 ```bash
@@ -728,7 +739,7 @@ ansible -i configs/envbase/ -i configs.private/envprod/inventory/ \
 
 | Variable | Description |
 |----------|-------------|
-| `INCUS_CONF` | Path to client configuration directory (default: `~/.config/incus`) |
+| `INCUS_CONF` | Path to client configuration directory (default: `${XDG_CONFIG_HOME:-$HOME/.config}/incus`); honored by the helper unless `--env` is supplied |
 | `INCUS_PROJECT` | Name of project to use (overrides configured default) |
 | `INCUS_REMOTE` | Name of remote to use (overrides configured default) |
 
