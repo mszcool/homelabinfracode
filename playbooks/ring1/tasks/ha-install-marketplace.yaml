@@ -1,0 +1,22 @@
+---
+# Marketplace acceptance is intentional: this automation accepts the warning
+# for the Supervisor user on behalf of the instance administrator.
+- name: Report Marketplace check mode limitation
+  ansible.builtin.debug:
+    msg: "Marketplace reconciliation is skipped in check mode."
+  when: ansible_check_mode
+
+- name: Reconcile Marketplace repositories
+  ansible.builtin.script:
+    cmd: "{{ playbook_dir }}/files/ha-marketplace.py {{ ha_marketplace_components | to_json | quote }}"
+    executable: python3
+  register: _marketplace_result
+  changed_when: _marketplace_result.rc == 0 and (_marketplace_result.stdout | from_json).changed
+  when: not ansible_check_mode
+
+- name: Restart Core if Marketplace reports a pending restart
+  ansible.builtin.command: ha core restart
+  changed_when: true
+  when:
+    - not ansible_check_mode
+    - (_marketplace_result.stdout | from_json).repositories | selectattr('status', 'equalto', 'pending-restart') | list | length > 0

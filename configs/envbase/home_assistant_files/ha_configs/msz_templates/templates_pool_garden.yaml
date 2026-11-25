@@ -7,6 +7,7 @@
       # (PumpLight + RedoxPH).
       - name: "Pool Total Power"
         unique_id: "pool_total_power"
+        default_entity_id: sensor.pool_total_power
         device_class: power
         state_class: measurement
         unit_of_measurement: "W"
@@ -23,6 +24,7 @@
       # Both source sensors reset at midnight (Tasmota behavior).
       - name: "Pool Energy Today"
         unique_id: "pool_energy_today"
+        default_entity_id: sensor.pool_energy_today
         device_class: energy
         state_class: total_increasing
         unit_of_measurement: "kWh"
@@ -41,6 +43,7 @@
       # *_energy_today resets daily.
       - name: "Pool Energy Total"
         unique_id: "pool_energy_total"
+        default_entity_id: sensor.pool_energy_total
         device_class: energy
         state_class: total_increasing
         unit_of_measurement: "kWh"
@@ -101,6 +104,7 @@
     sensor:
       - name: "Garden Water Current Cycle"
         unique_id: garden_water_current_cycle
+        default_entity_id: sensor.garden_water_current_cycle
         # No device_class: this is a per-cycle gauge that drops back to 0
         # when flow stops, which is incompatible with device_class: water
         # (requires state_class total/total_increasing). Leaving it off
@@ -245,6 +249,7 @@
     sensor:
       - name: "Garden Water Consumption"
         unique_id: garden_water_consumption
+        default_entity_id: sensor.garden_water_consumption
         device_class: water
         state_class: total_increasing
         unit_of_measurement: "L"
@@ -311,6 +316,7 @@
     sensor:
       - name: "Pool Water Consumption"
         unique_id: pool_water_consumption
+        default_entity_id: sensor.pool_water_consumption
         device_class: water
         state_class: total_increasing
         unit_of_measurement: "L"
@@ -386,6 +392,7 @@
     sensor:
       - name: "Pool Water Current Fill"
         unique_id: pool_water_current_fill
+        default_entity_id: sensor.pool_water_current_fill
         state_class: measurement
         unit_of_measurement: "L"
         icon: mdi:pool

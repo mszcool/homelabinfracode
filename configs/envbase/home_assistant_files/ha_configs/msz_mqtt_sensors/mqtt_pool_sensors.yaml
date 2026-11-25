@@ -11,6 +11,7 @@
 
 - switch:
     unique_id: "mqtt:pool-pumplight-tasmota-pump"
+    default_entity_id: switch.switch_pumplight_pool_pump
     name: Pool Pump
     command_topic: pumplight/cmnd/POWER1
     device_class: switch
@@ -29,6 +30,7 @@
 
 - switch:
     unique_id: "mqtt:pool-pumplight-tasmota-light"
+    default_entity_id: switch.switch_pumplight_pool_light
     name: Pool Light
     command_topic: pumplight/cmnd/POWER2
     device_class: switch
@@ -47,6 +49,7 @@
 
 - switch:
     unique_id: "mqtt:pool-redoxph-tasmota-redox"
+    default_entity_id: switch.switch_redoxph_pool_redox
     name: Pool Redox
     command_topic: redoxph/cmnd/POWER1
     device_class: switch
@@ -65,6 +68,7 @@
 
 - switch:
     unique_id: "mqtt:pool-redoxph-tasmota-ph"
+    default_entity_id: switch.switch_redoxph_pool_ph
     name: Pool PH
     command_topic: redoxph/cmnd/POWER2
     device_class: switch
@@ -85,6 +89,7 @@
 
 - sensor:
     unique_id: "mqtt:pool-pumplight-tasmota-energy-voltage"
+    default_entity_id: sensor.switch_pumplight_pumplight_voltage
     name: PumpLight Voltage
     state_topic: pumplight/tele/SENSOR
     value_template: "{{ value_json.ENERGY.Voltage }}"
@@ -100,6 +105,7 @@
 
 - sensor:
     unique_id: "mqtt:pool-pumplight-tasmota-energy-current"
+    default_entity_id: sensor.switch_pumplight_pumplight_current
     name: PumpLight Current
     state_topic: pumplight/tele/SENSOR
     value_template: "{{ value_json.ENERGY.Current }}"
@@ -115,6 +121,7 @@
 
 - sensor:
     unique_id: "mqtt:pool-pumplight-tasmota-energy-power"
+    default_entity_id: sensor.switch_pumplight_pumplight_power
     name: PumpLight Power
     state_topic: pumplight/tele/SENSOR
     value_template: "{{ value_json.ENERGY.Power }}"
@@ -130,6 +137,7 @@
 
 - sensor:
     unique_id: "mqtt:pool-pumplight-tasmota-energy-apparentpower"
+    default_entity_id: sensor.switch_pumplight_pumplight_apparent_power
     name: PumpLight Apparent Power
     state_topic: pumplight/tele/SENSOR
     value_template: "{{ value_json.ENERGY.ApparentPower }}"
@@ -145,6 +153,7 @@
 
 - sensor:
     unique_id: "mqtt:pool-pumplight-tasmota-energy-reactivepower"
+    default_entity_id: sensor.switch_pumplight_pumplight_reactive_power
     name: PumpLight Reactive Power
     state_topic: pumplight/tele/SENSOR
     value_template: "{{ value_json.ENERGY.ReactivePower }}"
@@ -160,6 +169,7 @@
 
 - sensor:
     unique_id: "mqtt:pool-pumplight-tasmota-energy-factor"
+    default_entity_id: sensor.switch_pumplight_pumplight_power_factor
     name: PumpLight Power Factor
     state_topic: pumplight/tele/SENSOR
     value_template: "{{ value_json.ENERGY.Factor }}"
@@ -174,6 +184,7 @@
 
 - sensor:
     unique_id: "mqtt:pool-pumplight-tasmota-energy-today"
+    default_entity_id: sensor.switch_pumplight_pumplight_energy_today
     name: PumpLight Energy Today
     state_topic: pumplight/tele/SENSOR
     value_template: "{{ value_json.ENERGY.Today }}"
@@ -189,6 +200,7 @@
 
 - sensor:
     unique_id: "mqtt:pool-pumplight-tasmota-energy-total"
+    default_entity_id: sensor.switch_pumplight_pumplight_energy_total
     name: PumpLight Energy Total
     state_topic: pumplight/tele/SENSOR
     value_template: "{{ value_json.ENERGY.Total }}"
@@ -206,6 +218,7 @@
 
 - sensor:
     unique_id: "mqtt:pool-redoxph-tasmota-energy-voltage"
+    default_entity_id: sensor.switch_redoxph_redoxph_voltage
     name: RedoxPH Voltage
     state_topic: redoxph/tele/SENSOR
     value_template: "{{ value_json.ENERGY.Voltage }}"
@@ -221,6 +234,7 @@
 
 - sensor:
     unique_id: "mqtt:pool-redoxph-tasmota-energy-current"
+    default_entity_id: sensor.switch_redoxph_redoxph_current
     name: RedoxPH Current
     state_topic: redoxph/tele/SENSOR
     value_template: "{{ value_json.ENERGY.Current }}"
@@ -236,6 +250,7 @@
 
 - sensor:
     unique_id: "mqtt:pool-redoxph-tasmota-energy-power"
+    default_entity_id: sensor.switch_redoxph_redoxph_power
     name: RedoxPH Power
     state_topic: redoxph/tele/SENSOR
     value_template: "{{ value_json.ENERGY.Power }}"
@@ -251,6 +266,7 @@
 
 - sensor:
     unique_id: "mqtt:pool-redoxph-tasmota-energy-apparentpower"
+    default_entity_id: sensor.switch_redoxph_redoxph_apparent_power
     name: RedoxPH Apparent Power
     state_topic: redoxph/tele/SENSOR
     value_template: "{{ value_json.ENERGY.ApparentPower }}"
@@ -266,6 +282,7 @@
 
 - sensor:
     unique_id: "mqtt:pool-redoxph-tasmota-energy-reactivepower"
+    default_entity_id: sensor.switch_redoxph_redoxph_reactive_power
     name: RedoxPH Reactive Power
     state_topic: redoxph/tele/SENSOR
     value_template: "{{ value_json.ENERGY.ReactivePower }}"
@@ -281,6 +298,7 @@
 
 - sensor:
     unique_id: "mqtt:pool-redoxph-tasmota-energy-factor"
+    default_entity_id: sensor.switch_redoxph_redoxph_power_factor
     name: RedoxPH Power Factor
     state_topic: redoxph/tele/SENSOR
     value_template: "{{ value_json.ENERGY.Factor }}"
@@ -295,6 +313,7 @@
 
 - sensor:
     unique_id: "mqtt:pool-redoxph-tasmota-energy-today"
+    default_entity_id: sensor.switch_redoxph_redoxph_energy_today
     name: RedoxPH Energy Today
     state_topic: redoxph/tele/SENSOR
     value_template: "{{ value_json.ENERGY.Today }}"
@@ -310,6 +329,7 @@
 
 - sensor:
     unique_id: "mqtt:pool-redoxph-tasmota-energy-total"
+    default_entity_id: sensor.switch_redoxph_redoxph_energy_total
     name: RedoxPH Energy Total
     state_topic: redoxph/tele/SENSOR
     value_template: "{{ value_json.ENERGY.Total }}"
@@ -329,6 +349,7 @@
 
 - sensor:
     unique_id: "mqtt:pool-tank-waterlevel-centimeters"
+    default_entity_id: sensor.pool_tank_depth_sensor_pool_tank_water_level
     name: Pool Tank Water Level
     state_topic: waterlevels/pooltank
     value_template: "{{ value_json.centimeters | float }}"

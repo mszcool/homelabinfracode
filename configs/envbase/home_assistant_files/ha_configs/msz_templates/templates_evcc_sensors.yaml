@@ -37,6 +37,7 @@
 - sensor:
     - name: EVCC Grid Export Power
       unique_id: evcc_grid_export_power
+      default_entity_id: sensor.evcc_grid_export_power
       device_class: power
       state_class: measurement
       unit_of_measurement: W
@@ -48,6 +49,7 @@
 
     - name: EVCC Battery Charge Power
       unique_id: evcc_battery_charge_power
+      default_entity_id: sensor.evcc_battery_charge_power
       device_class: power
       state_class: measurement
       unit_of_measurement: W
@@ -59,6 +61,7 @@
 
     - name: EVCC Battery Discharge Power
       unique_id: evcc_battery_discharge_power
+      default_entity_id: sensor.evcc_battery_discharge_power
       device_class: power
       state_class: measurement
       unit_of_measurement: W
@@ -89,6 +92,7 @@
     # ------------------------------------------------------------------
     - name: EVCC PV Production Energy Calculated
       unique_id: evcc_pv_production_energy_calculated
+      default_entity_id: sensor.evcc_pv_production_energy_calculated
       device_class: energy
       state_class: total_increasing
       unit_of_measurement: kWh
@@ -144,6 +148,7 @@
   sensor:
     - name: EVCC PV Inverter 1 Energy Guarded
       unique_id: evcc_pv_inverter_1_energy_guarded
+      default_entity_id: sensor.evcc_pv_inverter_1_energy_guarded
       device_class: energy
       state_class: total_increasing
       unit_of_measurement: kWh
@@ -187,6 +192,7 @@
   sensor:
     - name: EVCC PV Inverter 2 Energy Guarded
       unique_id: evcc_pv_inverter_2_energy_guarded
+      default_entity_id: sensor.evcc_pv_inverter_2_energy_guarded
       device_class: energy
       state_class: total_increasing
       unit_of_measurement: kWh
@@ -244,6 +250,7 @@
   sensor:
     - name: EVCC Grid Consumption Energy
       unique_id: evcc_grid_consumption_energy
+      default_entity_id: sensor.evcc_grid_consumption_energy
       device_class: energy
       state_class: total_increasing
       unit_of_measurement: kWh
@@ -301,6 +308,7 @@
   sensor:
     - name: EVCC Battery Charge Energy
       unique_id: evcc_battery_charge_energy
+      default_entity_id: sensor.evcc_battery_charge_energy
       device_class: energy
       state_class: total_increasing
       unit_of_measurement: kWh
