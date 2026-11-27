@@ -2,8 +2,7 @@
 # Task: Deploy .storage files and conditionally stop/restart HA
 #
 # This task owns the single critical section where HA must be stopped so
-# we can safely write into .storage/. It also writes prepared HACS storage
-# entries from ha-register-hacs-storage.yaml inside the same window.
+# we can safely write into .storage/.
 #
 # Idempotency:
 #   - JSON-level comparison of every .storage/ file (not string compare):
@@ -13,9 +12,6 @@
 #   - Block / rescue / always around the stop → write → start sequence.
 #   - A pre-change HA backup is created before the stop.
 #   - rescue ALWAYS attempts ha core start so HA never stays down.
-# Ordering:
-#   - HACS storage entries are written AFTER ha core stop so HA cannot
-#     overwrite them from its in-memory StorageManager on next save.
 
 # --- Load source .storage file contents from base/env layering ---
 
@@ -105,8 +101,6 @@
       {{ (_non_mqtt_config_changed | default(_ha_config_changed) | bool) or
          (_ha_storage_changed | bool) or
          (_storage_files_changed | default(false) | bool) or
-         (_hacs_repos_write_needed | default(false) | bool) or
-         (_hacs_data_write_needed | default(false) | bool) or
          (_mqtt_entry_write_needed | default(false) | bool) or
          (_ha_tls_changed | default(false) | bool) }}
 
@@ -162,16 +156,10 @@
   loop_control:
     label: "{{ item.item.item }}"
 
-- name: Append HACS storage entries to drift report
+- name: Append MQTT entry to drift report
   ansible.builtin.set_fact:
     _ha_drift_report: >-
       {{ (_ha_drift_report | default([])) + [
-           { 'file': 'hacs.repositories', 'source': 'managed', 'status':
-               ('would write' if (_hacs_repos_write_needed | default(false) | bool)
-                else 'unchanged (mode=' ~ (hacs_install_mode | default('seed_only')) ~ ')') },
-           { 'file': 'hacs.data',         'source': 'managed', 'status':
-               ('would write' if (_hacs_data_write_needed | default(false) | bool)
-                else 'unchanged (mode=' ~ (hacs_install_mode | default('seed_only')) ~ ')') },
            { 'file': 'core.config_entries (mqtt entry)', 'source': 'managed', 'status':
                ('would write' if (_mqtt_entry_write_needed | default(false) | bool)
                 else 'unchanged') }
@@ -191,7 +179,7 @@
 
 # --- Critical section: backup → stop → write → start (with rescue) ---
 
-- name: Deploy .storage files and HACS registration (critical section)
+- name: Deploy .storage files (critical section)
   when:
     - _ha_needs_restart | bool
     - not ansible_check_mode
@@ -232,22 +220,6 @@
         mode: "0644"
       loop: "{{ ha_dashboard_files }}"
 
-    # --- Write prepared HACS storage entries (now safe — HA is stopped) ---
-
-    - name: Write hacs.repositories (merged)
-      ansible.builtin.copy:
-        content: "{{ _hacs_repos_proposed | to_nice_json }}\n"
-        dest: "{{ ha_config_path }}/.storage/hacs.repositories"
-        mode: "0644"
-      when: _hacs_repos_write_needed | default(false) | bool
-
-    - name: Write hacs.data (merged)
-      ansible.builtin.copy:
-        content: "{{ _hacs_data_proposed | to_nice_json }}\n"
-        dest: "{{ ha_config_path }}/.storage/hacs.data"
-        mode: "0644"
-      when: _hacs_data_write_needed | default(false) | bool
-
     # --- Write merged core.config_entries (MQTT entry appended, others preserved) ---
 
     - name: Write core.config_entries (merged with new MQTT entry)
@@ -286,6 +258,6 @@
 - name: Home Assistant restart status
   ansible.builtin.debug:
     msg: >-
-      {{ 'Home Assistant stopped, .storage/HACS files deployed, and restarted successfully.'
+      {{ 'Home Assistant stopped, .storage files deployed, and restarted successfully.'
       if (_ha_needs_restart | bool)
       else 'No restart needed — all .storage content unchanged.' }}

@@ -38,10 +38,8 @@ ha_config_env_path: ""
 # Centralized list of third-party Hass.io / Supervisor add-on repositories
 # to register with the Home Assistant Supervisor (App Store > ⋮ > Repositories).
 #
-# Note: This is for Supervisor add-on repositories ONLY. HACS itself is a
-# *custom_component* (not a Supervisor add-on) and is installed separately
-# by tasks/ha-install-hacs.yaml. HACS-managed integrations and frontend
-# cards are configured via `ha_hacs_components` further down.
+# Note: This is for Supervisor add-on repositories ONLY. Marketplace
+# integrations and frontend cards are configured separately below.
 #
 # Each entry:
 #   url:   GitHub repository URL (https://github.com/owner/repo)
@@ -139,95 +137,18 @@ ha_addons:
 # set it; the playbook will fail-fast if it is missing.
 zigbee_zstack_adapter_address_and_port: ""
 
-# ---------- HACS integration ----------
-# Install mode controls how the HACS install / component / storage tasks
-# behave when HACS is already present on the target:
-#
-#   seed_only       (default, prod):
-#     - HACS itself: install on first run only; never overwrite afterwards.
-#     - HACS components: install on first run only; never overwrite afterwards.
-#     - hacs.repositories / hacs.data: only seed when missing; never deep-merge
-#       on top of existing files (lets HACS UI fully manage versions).
-#
-#   force_redeploy  (staging / explicit reinstall):
-#     - All three tasks behave as before -- always re-evaluate version pins,
-#       atomically swap files, deep-merge HACS storage. Use to test plugin
-#       upgrades on staging or to forcibly resync a corrupted install.
-#
-# Override on the CLI when needed:
-#   ansible-playbook ... -e hacs_install_mode=force_redeploy
-hacs_install_mode: "seed_only"
-
-ha_hacs_version: "2.0.5"
-ha_hacs_download_url: "https://github.com/hacs/integration/releases/download/{{ ha_hacs_version }}/hacs.zip"
-
-# Post-install actions a human must perform for HACS itself.
-# Aggregated and rendered at the end of the playbook by post_tasks.
-ha_hacs_manual_steps:
-  - "Settings > Devices & Services > Add Integration > HACS."
-  - "Complete GitHub OAuth authentication (one-time)."
-
-# ---------- HACS components (custom_components + frontend cards) ----------
-# Each entry requires:
-#   full_name:       GitHub owner/repo
-#   repo_id:         GitHub numeric repository ID (stable, looked up once)
-#   category:        "integration" or "plugin" (HACS category)
-#   version:         Pinned release tag as displayed by HACS (no leading "v")
-#   tag:             (optional) Git tag used in download URLs; defaults to
-#                    `version`. Set this when the GitHub tag has a "v" prefix
-#                    or other format that differs from the HACS-displayed version.
-#   domain:          HA integration domain (for integrations only, null for plugins)
-#   manifest_name:   Display name as shown in HACS
-#   source:          "archive" (default) or "direct"
-#                    - archive: download the GitHub source ZIP and copy a
-#                      specific path out of it. Use when the project does NOT
-#                      publish a release asset (huawei_solar, tesla card).
-#                    - direct: download a single file from a release asset URL.
-#                      Use when the project publishes a ready-to-use asset
-#                      (e.g. apexcharts-card.js).
-#   archive_subpath: (source=archive only) Literal path inside the extracted
-#                    ZIP, including GitHub's top-level dir prefix. For
-#                    integrations: the directory containing manifest.json
-#                    (e.g. "huawei_solar-1.6.0" if files are at archive root,
-#                    or "<top>/custom_components/<domain>" if nested).
-#                    For plugins: the JS file path
-#                    (e.g. "tesla-...-1.4/tesla-...-card.js").
-#   download_url:    (source=direct only) Direct release-asset URL to fetch.
-#   archive_extra_paths:
-#                    (source=archive plugins only, optional) List of
-#                    additional files/directories to copy from the
-#                    extracted source archive into `local_path`. Use for
-#                    cards that need sibling assets next to the main JS
-#                    (e.g. a `locales/` folder for translations).
-#                    Each entry: { src: <path inside extracted archive,
-#                    including GitHub's top-level dir prefix>,
-#                                  dest: <path inside local_path on target> }
-#                    Directories are copied recursively.
-#   local_path:      Where to place the artifact on the HA file system
-#                    (relative to ha_config_path). For integrations: the
-#                    custom_components/<domain> directory. For plugins: the
-#                    www/community/<name> directory.
-#   check_file:      File whose presence indicates the component is installed
-#                    (relative to ha_config_path).
-#   manual_steps:    Optional list of post-install actions a human must perform
-#                    (e.g. add the integration via Settings > Devices & Services,
-#                    enter API credentials, complete OAuth). Aggregated and
-#                    rendered at the end of the playbook by post_tasks.
-#
-# Source-archive URL pattern (matches HACS's own github_archive helper):
-#   https://github.com/{full_name}/archive/refs/tags/{tag}.zip
-
-ha_hacs_components:
+# ---------- Marketplace components ----------
+# Marketplace owns installed files and updates. Versions are used only for a
+# first install; already-installed projects are not downgraded or overwritten.
+# Unknown repositories are added as custom repositories, requiring a GitHub
+# connection to Marketplace. "tag" is the exact Git release tag.
+ha_marketplace_components:
   - full_name: "wlcrs/huawei_solar"
     repo_id: "419381725"
     category: integration
-    version: "1.6.0"
+    tag: "2.3.2"
     domain: huawei_solar
     manifest_name: "Huawei Solar"
-    source: archive
-    archive_subpath: "huawei_solar-1.6.0"
-    local_path: "custom_components/huawei_solar"
-    check_file: "custom_components/huawei_solar/manifest.json"
     manual_steps:
       - "Settings > Devices & Services > Add Integration > Huawei Solar."
       - "Enter inverter IP, port, and credentials."
@@ -236,13 +157,9 @@ ha_hacs_components:
   - full_name: "marq24/ha-evcc"
     repo_id: "800610523"
     category: integration
-    version: "2026.3.7"
+    tag: "2026.11.2"
     domain: evcc_intg
     manifest_name: "evcc ☀️🚘 Solar Charging"
-    source: archive
-    archive_subpath: "ha-evcc-2026.3.7/custom_components/evcc_intg"
-    local_path: "custom_components/evcc_intg"
-    check_file: "custom_components/evcc_intg/manifest.json"
     manual_steps:
       - "Settings > Devices & Services > Add Integration > evcc."
       - "Enter EVCC configuration details."
@@ -252,59 +169,33 @@ ha_hacs_components:
   - full_name: "RomRider/apexcharts-card"
     repo_id: "331701152"
     category: plugin
-    version: "2.2.3"
     tag: "v2.2.3"
     domain: null
     manifest_name: "ApexCharts Card"
-    source: direct
-    download_url: "https://github.com/RomRider/apexcharts-card/releases/download/v2.2.3/apexcharts-card.js"
-    local_path: "www/community/apexcharts-card"
-    check_file: "www/community/apexcharts-card/apexcharts-card.js"
 
   - full_name: "reptilex/tesla-style-solar-power-card"
     repo_id: "289188530"
     category: plugin
-    version: "1.4"
+    tag: "1.4"
     domain: null
     manifest_name: "Tesla Style Solar Power Card"
-    source: archive
-    archive_subpath: "tesla-style-solar-power-card-1.4/tesla-style-solar-power-card.js"
-    local_path: "www/community/tesla-style-solar-power-card"
-    check_file: "www/community/tesla-style-solar-power-card/tesla-style-solar-power-card.js"
 
   # Successor to the tesla-style card: computes flows itself from node
   # entities and supports EV/individual consumers, so the car shows as its
-  # own bubble. Served at /hacsfiles/power-flow-card-plus/power-flow-card-plus.js
+  # own bubble.
   - full_name: "flixlix/power-flow-card-plus"
     repo_id: "618081815"
     category: plugin
-    version: "0.3.7"
-    tag: "v0.3.7"
+    tag: "v0.6.1"
     domain: null
     manifest_name: "Power Flow Card Plus"
-    source: direct
-    download_url: "https://github.com/flixlix/power-flow-card-plus/releases/download/v0.3.7/power-flow-card-plus.js"
-    local_path: "www/community/power-flow-card-plus"
-    check_file: "www/community/power-flow-card-plus/power-flow-card-plus.js"
 
   - full_name: "mkshb/hass-evcc-card"
     repo_id: "1174148822"
     category: plugin
-    version: "0.5.18"
-    tag: "v0.5.18"
+    tag: "v0.10.2"
     domain: null
     manifest_name: "EVCC Card"
-    # The project does not publish built release assets -- only source
-    # zips. The actual files live under dist/ inside the archive.
-    source: archive
-    archive_subpath: "hass-evcc-card-0.5.18/dist/evcc-card.js"
-    archive_extra_paths:
-      # Required for non-English UIs; the card auto-detects the HA
-      # language and loads the matching JSON from this folder.
-      - src: "hass-evcc-card-0.5.18/dist/locales"
-        dest: "locales"
-    local_path: "www/community/hass-evcc-card"
-    check_file: "www/community/hass-evcc-card/evcc-card.js"
     manual_steps:
       - "Add the card to a Lovelace dashboard via Edit Dashboard > Add Card"
       - "> search for 'EVCC Card'. The visual editor configures everything"
@@ -312,8 +203,8 @@ ha_hacs_components:
       - "entities are auto-discovered from the ha-evcc integration -- no"
       - "manual entity mapping required."
       - "Lovelace YAML mode users only: register the resource manually at"
-      - "/hacsfiles/hass-evcc-card/evcc-card.js (type: module)."
-      - "IMPORTANT: The EVCC HACS integration must be enabled first!"
+      - "/local/community/hass-evcc-card/evcc-card.js (type: module)."
+      - "IMPORTANT: The EVCC integration must be enabled first!"
       - "IMPORTANT: Call the integration evccDirect to avoid naming conflicts with MQTT EVCC sensors!"
 
 # ---------- MQTT broker defaults ----------

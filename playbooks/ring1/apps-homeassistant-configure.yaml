@@ -1,7 +1,7 @@
 ---
 # Playbook: Configure Home Assistant OS VM (Ring 1 - Operations)
 #
-# Installs HACS, add-ons (MariaDB, Code Server), HACS components
+# Installs add-ons (MariaDB, Code Server), Marketplace components
 # (Huawei Solar, apexcharts-card, tesla-style-solar-power-card),
 # deploys configuration files, .storage registries (floors, areas,
 # energy dashboard), and configures the MQTT integration.
@@ -12,12 +12,13 @@
 # Prerequisites:
 #   - HAOS VM running and accessible on the network
 #   - Admin user created (onboarding completed)
-#   - "SSH & Web Terminal" community add-on (slug: a0d7b954_ssh) installed,
-#     configured with SSH keys, and with `packages: [python3]` in its config
-#     so /usr/bin/python3 is available for Ansible modules. The minimal
-#     official "Terminal & SSH" add-on (core_ssh) ships no python and will
-#     not work.
+#   - Community "Advanced SSH & Web Terminal" app (slug: a0d7b954_ssh)
+#     installed and configured with the inventory SSH username and port, the
+#     vault public key, and `packages: [python3, py3-websockets]`. The official
+#     "Terminal & SSH" app (core_ssh) lacks the required Core API permission.
 #   - Mosquitto MQTT broker has a 'homeassistant' user (run apps-mosquitto-configure.yaml first)
+#   - Home Assistant Core 2026.11 or newer. This playbook accepts the
+#     Marketplace risk warning for the Supervisor user before installing.
 #
 # Configuration:
 #   - Base constants: configs/envbase/group_vars/home_assistant/apps-homeassistant-configuration.yaml
@@ -48,6 +49,13 @@
     SUPERVISOR_TOKEN: "{{ _supervisor_token | default('') }}"
 
   pre_tasks:
+    - name: Announce Marketplace consent
+      ansible.builtin.debug:
+        msg: >-
+          {{ 'Check mode: Marketplace consent and installation are skipped.'
+             if ansible_check_mode else
+             'This playbook accepts the Marketplace third-party-code warning for the Supervisor user on behalf of the administrator.' }}
+
     - name: Enforce environment change-level guardrail
       ansible.builtin.include_tasks:
         file: ../tasks/validate_change_level.yaml
@@ -108,8 +116,7 @@
           - ha_config_base_path is defined
           - ha_addons is defined
           - ha_addon_repositories is defined
-          - ha_hacs_version is defined
-          - ha_hacs_components is defined
+          - ha_marketplace_components is defined
           - ha_config_files is defined
           - ha_storage_files is defined
           - ha_dashboard_files is defined
@@ -167,9 +174,6 @@
     - name: Set HAOS hostname (disables homeassistant.local advertising)
       ansible.builtin.include_tasks: tasks/ha-set-hostname.yaml
 
-    - name: Install HACS
-      ansible.builtin.include_tasks: tasks/ha-install-hacs.yaml
-
     # Register third-party Supervisor add-on repositories BEFORE
     # ha-install-addons.yaml so that any add-on slugs that come from
     # those repositories (e.g. 45df7312_zigbee2mqtt) are resolvable
@@ -179,9 +183,6 @@
 
     - name: Install Home Assistant add-ons
       ansible.builtin.include_tasks: tasks/ha-install-addons.yaml
-
-    - name: Install HACS components (custom_components and frontend cards)
-      ansible.builtin.include_tasks: tasks/ha-install-hacs-components.yaml
 
     # Generate (controller-side) and ship a self-signed TLS cert to /ssl/
     # on HAOS BEFORE configuration.yaml is rendered, so the `http:` block
@@ -194,16 +195,7 @@
     - name: Deploy configuration files
       ansible.builtin.include_tasks: tasks/ha-deploy-config-files.yaml
 
-    # HACS storage registration only PREPARES the merged content in facts.
-    # The actual .storage write happens inside ha-deploy-storage-and-restart.yaml
-    # so that HA is stopped and cannot overwrite our edits from its in-memory
-    # StorageManager.
-    - name: Prepare HACS storage registration entries
-      ansible.builtin.include_tasks: tasks/ha-register-hacs-storage.yaml
-
-    # Same pattern for MQTT: prepare a merged core.config_entries that adds
-    # an MQTT entry only if one does not already exist. The actual write
-    # happens in ha-deploy-storage-and-restart.yaml inside the stop window.
+    # Prepare the MQTT broker's managed fields; write inside the stop window.
     - name: Prepare MQTT integration entry
       ansible.builtin.include_tasks: tasks/ha-configure-mqtt-integration.yaml
 
@@ -217,6 +209,9 @@
     - name: Reload MQTT YAML entities (no restart) if applicable
       ansible.builtin.include_tasks: tasks/ha-reload-mqtt.yaml
 
+    - name: Install Marketplace components
+      ansible.builtin.include_tasks: tasks/ha-install-marketplace.yaml
+
   post_tasks:
     - name: Verify Home Assistant Core is running after configuration
       ansible.builtin.shell: ha core info --raw-json
@@ -227,8 +222,8 @@
       until: _ha_post_info.rc == 0
 
     - name: Display manual steps reminder
-      # Each artefact in the inventory (HACS itself, ha_addons,
-      # ha_hacs_components, ha_integrations) may declare a `manual_steps`
+      # Each artefact in the inventory (ha_addons,
+      # ha_marketplace_components, ha_integrations) may declare a `manual_steps`
       # list of post-install actions a human must perform. We collect
       # them here into a single ordered list of sections and render them.
       # To add a new reminder, add `manual_steps:` to the relevant
@@ -242,16 +237,13 @@
         # Sections from each artefact source. Each artefact dict already
         # contains its identifying field (name / manifest_name / slug),
         # so we just render whichever is available.
-        _hacs_section: >-
-          {{ [{'title': 'HACS', 'steps': ha_hacs_manual_steps}]
-             if (ha_hacs_manual_steps | default([]) | length > 0) else [] }}
         _addon_sections: >-
           {{ ha_addons | default([])
              | selectattr('manual_steps', 'defined')
              | rejectattr('manual_steps', 'equalto', [])
              | list }}
-        _hacs_component_sections: >-
-          {{ ha_hacs_components | default([])
+        _marketplace_component_sections: >-
+          {{ ha_marketplace_components | default([])
              | selectattr('manual_steps', 'defined')
              | rejectattr('manual_steps', 'equalto', [])
              | list }}
@@ -261,8 +253,7 @@
              | rejectattr('manual_steps', 'equalto', [])
              | list }}
         _sections: >-
-          {{ _hacs_section
-             + (_addon_sections          | map('combine', {'_kind': 'add-on'})         | list)
-             + (_hacs_component_sections | map('combine', {'_kind': 'HACS component'}) | list)
+          {{ (_addon_sections                 | map('combine', {'_kind': 'add-on'})               | list)
+             + (_marketplace_component_sections | map('combine', {'_kind': 'Marketplace component'}) | list)
              + (_integration_sections    | map('combine', {'_kind': 'integration'})    | list) }}
         _ha_manual_banner_lines: "{{ lookup('template', 'templates/ha-manual-steps-banner.j2').splitlines() }}"

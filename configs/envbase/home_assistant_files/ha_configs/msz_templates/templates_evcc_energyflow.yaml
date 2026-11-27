@@ -61,6 +61,7 @@
 - sensor:
     - name: EVCC Solar to House
       unique_id: evcc_solar_to_house
+      default_entity_id: sensor.evcc_solar_to_house
       device_class: power
       state_class: measurement
       unit_of_measurement: W
@@ -74,6 +75,7 @@
 
     - name: EVCC Solar to Battery
       unique_id: evcc_solar_to_battery
+      default_entity_id: sensor.evcc_solar_to_battery
       device_class: power
       state_class: measurement
       unit_of_measurement: W
@@ -92,6 +94,7 @@
 
     - name: EVCC Solar to Grid
       unique_id: evcc_solar_to_grid
+      default_entity_id: sensor.evcc_solar_to_grid
       device_class: power
       state_class: measurement
       unit_of_measurement: W
@@ -115,6 +118,7 @@
 
     - name: EVCC Battery to House
       unique_id: evcc_battery_to_house
+      default_entity_id: sensor.evcc_battery_to_house
       device_class: power
       state_class: measurement
       unit_of_measurement: W
@@ -133,6 +137,7 @@
 
     - name: EVCC Grid to House
       unique_id: evcc_grid_to_house
+      default_entity_id: sensor.evcc_grid_to_house
       device_class: power
       state_class: measurement
       unit_of_measurement: W
@@ -156,6 +161,7 @@
 
     - name: EVCC Grid to Battery
       unique_id: evcc_grid_to_battery
+      default_entity_id: sensor.evcc_grid_to_battery
       device_class: power
       state_class: measurement
       unit_of_measurement: W
@@ -189,6 +195,7 @@
 
     - name: EVCC Battery to Grid
       unique_id: evcc_battery_to_grid
+      default_entity_id: sensor.evcc_battery_to_grid
       device_class: power
       state_class: measurement
       unit_of_measurement: W
@@ -225,6 +232,7 @@
     # default (5 kWh = Huawei LUNA2000-5kW-C0 single module).
     - name: EVCC Battery Capacity
       unique_id: evcc_battery_capacity
+      default_entity_id: sensor.evcc_battery_capacity
       device_class: energy_storage
       state_class: measurement
       unit_of_measurement: kWh
@@ -277,6 +285,7 @@
 
     - name: EVCC Grid Power Balanced
       unique_id: evcc_grid_power_balanced
+      default_entity_id: sensor.evcc_grid_power_balanced
       device_class: power
       state_class: measurement
       unit_of_measurement: W
@@ -307,6 +316,7 @@
 
     - name: EVCC Grid to Battery Corrected
       unique_id: evcc_grid_to_battery_corrected
+      default_entity_id: sensor.evcc_grid_to_battery_corrected
       device_class: power
       state_class: measurement
       unit_of_measurement: W
@@ -342,6 +352,7 @@
 
     - name: EVCC Battery to Grid Corrected
       unique_id: evcc_battery_to_grid_corrected
+      default_entity_id: sensor.evcc_battery_to_grid_corrected
       device_class: power
       state_class: measurement
       unit_of_measurement: W

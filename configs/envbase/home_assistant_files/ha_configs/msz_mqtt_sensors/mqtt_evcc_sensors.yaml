@@ -10,6 +10,7 @@
 
 - sensor:
     unique_id: "mqtt:evcc-site-pv-1-power"
+    default_entity_id: sensor.evcc_evcc_pv_inverter_1_power
     name: EVCC PV Inverter 1 Power
     state_topic: evcc/site/pv/1/power
     unit_of_measurement: "W"
@@ -24,6 +25,7 @@
 
 - sensor:
     unique_id: "mqtt:evcc-site-pv-1-energy"
+    default_entity_id: sensor.evcc_evcc_pv_inverter_1_energy
     name: EVCC PV Inverter 1 Energy
     state_topic: evcc/site/pv/1/energy
     unit_of_measurement: "kWh"
@@ -38,6 +40,7 @@
 
 - sensor:
     unique_id: "mqtt:evcc-site-pv-2-power"
+    default_entity_id: sensor.evcc_evcc_pv_inverter_2_power
     name: EVCC PV Inverter 2 Power
     state_topic: evcc/site/pv/2/power
     unit_of_measurement: "W"
@@ -52,6 +55,7 @@
 
 - sensor:
     unique_id: "mqtt:evcc-site-pv-2-energy"
+    default_entity_id: sensor.evcc_evcc_pv_inverter_2_energy
     name: EVCC PV Inverter 2 Energy
     state_topic: evcc/site/pv/2/energy
     unit_of_measurement: "kWh"
@@ -66,6 +70,7 @@
 
 - sensor:
     unique_id: "mqtt:evcc-site-battery-power"
+    default_entity_id: sensor.evcc_evcc_battery_power
     name: EVCC Battery Power
     state_topic: evcc/site/battery/power
     unit_of_measurement: "W"
@@ -80,6 +85,7 @@
 
 - sensor:
     unique_id: "mqtt:evcc-site-battery-energy"
+    default_entity_id: sensor.evcc_evcc_battery_energy
     name: EVCC Battery Energy
     state_topic: evcc/site/battery/energy
     unit_of_measurement: "kWh"
@@ -94,6 +100,7 @@
 
 - sensor:
     unique_id: "mqtt:evcc-site-battery-soc"
+    default_entity_id: sensor.evcc_evcc_battery_state_of_charge
     name: EVCC Battery State of Charge
     state_topic: evcc/site/battery/soc
     unit_of_measurement: "%"
@@ -108,6 +115,7 @@
 
 - sensor:
     unique_id: "mqtt:evcc-site-grid-power"
+    default_entity_id: sensor.evcc_evcc_grid_power
     name: EVCC Grid Power
     state_topic: evcc/site/grid/power
     unit_of_measurement: "W"
@@ -129,6 +137,7 @@
 # See docs/08-energy-flow-phantom-grid-to-battery.md for the full rationale.
 - sensor:
     unique_id: "mqtt:evcc-site-grid-current-l1"
+    default_entity_id: sensor.evcc_evcc_grid_current_l1
     name: EVCC Grid Current L1
     state_topic: evcc/site/grid/currents/1
     unit_of_measurement: "A"
@@ -143,6 +152,7 @@
 
 - sensor:
     unique_id: "mqtt:evcc-site-grid-current-l2"
+    default_entity_id: sensor.evcc_evcc_grid_current_l2
     name: EVCC Grid Current L2
     state_topic: evcc/site/grid/currents/2
     unit_of_measurement: "A"
@@ -157,6 +167,7 @@
 
 - sensor:
     unique_id: "mqtt:evcc-site-grid-current-l3"
+    default_entity_id: sensor.evcc_evcc_grid_current_l3
     name: EVCC Grid Current L3
     state_topic: evcc/site/grid/currents/3
     unit_of_measurement: "A"
@@ -171,6 +182,7 @@
 
 - sensor:
     unique_id: "mqtt:evcc-site-grid-energy"
+    default_entity_id: sensor.evcc_evcc_grid_energy
     name: EVCC Grid Energy
     state_topic: evcc/site/grid/energy
     unit_of_measurement: "kWh"
@@ -185,6 +197,7 @@
 
 - sensor:
     unique_id: "mqtt:evcc-site-pv-energy-total"
+    default_entity_id: sensor.evcc_evcc_pv_energy_total
     name: EVCC PV Energy Total
     state_topic: evcc/site/pvEnergy
     unit_of_measurement: "kWh"
@@ -199,6 +212,7 @@
 
 - sensor:
     unique_id: "mqtt:evcc-site-pv-power-total"
+    default_entity_id: sensor.evcc_evcc_pv_power_total
     name: EVCC PV Power Total
     state_topic: evcc/site/pvPower
     unit_of_measurement: "W"
@@ -213,6 +227,7 @@
 
 - sensor:
     unique_id: "mqtt:evcc-site-home-power"
+    default_entity_id: sensor.evcc_evcc_home_power
     name: EVCC Home Power
     state_topic: evcc/site/homePower
     unit_of_measurement: "W"
@@ -229,6 +244,7 @@
 # Tesla/power-flow card needs it as a separate consumer to balance correctly.
 - sensor:
     unique_id: "mqtt:evcc-loadpoint-1-charge-power"
+    default_entity_id: sensor.evcc_evcc_charge_power
     name: EVCC Charge Power
     state_topic: evcc/loadpoints/1/chargePower
     unit_of_measurement: "W"
